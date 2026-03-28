@@ -1113,6 +1113,7 @@ def pull_purchase_invoices() -> tuple[int, str]:
         try:
             # Disable FK checks so invoices from other branches can be stored
             # even if their supplier/operator/warehouse don't exist locally
+            import sqlalchemy
             session.execute(sqlalchemy.text("PRAGMA foreign_keys=OFF"))
 
             for ri in remote:
