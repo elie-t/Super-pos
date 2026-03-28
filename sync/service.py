@@ -1111,6 +1111,10 @@ def pull_purchase_invoices() -> tuple[int, str]:
         latest_ts = last_pull
 
         try:
+            # Disable FK checks so invoices from other branches can be stored
+            # even if their supplier/operator/warehouse don't exist locally
+            session.execute(sqlalchemy.text("PRAGMA foreign_keys=OFF"))
+
             for ri in remote:
                 inv = session.get(PurchaseInvoice, ri["id"])
                 if inv:
@@ -1159,10 +1163,12 @@ def pull_purchase_invoices() -> tuple[int, str]:
                 pulled += 1
 
             session.commit()
+            session.execute(sqlalchemy.text("PRAGMA foreign_keys=ON"))
             _state_set("purchase_invoices_pull", latest_ts)
             return pulled, ""
 
         except Exception as e:
+            session.execute(sqlalchemy.text("PRAGMA foreign_keys=ON"))
             session.rollback()
             return 0, str(e)
         finally:
