@@ -15,6 +15,7 @@ venv/
 env/
 
 # Local database (each PC has its own)
+data/
 *.db
 *.sqlite
 *.sqlite3
