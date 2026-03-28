@@ -293,6 +293,7 @@ class PosService:
             session.add(inv)
             session.flush()
 
+            stock_cache: dict = {}  # (item_id, wh_id) → ItemStock object
             for line in lines:
                 line_net = line.qty * line.unit_price * (1 - line.disc_pct / 100)
                 line_total = line_net * (1 + line.vat_pct / 100)
@@ -330,18 +331,23 @@ class PosService:
                 )
                 session.add(mv)
 
-                # Update stock cache
-                stock = session.query(ItemStock).filter_by(
-                    item_id=line.item_id, warehouse_id=warehouse_id
-                ).first()
-                if stock:
-                    stock.quantity -= line.qty
+                # Update stock cache — use dict to handle same item appearing multiple times
+                key = (line.item_id, warehouse_id)
+                if key in stock_cache:
+                    stock_cache[key].quantity -= line.qty
                 else:
-                    stock = ItemStock(
-                        id=new_uuid(), item_id=line.item_id,
-                        warehouse_id=warehouse_id, quantity=-line.qty,
-                    )
-                    session.add(stock)
+                    stock = session.query(ItemStock).filter_by(
+                        item_id=line.item_id, warehouse_id=warehouse_id
+                    ).first()
+                    if stock:
+                        stock.quantity -= line.qty
+                    else:
+                        stock = ItemStock(
+                            id=new_uuid(), item_id=line.item_id,
+                            warehouse_id=warehouse_id, quantity=-line.qty,
+                        )
+                        session.add(stock)
+                    stock_cache[key] = stock
 
             session.commit()
             PosService.increment_sale_number(warehouse_id)
