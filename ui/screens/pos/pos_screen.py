@@ -1,0 +1,2423 @@
+"""
+POS Screen — fast cashier interface.
+
+Layout
+──────
+Left  (55 %) : barcode/search bar  ▸  items table  ▸  action bar
+Right (45 %) : totals panel  ▸  PAY button  ▸  function buttons  ▸  quick-cash
+
+Shortcuts
+─────────
+F8  = Pay        F9  = Print last    F10 = Price check
+F2  = Hold       F3  = Recall        F4  = New Sale
+Del = Void line  Esc = Scan focus
+"""
+import json
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QLineEdit, QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
+    QAbstractItemView, QDialog, QSplitter, QGridLayout,
+    QListWidget, QListWidgetItem, QDialogButtonBox, QMessageBox,
+    QDoubleSpinBox, QDateEdit, QInputDialog,
+)
+from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut
+
+from services.pos_service import PosService, PosLineItem
+from services.item_service import ItemService
+from services.auth_service import AuthService
+
+# All POS prices in LBP
+CURRENCY      = "LBP"
+LBP_RATE      = 89_500       # 1 USD → LBP
+POS_PRICE_TYPE = "individual"
+
+# LBP quick-cash note denominations
+LBP_NOTES = [50_000, 100_000, 200_000, 500_000, 1_000_000, 5_000_000]
+
+# ── column indices ─────────────────────────────────────────────────────────────
+COL_NUM   = 0
+COL_CODE  = 1
+COL_DESC  = 2
+COL_QTY   = 3
+COL_PRICE = 4
+COL_DISC  = 5
+COL_TOT   = 6
+COL_DEL   = 7
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Payment dialog  (LBP only)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class PaymentDialog(QDialog):
+    def __init__(self, grand_total: float, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Payment")
+        self.setFixedSize(500, 460)
+        self._total   = grand_total
+        self.method   = "cash"
+        self.tendered = grand_total
+        self._build()
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # ── header ─────────────────────────────────────────────────────────
+        hdr = QFrame()
+        hdr.setFixedHeight(64)
+        hdr.setStyleSheet("background:#1a1a2e;")
+        hl = QHBoxLayout(hdr)
+        hl.setContentsMargins(16, 0, 16, 0)
+        t = QLabel("PAYMENT")
+        t.setStyleSheet("color:#fff;font-size:16px;font-weight:700;letter-spacing:2px;")
+        hl.addWidget(t)
+        hl.addStretch()
+        tot = QLabel(f"ل.ل  {self._total:,.0f}")
+        tot.setStyleSheet("color:#00e676;font-size:24px;font-weight:700;")
+        hl.addWidget(tot)
+        lay.addWidget(hdr)
+
+        body = QWidget()
+        body.setStyleSheet("background:#f8fafc;")
+        bl = QVBoxLayout(body)
+        bl.setContentsMargins(20, 16, 20, 16)
+        bl.setSpacing(12)
+
+        # ── method tabs ────────────────────────────────────────────────────
+        tab_row = QHBoxLayout()
+        tab_row.setSpacing(0)
+        self._method_btns = {}
+        for key, label, color in [
+            ("cash",    "💵  Cash",       "#2e7d32"),
+            ("card",    "💳  Card",       "#1565c0"),
+            ("account", "👤  On Account", "#6a1b9a"),
+        ]:
+            btn = QPushButton(label)
+            btn.setFixedHeight(40)
+            btn.setCheckable(True)
+            btn.setStyleSheet(
+                f"QPushButton{{background:#e8ecf2;color:#445566;border:1px solid #c0ccd8;"
+                f"border-radius:0;font-size:13px;font-weight:600;padding:0 14px;}}"
+                f"QPushButton:checked{{background:{color};color:#fff;border-color:{color};}}"
+            )
+            btn.clicked.connect(lambda _, k=key: self._set_method(k))
+            tab_row.addWidget(btn)
+            self._method_btns[key] = btn
+        self._method_btns["cash"].setChecked(True)
+        bl.addLayout(tab_row)
+
+        # ── tender input ───────────────────────────────────────────────────
+        tender_frame = QFrame()
+        tender_frame.setStyleSheet(
+            "QFrame{background:#fff;border:1px solid #d0d8e4;border-radius:6px;}"
+            "QLabel{color:#1a1a2e;}"
+        )
+        tf = QVBoxLayout(tender_frame)
+        tf.setContentsMargins(16, 12, 16, 12)
+        tf.setSpacing(10)
+
+        tender_lbl = QLabel("Amount Tendered  (ل.ل)")
+        tender_lbl.setStyleSheet("font-size:12px;font-weight:700;color:#6680a0;")
+        tf.addWidget(tender_lbl)
+
+        self._tender_input = QLineEdit(f"{self._total:.0f}")
+        self._tender_input.setFixedHeight(52)
+        self._tender_input.setAlignment(Qt.AlignRight)
+        self._tender_input.setStyleSheet(
+            "font-size:26px;font-weight:700;color:#1a3a5c;"
+            "border:2px solid #1a6cb5;border-radius:5px;padding:0 12px;"
+        )
+        self._tender_input.textChanged.connect(self._update_change)
+        self._tender_input.setPlaceholderText("leave blank = exact")
+        tf.addWidget(self._tender_input)
+
+        # Change row
+        change_row = QHBoxLayout()
+        change_lbl = QLabel("Change:")
+        change_lbl.setStyleSheet("font-size:14px;color:#445566;font-weight:600;")
+        change_row.addWidget(change_lbl)
+        change_row.addStretch()
+        self._change_lbl = QLabel("ل.ل  0")
+        self._change_lbl.setStyleSheet("font-size:22px;font-weight:700;color:#2e7d32;")
+        change_row.addWidget(self._change_lbl)
+        tf.addLayout(change_row)
+
+        bl.addWidget(tender_frame)
+
+        # ── LBP quick amounts ──────────────────────────────────────────────
+        quick_lbl = QLabel("Quick Amount  (ل.ل):")
+        quick_lbl.setStyleSheet("font-size:11px;font-weight:700;color:#6680a0;")
+        bl.addWidget(quick_lbl)
+
+        qrow = QHBoxLayout()
+        qrow.setSpacing(5)
+
+        exact_btn = QPushButton("EXACT")
+        exact_btn.setFixedHeight(36)
+        exact_btn.setStyleSheet(
+            "QPushButton{background:#e65100;color:#fff;font-size:12px;font-weight:700;"
+            "border:none;border-radius:4px;}"
+            "QPushButton:hover{background:#bf360c;}"
+        )
+        exact_btn.clicked.connect(lambda: self._set_tender(self._total))
+        qrow.addWidget(exact_btn)
+
+        for amt in LBP_NOTES:
+            lbl_text = f"{amt // 1000}K" if amt < 1_000_000 else f"{amt // 1_000_000}M"
+            b = QPushButton(lbl_text)
+            b.setFixedHeight(36)
+            b.setStyleSheet(
+                "QPushButton{background:#1a6cb5;color:#fff;font-size:12px;font-weight:700;"
+                "border:none;border-radius:4px;}"
+                "QPushButton:hover{background:#1a3a5c;}"
+            )
+            b.clicked.connect(lambda _, a=amt: self._set_tender(a))
+            qrow.addWidget(b)
+
+        bl.addLayout(qrow)
+        bl.addStretch()
+        lay.addWidget(body, 1)
+
+        # ── footer buttons ─────────────────────────────────────────────────
+        footer = QFrame()
+        footer.setFixedHeight(58)
+        footer.setStyleSheet(
+            "QFrame{background:#e8f0fb;border-top:1px solid #c0d0e8;}"
+            "QLabel{color:#1a1a2e;}"
+        )
+        fl = QHBoxLayout(footer)
+        fl.setContentsMargins(16, 8, 16, 8)
+        fl.setSpacing(10)
+
+        cancel = QPushButton("✕  Cancel")
+        cancel.setFixedHeight(40)
+        cancel.setStyleSheet(
+            "QPushButton{background:#607d8b;color:#fff;font-size:13px;font-weight:700;"
+            "border:none;border-radius:5px;}"
+            "QPushButton:hover{background:#455a64;}"
+        )
+        cancel.clicked.connect(self.reject)
+        fl.addWidget(cancel)
+        fl.addStretch()
+
+        confirm = QPushButton("✓  Confirm Payment  [Enter]")
+        confirm.setFixedHeight(40)
+        confirm.setMinimumWidth(210)
+        confirm.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;font-size:14px;font-weight:700;"
+            "border:none;border-radius:5px;}"
+            "QPushButton:hover{background:#1b5e20;}"
+        )
+        confirm.clicked.connect(self._confirm)
+        fl.addWidget(confirm)
+        QShortcut(QKeySequence("Return"), self).activated.connect(self._confirm)
+
+        lay.addWidget(footer)
+        self._tender_input.setFocus()
+        self._update_change()
+
+    def _set_method(self, key: str):
+        self.method = key
+        for k, btn in self._method_btns.items():
+            btn.setChecked(k == key)
+
+    def _set_tender(self, amount: float):
+        self._tender_input.setText(f"{amount:.0f}")
+        self._tender_input.selectAll()
+
+    def _update_change(self):
+        txt = self._tender_input.text().strip()
+        try:
+            tendered = float(txt)
+        except ValueError:
+            tendered = self._total   # blank = exact
+        change = tendered - self._total
+        self.tendered = tendered
+        if change >= 0:
+            self._change_lbl.setText(f"ل.ل  {change:,.0f}")
+            self._change_lbl.setStyleSheet("font-size:22px;font-weight:700;color:#2e7d32;")
+        else:
+            self._change_lbl.setText(f"ل.ل  {change:,.0f}")
+            self._change_lbl.setStyleSheet("font-size:22px;font-weight:700;color:#c62828;")
+
+    def _confirm(self):
+        txt = self._tender_input.text().strip()
+        try:
+            self.tendered = float(txt)
+        except ValueError:
+            self.tendered = self._total  # blank = exact
+        # allow 1 LBP tolerance for rounding
+        if self.method == "cash" and self.tendered < self._total - 1:
+            QMessageBox.warning(self, "Insufficient",
+                                "Tendered amount is less than the total.")
+            return
+        self.accept()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Held-sales recall dialog
+# ──────────────────────────────────────────────────────────────────────────────
+
+class RecallDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Recall Held Sale")
+        self.setFixedSize(520, 360)
+        self.chosen_json = None
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setSpacing(10)
+
+        lbl = QLabel("Select a held sale to recall:")
+        lbl.setStyleSheet("font-size:13px;font-weight:700;color:#1a3a5c;")
+        lay.addWidget(lbl)
+
+        self._list = QListWidget()
+        self._list.setStyleSheet("font-size:13px;")
+        self._list.itemDoubleClicked.connect(self._pick)
+        lay.addWidget(self._list, 1)
+
+        row = QHBoxLayout()
+        del_btn = QPushButton("🗑  Delete")
+        del_btn.setStyleSheet(
+            "QPushButton{background:#c62828;color:#fff;border:none;border-radius:4px;"
+            "padding:6px 14px;font-weight:700;}"
+            "QPushButton:hover{background:#a01010;}"
+        )
+        del_btn.clicked.connect(self._delete_selected)
+        row.addWidget(del_btn)
+        row.addStretch()
+        recall_btn = QPushButton("✓  Recall")
+        recall_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;border:none;border-radius:4px;"
+            "padding:6px 18px;font-weight:700;}"
+            "QPushButton:hover{background:#1b5e20;}"
+        )
+        recall_btn.clicked.connect(self._pick)
+        row.addWidget(recall_btn)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet(
+            "QPushButton{background:#607d8b;color:#fff;border:none;border-radius:4px;"
+            "padding:6px 14px;font-weight:700;}"
+        )
+        cancel_btn.clicked.connect(self.reject)
+        row.addWidget(cancel_btn)
+        lay.addLayout(row)
+
+        self._held = PosService.list_held_sales()
+        for h in self._held:
+            it = QListWidgetItem(
+                f"  {h['label']}  —  ل.ل {h['total']:,.0f}  [{h['created_at']}]"
+            )
+            it.setData(Qt.UserRole, h["id"])
+            self._list.addItem(it)
+
+    def _pick(self):
+        item = self._list.currentItem()
+        if not item:
+            return
+        held_id = item.data(Qt.UserRole)
+        match = next((h for h in self._held if h["id"] == held_id), None)
+        if match:
+            self.chosen_json = match["items_json"]
+            PosService.delete_held_sale(held_id)
+            self.accept()
+
+    def _delete_selected(self):
+        item = self._list.currentItem()
+        if not item:
+            return
+        held_id = item.data(Qt.UserRole)
+        PosService.delete_held_sale(held_id)
+        self._held = [h for h in self._held if h["id"] != held_id]
+        self._list.takeItem(self._list.row(item))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Vegetable / bulk price-entry dialog
+# ──────────────────────────────────────────────────────────────────────────────
+
+class VegeDialog(QDialog):
+    """
+    Quick price entry for vegetables / bulk items.
+    Input format:
+      • A single number  → qty=1, price=that number
+      • A * B            → qty=A, price=B, total=A×B
+    Press Enter or click Add to confirm.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🥬  Vegetables / Bulk")
+        self.setFixedSize(360, 210)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        self.result_qty   = 0.0
+        self.result_price = 0.0
+        self.result_total = 0.0
+        self._build()
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(10)
+
+        title = QLabel("🥬  Vegetables / Bulk Item")
+        title.setStyleSheet("font-size:14px;font-weight:700;color:#1b5e20;")
+        lay.addWidget(title)
+
+        hint = QLabel("Enter a price  —  or  qty * price  (e.g.  2.5 * 3000)")
+        hint.setStyleSheet("color:#666;font-size:11px;")
+        lay.addWidget(hint)
+
+        self._inp = QLineEdit()
+        self._inp.setPlaceholderText("e.g.  5000  or  2.5 * 3000")
+        self._inp.setFixedHeight(46)
+        self._inp.setStyleSheet(
+            "font-size:22px;font-weight:700;"
+            "border:2px solid #1b5e20;border-radius:6px;padding:0 10px;"
+        )
+        self._inp.textChanged.connect(self._update_preview)
+        self._inp.returnPressed.connect(self._try_accept)
+        lay.addWidget(self._inp)
+
+        self._preview = QLabel("")
+        self._preview.setAlignment(Qt.AlignCenter)
+        self._preview.setFixedHeight(26)
+        self._preview.setStyleSheet("color:#1b5e20;font-size:15px;font-weight:700;")
+        lay.addWidget(self._preview)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        cancel = QPushButton("Cancel")
+        cancel.setFixedHeight(32)
+        cancel.clicked.connect(self.reject)
+        add = QPushButton("✓  Add to Cart")
+        add.setFixedHeight(32)
+        add.setStyleSheet(
+            "QPushButton{background:#1b5e20;color:#fff;font-weight:700;"
+            "border:none;border-radius:4px;font-size:13px;padding:0 16px;}"
+            "QPushButton:hover{background:#2e7d32;}"
+        )
+        add.clicked.connect(self._try_accept)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(add)
+        lay.addLayout(btn_row)
+
+        self._inp.setFocus()
+
+    def _parse(self):
+        text = self._inp.text().strip()
+        if not text:
+            return None, None, None
+        if "*" in text:
+            parts = text.split("*", 1)
+            try:
+                a = float(parts[0].strip())
+                b = float(parts[1].strip())
+                return a, b, a * b
+            except ValueError:
+                return None, None, None
+        try:
+            val = float(text.replace(",", ""))
+            return 1.0, val, val
+        except ValueError:
+            return None, None, None
+
+    def _update_preview(self):
+        qty, price, total = self._parse()
+        if total is not None and total > 0:
+            if qty != 1.0:
+                self._preview.setText(
+                    f"{qty:g} × ل.ل {price:,.0f}  =  ل.ل {total:,.0f}"
+                )
+            else:
+                self._preview.setText(f"ل.ل {total:,.0f}")
+            self._preview.setStyleSheet(
+                "color:#1b5e20;font-size:15px;font-weight:700;"
+            )
+            self._inp.setStyleSheet(
+                "font-size:22px;font-weight:700;"
+                "border:2px solid #1b5e20;border-radius:6px;padding:0 10px;"
+            )
+        else:
+            if self._inp.text().strip():
+                self._preview.setText("—")
+                self._preview.setStyleSheet("color:#aaa;font-size:13px;")
+
+    def _try_accept(self):
+        qty, price, total = self._parse()
+        if total is None or total <= 0:
+            self._inp.setStyleSheet(
+                "font-size:22px;font-weight:700;"
+                "border:2px solid #c62828;border-radius:6px;padding:0 10px;"
+            )
+            return
+        self.result_qty   = qty
+        self.result_price = price
+        self.result_total = total
+        self.accept()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sales invoices list dialog
+# ──────────────────────────────────────────────────────────────────────────────
+
+class SalesListDialog(QDialog):
+    def __init__(self, parent=None, warehouse_id: str = "", operator_id: str = ""):
+        super().__init__(parent)
+        self.setWindowTitle("POS Sales Invoices")
+        self.setMinimumSize(1000, 580)
+        self._warehouse_id  = warehouse_id
+        self._operator_id   = operator_id
+        self._all_rows: list[dict] = []
+        self._show_archived = False
+        self._selected_row: dict | None = None
+        self.edit_lines: list[dict] | None = None
+        self._build()
+        self._load()
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # ── Header ────────────────────────────────────────────────────────
+        hdr = QFrame()
+        hdr.setFixedHeight(44)
+        hdr.setStyleSheet("background:#1a3a5c;")
+        hl = QHBoxLayout(hdr)
+        hl.setContentsMargins(12, 0, 12, 0)
+        self._title_lbl = QLabel("📋  POS Sales Invoices")
+        self._title_lbl.setStyleSheet("color:#fff;font-size:14px;font-weight:700;")
+        hl.addWidget(self._title_lbl)
+        hl.addStretch()
+
+        # "Old Sales" button — blue, not yellow
+        self._toggle_btn = QPushButton("📂  Old Sales")
+        self._toggle_btn.setFixedHeight(28)
+        self._toggle_btn.setStyleSheet(
+            "QPushButton{background:#1a6cb5;color:#fff;border:none;"
+            "border-radius:4px;font-size:12px;font-weight:700;padding:0 12px;}"
+            "QPushButton:hover{background:#1a3a5c;border:1px solid #5599dd;}"
+        )
+        self._toggle_btn.setCursor(Qt.PointingHandCursor)
+        self._toggle_btn.clicked.connect(self._toggle_view)
+        hl.addWidget(self._toggle_btn)
+        hl.addSpacing(8)
+
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Search invoice # or customer…")
+        self._search.setFixedHeight(28)
+        self._search.setFixedWidth(220)
+        self._search.setStyleSheet(
+            "background:#fff;color:#1a1a2e;border:none;border-radius:4px;padding:0 8px;"
+        )
+        self._search.textChanged.connect(self._filter)
+        hl.addWidget(self._search)
+        lay.addWidget(hdr)
+
+        # ── Old Sales date bar (hidden until Old Sales mode) ───────────────
+        self._date_bar = QFrame()
+        self._date_bar.setFixedHeight(40)
+        self._date_bar.setStyleSheet(
+            "background:#1a6cb5;border-bottom:1px solid #1a3a5c;"
+        )
+        dl = QHBoxLayout(self._date_bar)
+        dl.setContentsMargins(12, 4, 12, 4)
+        dl.setSpacing(8)
+
+        from PySide6.QtCore import QDate
+        lbl_from = QLabel("Date:")
+        lbl_from.setStyleSheet("color:#fff;font-size:12px;font-weight:600;")
+        dl.addWidget(lbl_from)
+
+        self._date_from = QDateEdit()
+        self._date_from.setFixedHeight(28)
+        self._date_from.setDisplayFormat("dd/MM/yyyy")
+        self._date_from.setCalendarPopup(True)
+        self._date_from.setDate(QDate.currentDate())
+        self._date_from.setStyleSheet(
+            "background:#fff;color:#1a1a2e;border:none;border-radius:3px;padding:0 4px;"
+        )
+        dl.addWidget(self._date_from)
+
+        lbl_to = QLabel("to")
+        lbl_to.setStyleSheet("color:#fff;font-size:12px;")
+        dl.addWidget(lbl_to)
+
+        self._date_to = QDateEdit()
+        self._date_to.setFixedHeight(28)
+        self._date_to.setDisplayFormat("dd/MM/yyyy")
+        self._date_to.setCalendarPopup(True)
+        self._date_to.setDate(QDate.currentDate())
+        self._date_to.setStyleSheet(
+            "background:#fff;color:#1a1a2e;border:none;border-radius:3px;padding:0 4px;"
+        )
+        dl.addWidget(self._date_to)
+
+        load_btn = QPushButton("Load")
+        load_btn.setFixedHeight(28)
+        load_btn.setFixedWidth(60)
+        load_btn.setStyleSheet(
+            "QPushButton{background:#fff;color:#1a3a5c;border:none;"
+            "border-radius:3px;font-weight:700;font-size:12px;}"
+            "QPushButton:hover{background:#e8f0fb;}"
+        )
+        load_btn.clicked.connect(self._load)
+        dl.addWidget(load_btn)
+
+        dl.addStretch()
+        self._date_bar.setVisible(False)
+        lay.addWidget(self._date_bar)
+
+        # ── Body: invoice list (left) + items panel (right) ───────────────
+        body = QSplitter(Qt.Horizontal)
+        body.setHandleWidth(2)
+
+        # Left — invoice list
+        left = QWidget()
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.setSpacing(0)
+
+        self._table = QTableWidget()
+        self._table.setColumnCount(6)
+        self._table.setHorizontalHeaderLabels([
+            "Invoice #", "Date", "Customer", "Total (ل.ل)", "Paid (ل.ل)", "Status",
+        ])
+        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(34)
+        self._table.setAlternatingRowColors(True)
+        self._table.setShowGrid(True)
+        self._table.currentItemChanged.connect(self._on_invoice_selected)
+
+        th = self._table.horizontalHeader()
+        th.setSectionResizeMode(2, QHeaderView.Stretch)
+        for col, w in ((0, 110), (1, 90), (3, 120), (4, 110), (5, 80)):
+            th.setSectionResizeMode(col, QHeaderView.Fixed)
+            self._table.setColumnWidth(col, w)
+        th.setStyleSheet(
+            "QHeaderView::section{background:#1a3a5c;color:#fff;font-weight:700;"
+            "border:none;padding:4px;}"
+        )
+        ll.addWidget(self._table)
+        body.addWidget(left)
+
+        # Right — items panel
+        right = QFrame()
+        right.setStyleSheet("QFrame{background:#f8fafc;border-left:2px solid #c8d8e8;}")
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(0)
+
+        panel_hdr = QFrame()
+        panel_hdr.setFixedHeight(36)
+        panel_hdr.setStyleSheet("background:#e8f0fb;border-bottom:1px solid #c8d8e8;")
+        ph = QHBoxLayout(panel_hdr)
+        ph.setContentsMargins(10, 0, 10, 0)
+        self._detail_title = QLabel("← Select an invoice")
+        self._detail_title.setStyleSheet("font-size:12px;font-weight:700;color:#1a3a5c;")
+        ph.addWidget(self._detail_title)
+        ph.addStretch()
+        self._detail_total = QLabel("")
+        self._detail_total.setStyleSheet("font-size:13px;font-weight:700;color:#2e7d32;")
+        ph.addWidget(self._detail_total)
+        rl.addWidget(panel_hdr)
+
+        self._detail_table = QTableWidget()
+        self._detail_table.setColumnCount(4)
+        self._detail_table.setHorizontalHeaderLabels(["Description", "Qty", "Price", "Total"])
+        self._detail_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._detail_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self._detail_table.verticalHeader().setVisible(False)
+        self._detail_table.verticalHeader().setDefaultSectionSize(30)
+        self._detail_table.setAlternatingRowColors(True)
+        self._detail_table.setShowGrid(True)
+        dth = self._detail_table.horizontalHeader()
+        dth.setSectionResizeMode(0, QHeaderView.Stretch)
+        for c, w in ((1, 55), (2, 100), (3, 110)):
+            dth.setSectionResizeMode(c, QHeaderView.Fixed)
+            self._detail_table.setColumnWidth(c, w)
+        dth.setStyleSheet(
+            "QHeaderView::section{background:#2a5a8c;color:#fff;font-weight:700;"
+            "border:none;padding:4px;}"
+        )
+        self._detail_table.setStyleSheet("font-size:12px;")
+        rl.addWidget(self._detail_table, 1)
+        body.addWidget(right)
+
+        body.setSizes([620, 380])
+        lay.addWidget(body, 1)
+
+        # ── Footer ────────────────────────────────────────────────────────
+        footer = QFrame()
+        footer.setFixedHeight(44)
+        footer.setStyleSheet(
+            "QFrame{background:#e8f0fb;border-top:2px solid #1a6cb5;}"
+            "QLabel{color:#1a1a2e;}"
+        )
+        fl = QHBoxLayout(footer)
+        fl.setContentsMargins(12, 6, 12, 6)
+        fl.setSpacing(8)
+        self._total_lbl = QLabel("")
+        self._total_lbl.setStyleSheet("font-size:12px;color:#445566;font-weight:600;")
+        fl.addWidget(self._total_lbl)
+        fl.addStretch()
+
+        self._edit_btn = QPushButton("✏  Edit Invoice")
+        self._edit_btn.setFixedHeight(32)
+        self._edit_btn.setEnabled(False)
+        self._edit_btn.setStyleSheet(
+            "QPushButton{background:#e65100;color:#fff;font-size:12px;font-weight:700;"
+            "border:none;border-radius:5px;padding:0 14px;}"
+            "QPushButton:hover{background:#bf360c;}"
+            "QPushButton:disabled{background:#bbb;}"
+        )
+        self._edit_btn.setCursor(Qt.PointingHandCursor)
+        self._edit_btn.clicked.connect(self._edit_invoice)
+        fl.addWidget(self._edit_btn)
+
+        self._cancel_inv_btn = QPushButton("✕  Cancel Invoice")
+        self._cancel_inv_btn.setFixedHeight(32)
+        self._cancel_inv_btn.setEnabled(False)
+        self._cancel_inv_btn.setStyleSheet(
+            "QPushButton{background:#b71c1c;color:#fff;font-size:12px;font-weight:700;"
+            "border:none;border-radius:5px;padding:0 14px;}"
+            "QPushButton:hover{background:#7f0000;}"
+            "QPushButton:disabled{background:#bbb;}"
+        )
+        self._cancel_inv_btn.setCursor(Qt.PointingHandCursor)
+        self._cancel_inv_btn.clicked.connect(self._cancel_invoice)
+        fl.addWidget(self._cancel_inv_btn)
+
+        close_btn = QPushButton("Close")
+        close_btn.setFixedHeight(32)
+        close_btn.setStyleSheet(
+            "QPushButton{background:#607d8b;color:#fff;font-size:12px;font-weight:700;"
+            "border:none;border-radius:5px;padding:0 16px;}"
+            "QPushButton:hover{background:#455a64;}"
+        )
+        close_btn.clicked.connect(self.reject)
+        fl.addWidget(close_btn)
+        lay.addWidget(footer)
+
+    def _toggle_view(self):
+        self._show_archived = not self._show_archived
+        if self._show_archived:
+            self._toggle_btn.setText("📋  Current Shift")
+            self._toggle_btn.setStyleSheet(
+                "QPushButton{background:#37474f;color:#fff;border:none;"
+                "border-radius:4px;font-size:12px;font-weight:700;padding:0 12px;}"
+                "QPushButton:hover{background:#263238;}"
+            )
+            self._title_lbl.setText("📂  Old Sales")
+            self.setWindowTitle("POS Sales Invoices — Old Sales")
+            self._date_bar.setVisible(True)
+            # Don't auto-load; wait for user to pick date and press Load
+            self._all_rows = []
+            self._filter()
+        else:
+            self._toggle_btn.setText("📂  Old Sales")
+            self._toggle_btn.setStyleSheet(
+                "QPushButton{background:#1a6cb5;color:#fff;border:none;"
+                "border-radius:4px;font-size:12px;font-weight:700;padding:0 12px;}"
+                "QPushButton:hover{background:#1a3a5c;border:1px solid #5599dd;}"
+            )
+            self._title_lbl.setText("📋  POS Sales Invoices")
+            self.setWindowTitle("POS Sales Invoices")
+            self._date_bar.setVisible(False)
+            self._search.clear()
+            self._load()
+
+    def _load(self):
+        if self._show_archived:
+            from PySide6.QtCore import QDate
+            date_from = self._date_from.date().toString("yyyy-MM-dd")
+            date_to   = self._date_to.date().toString("yyyy-MM-dd")
+            self._all_rows = PosService.list_archived_sales(
+                date_from=date_from, date_to=date_to
+            )
+        else:
+            self._all_rows = PosService.list_sales(
+                warehouse_id=self._warehouse_id,
+                operator_id=self._operator_id,
+            )
+        self._filter()
+
+    def _filter(self):
+        q = self._search.text().strip().lower()
+        rows = [r for r in self._all_rows
+                if not q
+                or q in r["invoice_number"].lower()
+                or q in r["customer"].lower()
+                or q in r["date"]]
+        self._fill(rows)
+
+    def _fill(self, rows: list[dict]):
+        self._table.setRowCount(len(rows))
+        grand = 0.0
+        for i, r in enumerate(rows):
+            grand += r["total"]
+            status_color = "#2e7d32" if r["payment_status"] == "paid" else "#e65100"
+
+            def cell(txt, align=Qt.AlignCenter, bold=False, color=None, _r=r):
+                it = QTableWidgetItem(str(txt))
+                it.setTextAlignment(align)
+                it.setData(Qt.UserRole, _r["id"])
+                if bold:
+                    it.setFont(QFont("", -1, QFont.Bold))
+                if color:
+                    it.setForeground(QColor(color))
+                return it
+
+            self._table.setItem(i, 0, cell(r["invoice_number"]))
+            self._table.setItem(i, 1, cell(r["date"]))
+            self._table.setItem(i, 2, cell(r["customer"], Qt.AlignLeft | Qt.AlignVCenter))
+            self._table.setItem(i, 3, cell(f"{r['total']:,.0f}", bold=True))
+            self._table.setItem(i, 4, cell(f"{r['amount_paid']:,.0f}"))
+            self._table.setItem(i, 5, cell(r["payment_status"].upper(),
+                                           color=status_color, bold=True))
+
+        self._total_lbl.setText(f"{len(rows)} invoices  ·  Total ل.ل  {grand:,.0f}")
+        self._detail_table.setRowCount(0)
+        self._detail_title.setText("← Select an invoice")
+        self._detail_total.setText("")
+
+    def _on_invoice_selected(self, current, _prev):
+        if not current:
+            self._selected_row = None
+            self._edit_btn.setEnabled(False)
+            self._cancel_inv_btn.setEnabled(False)
+            return
+        inv_id  = current.data(Qt.UserRole)
+        inv_num = self._table.item(current.row(), 0).text()
+
+        # Track selected row data
+        self._selected_row = next(
+            (r for r in self._all_rows if r["id"] == inv_id), None
+        )
+
+        # Edit/Cancel only available for current-shift (non-archived) invoices
+        can_act = not self._show_archived
+        self._edit_btn.setEnabled(can_act)
+        self._cancel_inv_btn.setEnabled(can_act)
+
+        lines   = PosService.get_sale_lines(inv_id)
+
+        self._detail_title.setText(f"Invoice  {inv_num}")
+        self._detail_table.setRowCount(len(lines))
+        for i, l in enumerate(lines):
+            is_void = l["qty"] < 0
+            bg = QColor("#ffcccc") if is_void else None
+            fg = QColor("#a01010") if is_void else None
+            for c, txt, align in [
+                (0, l["description"],          Qt.AlignLeft | Qt.AlignVCenter),
+                (1, f"{l['qty']:.3f}",         Qt.AlignCenter),
+                (2, f"{l['unit_price']:,.0f}", Qt.AlignRight | Qt.AlignVCenter),
+                (3, f"{l['total']:,.0f}",       Qt.AlignRight | Qt.AlignVCenter),
+            ]:
+                it = QTableWidgetItem(txt)
+                it.setTextAlignment(align)
+                if bg:
+                    it.setBackground(bg)
+                if fg:
+                    it.setForeground(fg)
+                self._detail_table.setItem(i, c, it)
+
+        total = sum(l["total"] for l in lines)
+        self._detail_total.setText(f"ل.ل  {total:,.0f}")
+
+    def _require_manager_pin(self) -> bool:
+        """Return True if PIN check passes (admin/manager skip PIN)."""
+        user = AuthService.current_user()
+        if user and user.role in ("admin", "manager"):
+            return True
+        pin, ok = QInputDialog.getText(
+            self, "Manager Override", "Enter manager PIN:",
+            QLineEdit.Password,
+        )
+        if not ok:
+            return False
+        if pin != "0000":
+            QMessageBox.warning(self, "Access Denied", "Incorrect PIN.")
+            return False
+        return True
+
+    def _cancel_invoice(self):
+        if not self._selected_row:
+            return
+        row = self._selected_row
+        if not self._require_manager_pin():
+            return
+        confirm = QMessageBox.question(
+            self, "Cancel Invoice",
+            f"Cancel invoice  {row['invoice_number']}?\n\n"
+            f"This will reverse the stock deduction and remove the invoice.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        user = AuthService.current_user()
+        operator_id = user.id if user else ""
+        ok, result = PosService.cancel_invoice(
+            row["id"], row.get("warehouse_id", ""), operator_id
+        )
+        if ok:
+            QMessageBox.information(self, "Cancelled", f"Invoice {result} cancelled.")
+            self._load()
+        else:
+            QMessageBox.critical(self, "Error", result)
+
+    def _edit_invoice(self):
+        if not self._selected_row:
+            return
+        row = self._selected_row
+        if not self._require_manager_pin():
+            return
+
+        # Load full line data
+        lines = PosService.get_sale_lines(row["id"])
+        if not lines:
+            QMessageBox.warning(self, "Empty", "No line items found.")
+            return
+
+        confirm = QMessageBox.question(
+            self, "Edit Invoice",
+            f"Load invoice  {row['invoice_number']}  into the cart for editing?\n\n"
+            f"The original invoice will be cancelled and stock restored.\n"
+            f"A new invoice will be created when you save.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        # Cancel the original invoice first
+        user = AuthService.current_user()
+        operator_id = user.id if user else ""
+        ok, result = PosService.cancel_invoice(
+            row["id"], row.get("warehouse_id", ""), operator_id
+        )
+        if not ok:
+            QMessageBox.critical(self, "Error", f"Could not cancel original:\n{result}")
+            return
+
+        self.edit_lines = lines
+        self.accept()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Main POS Screen
+# ──────────────────────────────────────────────────────────────────────────────
+
+class POSScreen(QWidget):
+    back = Signal()
+
+    def __init__(self, parent=None, forced_warehouse_id: str | None = None):
+        super().__init__(parent)
+        self._lines: list[dict] = []
+        self._customer_id   = ""
+        self._customer_name = "Walk-In"
+        self._currency      = CURRENCY
+        self._table_updating = False
+        self._last_invoice_id      = ""
+        self._last_payment_method  = "cash"
+        self._last_tendered        = 0.0
+        self._forced_warehouse_id = forced_warehouse_id
+
+        self._build_ui()
+        self._load_defaults()
+        self._setup_shortcuts()
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._scan_input.setFocus)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(100, self._scan_input.setFocus)
+
+    # ── Build UI ───────────────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        root.addWidget(self._make_top_bar())
+
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(3)
+        splitter.addWidget(self._make_left_panel())
+        splitter.addWidget(self._make_right_panel())
+        splitter.setStretchFactor(0, 55)
+        splitter.setStretchFactor(1, 45)
+        splitter.setSizes([660, 500])
+        root.addWidget(splitter, 1)
+
+        root.addWidget(self._make_status_bar())
+
+    # ── Top bar ────────────────────────────────────────────────────────────────
+
+    def _make_top_bar(self):
+        bar = QFrame()
+        bar.setFixedHeight(44)
+        bar.setStyleSheet("background:#1a3a5c;")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(10, 0, 10, 0)
+        lay.setSpacing(10)
+
+        back_btn = QPushButton("←  Back")
+        back_btn.setFixedHeight(28)
+        back_btn.setStyleSheet(
+            "QPushButton{background:#2a5a8c;color:#fff;border:1px solid #4a7aac;"
+            "border-radius:4px;padding:2px 10px;font-size:12px;}"
+            "QPushButton:hover{background:#1a4a7c;}"
+        )
+        back_btn.clicked.connect(self.back.emit)
+        lay.addWidget(back_btn)
+
+        self._pos_title_lbl = QLabel("🖥️  POS — Point of Sale  (ل.ل  LBP)")
+        self._pos_title_lbl.setStyleSheet("color:#fff;font-size:14px;font-weight:700;margin-left:8px;")
+        lay.addWidget(self._pos_title_lbl)
+
+        lay.addStretch()
+
+        # Last invoice amount display
+        last_inv_lbl = QLabel("Last Inv:")
+        last_inv_lbl.setStyleSheet("color:#a8c8e8;font-size:12px;")
+        lay.addWidget(last_inv_lbl)
+        self._last_inv_amt_lbl = QLabel("—")
+        self._last_inv_amt_lbl.setStyleSheet(
+            "color:#00e676;font-size:12px;font-weight:700;min-width:130px;"
+        )
+        lay.addWidget(self._last_inv_amt_lbl)
+
+        lay.addSpacing(16)
+
+        # Customer display
+        cust_lbl = QLabel("Customer:")
+        cust_lbl.setStyleSheet("color:#a8c8e8;font-size:12px;")
+        lay.addWidget(cust_lbl)
+        self._cust_name_lbl = QLabel("Walk-In")
+        self._cust_name_lbl.setStyleSheet(
+            "color:#f0c040;font-size:12px;font-weight:700;min-width:120px;"
+        )
+        lay.addWidget(self._cust_name_lbl)
+
+        change_cust = QPushButton("Change")
+        change_cust.setFixedHeight(24)
+        change_cust.setStyleSheet(
+            "QPushButton{background:#2a5a8c;color:#fff;border:1px solid #4a7aac;"
+            "border-radius:3px;padding:0 8px;font-size:11px;}"
+            "QPushButton:hover{background:#1a4a7c;}"
+        )
+        change_cust.clicked.connect(self._change_customer)
+        lay.addWidget(change_cust)
+
+        lay.addSpacing(16)
+
+        self._print_enabled = True
+        self._print_toggle_btn = QPushButton("🖨 Print: ON")
+        self._print_toggle_btn.setFixedHeight(24)
+        self._print_toggle_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;border:none;"
+            "border-radius:3px;padding:0 10px;font-size:11px;font-weight:700;}"
+            "QPushButton:hover{background:#1b5e20;}"
+        )
+        self._print_toggle_btn.setCursor(Qt.PointingHandCursor)
+        self._print_toggle_btn.clicked.connect(self._toggle_print)
+        lay.addWidget(self._print_toggle_btn)
+
+        return bar
+
+    # ── Left panel ─────────────────────────────────────────────────────────────
+
+    def _make_left_panel(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # ── Scan bar ──────────────────────────────────────────────────────
+        scan_bar = QFrame()
+        scan_bar.setStyleSheet(
+            "QFrame{background:#e8f0fb;border-bottom:2px solid #1a6cb5;}"
+            "QLabel{color:#1a1a2e;}"
+        )
+        scan_bar.setFixedHeight(52)
+        sl = QHBoxLayout(scan_bar)
+        sl.setContentsMargins(10, 6, 10, 6)
+        sl.setSpacing(8)
+
+        bc_lbl = QLabel("Barcode / Code:")
+        bc_lbl.setStyleSheet("font-size:12px;font-weight:700;color:#1a3a5c;")
+        sl.addWidget(bc_lbl)
+
+        self._scan_input = QLineEdit()
+        self._scan_input.setPlaceholderText("Scan barcode or type item code… (/ for name search)")
+        self._scan_input.setFixedHeight(36)
+        self._scan_input.setMinimumWidth(220)
+        self._scan_input.setStyleSheet(
+            "font-size:14px;font-weight:600;border:2px solid #1a6cb5;"
+            "border-radius:4px;padding:0 8px;background:#fff;color:#1a1a2e;"
+        )
+        self._scan_input.returnPressed.connect(self._on_barcode_entered)
+        QShortcut(QKeySequence("Ctrl+Return"), self._scan_input).activated.connect(
+            self._open_item_picker
+        )
+
+        # Override keyPress so + / - act as qty shortcuts when input is empty
+        _orig_scan_key = self._scan_input.keyPressEvent
+        def _scan_key(event, _orig=_orig_scan_key):
+            if event.key() == Qt.Key_Plus and not self._scan_input.text():
+                self._increment_qty()
+            else:
+                _orig(event)
+        self._scan_input.keyPressEvent = _scan_key
+
+        sl.addWidget(self._scan_input, 1)
+
+
+        lay.addWidget(scan_bar)
+
+        # ── Items table ───────────────────────────────────────────────────
+        self._table = QTableWidget()
+        self._table.setColumnCount(8)
+        self._table.setHorizontalHeaderLabels([
+            "#", "Barcode", "Description", "Qty", "Price (ل.ل)", "Disc%", "Total (ل.ل)", "",
+        ])
+        self._table.setAlternatingRowColors(True)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._table.setEditTriggers(
+            QAbstractItemView.DoubleClicked | QAbstractItemView.SelectedClicked
+        )
+        self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(48)
+        self._table.setShowGrid(True)
+        self._table.itemChanged.connect(self._on_cell_edited)
+
+        th = self._table.horizontalHeader()
+        th.setSectionResizeMode(COL_DESC, QHeaderView.Stretch)
+        for col, w_ in ((COL_NUM, 30), (COL_CODE, 110), (COL_QTY, 80),
+                        (COL_PRICE, 115), (COL_DISC, 56), (COL_TOT, 130), (COL_DEL, 72)):
+            th.setSectionResizeMode(col, QHeaderView.Fixed)
+            self._table.setColumnWidth(col, w_)
+        th.setStyleSheet(
+            "QHeaderView::section{background:#1a3a5c;color:#fff;font-weight:700;"
+            "font-size:13px;border:none;padding:6px 4px;}"
+        )
+        self._table.setStyleSheet(
+            "QTableWidget{font-size:16px;}"
+            "QTableWidget::item{padding:4px 6px;}"
+            "QTableWidget QLineEdit{color:#1a1a2e;background:#fff;"
+            "border:2px solid #1a6cb5;font-size:16px;font-weight:700;"
+            "min-height:36px;padding:0 4px;}"
+        )
+        lay.addWidget(self._table, 1)
+
+        # ── Action bar ────────────────────────────────────────────────────
+        act = QFrame()
+        act.setStyleSheet(
+            "QFrame{background:#f0f4f8;border-top:1px solid #cdd5e0;}"
+            "QLabel{color:#1a1a2e;}"
+        )
+        act.setFixedHeight(44)
+        al = QHBoxLayout(act)
+        al.setContentsMargins(8, 4, 8, 4)
+        al.setSpacing(8)
+
+        def aBtn(label, color, hover, callback):
+            b = QPushButton(label)
+            b.setFixedHeight(32)
+            b.setStyleSheet(
+                f"QPushButton{{background:{color};color:#fff;font-size:12px;font-weight:700;"
+                f"border:none;border-radius:4px;padding:0 10px;}}"
+                f"QPushButton:hover{{background:{hover};}}"
+            )
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(callback)
+            return b
+
+        al.addWidget(aBtn("🗑  Void Line", "#c62828", "#a01010", self._void_line))
+        al.addWidget(aBtn("🧹  Clear All", "#e65100", "#bf360c", self._clear_all))
+        al.addSpacing(16)
+        al.addWidget(aBtn("➕  Qty", "#1a6cb5", "#1a3a5c", self._increment_qty))
+        al.addWidget(aBtn("➖  Qty", "#607d8b", "#455a64", self._decrement_qty))
+        al.addStretch()
+
+        disc_lbl = QLabel("Global Disc%:")
+        disc_lbl.setStyleSheet("font-size:12px;color:#445566;")
+        al.addWidget(disc_lbl)
+        self._global_disc = QDoubleSpinBox()
+        self._global_disc.setRange(0, 100)
+        self._global_disc.setDecimals(1)
+        self._global_disc.setFixedHeight(30)
+        self._global_disc.setFixedWidth(70)
+        self._global_disc.setStyleSheet("font-size:12px;color:#1a1a2e;")
+        self._global_disc.valueChanged.connect(self._update_totals)
+        al.addWidget(self._global_disc)
+
+        lay.addWidget(act)
+        return w
+
+    # ── Right panel ────────────────────────────────────────────────────────────
+
+    def _make_right_panel(self):
+        w = QWidget()
+        w.setStyleSheet("background:#f0f4f8;")
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(10, 10, 10, 10)
+        lay.setSpacing(8)
+
+        # ── Totals card ───────────────────────────────────────────────────
+        totals = QFrame()
+        totals.setStyleSheet("background:#1a1a2e;border-radius:8px;")
+        tl = QVBoxLayout(totals)
+        tl.setContentsMargins(16, 14, 16, 14)
+        tl.setSpacing(6)
+
+        def tot_row(label, color="#a8c8e8", size=13, bold=False):
+            row = QHBoxLayout()
+            lbl = QLabel(label)
+            lbl.setStyleSheet("color:#a8c8e8;font-size:12px;background:transparent;")
+            val = QLabel("0")
+            val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            val.setStyleSheet(
+                f"color:{color};font-size:{size}px;"
+                f"font-weight:{'700' if bold else '400'};background:transparent;"
+            )
+            row.addWidget(lbl)
+            row.addStretch()
+            row.addWidget(val)
+            tl.addLayout(row)
+            return val
+
+        self._sub_lbl   = tot_row("Sub-Total  ل.ل:")
+        self._disc_lbl2 = tot_row("Discount   ل.ل:", color="#f0c040")
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color:#334466;background:#334466;")
+        sep.setFixedHeight(1)
+        tl.addWidget(sep)
+
+        grand_lbl = QLabel("GRAND TOTAL  (ل.ل)")
+        grand_lbl.setStyleSheet(
+            "color:#a8c8e8;font-size:11px;font-weight:700;"
+            "letter-spacing:1px;background:transparent;"
+        )
+        tl.addWidget(grand_lbl)
+
+        self._grand_usd_lbl = QLabel("")
+        self._grand_usd_lbl.setAlignment(Qt.AlignRight)
+        self._grand_usd_lbl.setStyleSheet(
+            "color:#78909c;font-size:24px;font-weight:400;background:transparent;"
+        )
+        tl.addWidget(self._grand_usd_lbl)
+
+        self._grand_lbl = QLabel("0")
+        self._grand_lbl.setAlignment(Qt.AlignRight)
+        self._grand_lbl.setStyleSheet(
+            "color:#00e676;font-size:30px;font-weight:700;background:transparent;"
+        )
+        tl.addWidget(self._grand_lbl)
+
+        lay.addWidget(totals)
+
+        # ── PAY button ────────────────────────────────────────────────────
+        self._pay_btn = QPushButton("💳   PAY  [F8]")
+        self._pay_btn.setFixedHeight(70)
+        self._pay_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;font-size:24px;font-weight:700;"
+            "border:none;border-radius:8px;letter-spacing:2px;}"
+            "QPushButton:hover{background:#1b5e20;}"
+            "QPushButton:pressed{background:#0a3d12;}"
+        )
+        self._pay_btn.setCursor(Qt.PointingHandCursor)
+        self._pay_btn.clicked.connect(self._do_pay)
+        lay.addWidget(self._pay_btn)
+
+        # ── Function buttons ──────────────────────────────────────────────
+        fn_frame = QFrame()
+        fn_frame.setStyleSheet(
+            "QFrame{background:#fff;border:1px solid #d0d8e4;border-radius:6px;}"
+        )
+        fn_lay = QGridLayout(fn_frame)
+        fn_lay.setContentsMargins(8, 8, 8, 8)
+        fn_lay.setSpacing(6)
+
+        def fn_btn(label, bg, hover, callback, row, col):
+            b = QPushButton(label)
+            b.setFixedHeight(38)
+            b.setStyleSheet(
+                f"QPushButton{{background:{bg};color:#fff;font-size:12px;font-weight:700;"
+                f"border:none;border-radius:5px;}}"
+                f"QPushButton:hover{{background:{hover};}}"
+            )
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(callback)
+            fn_lay.addWidget(b, row, col)
+            return b
+
+        fn_btn("⏸  Hold  [F2]",      "#e65100", "#bf360c", self._hold_sale,      0, 0)
+        fn_btn("▶  Recall  [F3]",   "#1a6cb5", "#1a3a5c", self._recall_sale,    0, 1)
+        fn_btn("📋  Invoices",       "#37474f", "#263238", self._open_invoices,  1, 0)
+        fn_btn("↩  Refund",          "#c62828", "#a01010", self._placeholder,    1, 1)
+        fn_btn("👤  Customer",     "#00838f", "#006064", self._change_customer, 2, 0)
+        fn_btn("💬  Note",         "#5c6bc0", "#3949ab", self._placeholder,     2, 1)
+        fn_btn("🔍  Price  [F10]", "#455a64", "#263238", self._price_check,       3, 0)
+        fn_btn("🖨  Print  [F9]",  "#2e7d32", "#1b5e20", self._print_last,        3, 1)
+        fn_btn("📊  Daily Sales",  "#4a148c", "#311b92", self._open_daily_sales,  4, 0)
+        fn_btn("🔴  End of Shift", "#b71c1c", "#7f0000", self._open_end_of_shift, 4, 1)
+
+        lay.addWidget(fn_frame)
+
+        # ── Held invoices panel ────────────────────────────────────────────
+        held_frame = QFrame()
+        held_frame.setStyleSheet(
+            "QFrame{background:#fff;border:1px solid #d0d8e4;border-radius:6px;}"
+            "QLabel{color:#1a1a2e;}"
+        )
+        hl2 = QVBoxLayout(held_frame)
+        hl2.setContentsMargins(6, 4, 6, 4)
+        hl2.setSpacing(3)
+
+        held_hdr = QHBoxLayout()
+        held_lbl = QLabel("⏸  Held Invoices")
+        held_lbl.setStyleSheet("font-size:11px;font-weight:700;color:#e65100;letter-spacing:1px;")
+        held_hdr.addWidget(held_lbl)
+        held_hdr.addStretch()
+        refresh_btn = QPushButton("↺")
+        refresh_btn.setFixedSize(22, 22)
+        refresh_btn.setStyleSheet(
+            "QPushButton{background:#e8f0fb;color:#1a3a5c;border:1px solid #b0c8e8;"
+            "border-radius:3px;font-weight:700;font-size:13px;}"
+            "QPushButton:hover{background:#c0d8f0;}"
+        )
+        refresh_btn.clicked.connect(self._refresh_held_panel)
+        held_hdr.addWidget(refresh_btn)
+        hl2.addLayout(held_hdr)
+
+        self._held_list = QListWidget()
+        self._held_list.setStyleSheet(
+            "QListWidget{font-size:12px;border:none;background:transparent;}"
+            "QListWidget::item{padding:5px 4px;border-bottom:1px solid #e8eef4;}"
+            "QListWidget::item:hover{background:#e8f0fb;}"
+            "QListWidget::item:selected{background:#1a6cb5;color:#fff;}"
+        )
+        self._held_list.setMaximumHeight(130)
+        self._held_list.itemClicked.connect(self._recall_from_panel)
+        hl2.addWidget(self._held_list)
+
+        lay.addWidget(held_frame)
+        self._refresh_held_panel()
+
+        hints = QLabel(
+            "F8=Pay · F9=Print · F10=Price · F2=Hold · F3=Recall · F4=New · +=Qty+ · −=Qty− · Del=Void"
+        )
+        hints.setStyleSheet("font-size:10px;color:#8899aa;")
+        hints.setAlignment(Qt.AlignCenter)
+        lay.addWidget(hints)
+
+        return w
+
+    # ── Status bar ─────────────────────────────────────────────────────────────
+
+    def _make_status_bar(self):
+        bar = QFrame()
+        bar.setFixedHeight(24)
+        bar.setStyleSheet("background:#1a3a5c;")
+        bl = QHBoxLayout(bar)
+        bl.setContentsMargins(12, 0, 12, 0)
+        bl.setSpacing(30)
+
+        self._items_count_lbl = QLabel("Items: 0")
+        self._items_count_lbl.setStyleSheet("color:#a8c8e8;font-size:11px;")
+        bl.addWidget(self._items_count_lbl)
+
+        user = AuthService.current_user()
+        cashier = QLabel(f"Cashier: {user.full_name if user else '—'}")
+        cashier.setStyleSheet("color:#a8c8e8;font-size:11px;")
+        bl.addWidget(cashier)
+
+        bl.addStretch()
+
+        self._clock_lbl = QLabel("")
+        self._clock_lbl.setStyleSheet("color:#a8c8e8;font-size:11px;")
+        bl.addWidget(self._clock_lbl)
+
+        self._clock_timer = QTimer()
+        self._clock_timer.timeout.connect(self._update_clock)
+        self._clock_timer.start(10000)
+        self._update_clock()
+
+        return bar
+
+    # ── Defaults ───────────────────────────────────────────────────────────────
+
+    def _load_defaults(self):
+        wh_name = ""
+        if self._forced_warehouse_id:
+            self._warehouse_id = self._forced_warehouse_id
+            # Resolve warehouse name
+            wh_list = ItemService.get_warehouses()
+            for wh_id, name, _is_def, _num, _cust in wh_list:
+                if wh_id == self._forced_warehouse_id:
+                    wh_name = name
+                    break
+        else:
+            wh = ItemService.get_warehouses()
+            self._warehouse_id = wh[0][0] if wh else ""
+            for wh_id, name, is_default, _wh_num, _def_cust in wh:
+                if is_default:
+                    self._warehouse_id = wh_id
+                    wh_name = name
+                    break
+            if not wh_name and wh:
+                wh_name = wh[0][1]
+
+        # Update POS title with branch name
+        if wh_name:
+            self._pos_title_lbl.setText(f"🖥️  POS — {wh_name}  (ل.ل  LBP)")
+
+        # Resolve default customer and show their name
+        self._customer_id = PosService.get_walk_in_customer_id(self._warehouse_id)
+        self._customer_name = self._resolve_customer_name(self._customer_id)
+        self._cust_name_lbl.setText(self._customer_name)
+        self._scan_input.setFocus()
+
+    def _resolve_customer_name(self, customer_id: str) -> str:
+        if not customer_id:
+            return "Walk-In"
+        from database.engine import get_session
+        from database.models.parties import Customer
+        session = get_session()
+        try:
+            c = session.get(Customer, customer_id)
+            return c.name if c else "Walk-In"
+        finally:
+            session.close()
+
+    def _setup_shortcuts(self):
+        QShortcut(QKeySequence("F8"),  self).activated.connect(self._do_pay)
+        QShortcut(QKeySequence("F9"),  self).activated.connect(self._print_last)
+        QShortcut(QKeySequence("F10"), self).activated.connect(self._price_check)
+        QShortcut(QKeySequence("F2"),  self).activated.connect(self._hold_sale)
+        QShortcut(QKeySequence("F3"),  self).activated.connect(self._recall_sale)
+        QShortcut(QKeySequence("F4"),  self).activated.connect(self._new_sale)
+        QShortcut(QKeySequence("Del"), self).activated.connect(self._void_line)
+        QShortcut(QKeySequence("Escape"), self).activated.connect(
+            lambda: self._scan_input.setFocus()
+        )
+
+    # ── Barcode scan ───────────────────────────────────────────────────────────
+
+    def _on_barcode_entered(self):
+        query = self._scan_input.text().strip()
+        if not query:
+            return
+
+        # "V" or "v" — vegetable/bulk price entry
+        if query.upper() == "V":
+            self._scan_input.clear()
+            self._open_vege_dialog()
+            return
+
+        # "-code" prefix — deduct (negative qty) from invoice
+        negative_qty = False
+        if query.startswith("-") and len(query) > 1:
+            negative_qty = True
+            query = query[1:].strip()
+
+        # "3*something" — multiplier prefix sets quantity
+        prefix_qty = None
+        if "*" in query:
+            parts = query.split("*", 1)
+            try:
+                prefix_qty = float(parts[0])
+            except ValueError:
+                pass
+            query = parts[1].strip()
+
+        # "/" prefix forces name search → open picker
+        if query.startswith("/"):
+            self._scan_input.setText(query[1:])
+            self._open_item_picker()
+            return
+
+        # Cascade: barcode → code → name (exact then partial)
+        item = (
+            PosService.lookup_item(query, "barcode", currency="USD", price_type=POS_PRICE_TYPE)
+            or PosService.lookup_item(query, "code",    currency="USD", price_type=POS_PRICE_TYPE)
+            or PosService.lookup_item(query, "name",    currency="USD", price_type=POS_PRICE_TYPE)
+        )
+        if item:
+            if negative_qty:
+                self._add_item(item, force_qty=-(prefix_qty or item.qty))
+            elif prefix_qty is not None:
+                self._add_item(item, force_qty=prefix_qty)
+            else:
+                self._add_item(item)
+        else:
+            # Nothing found → open picker pre-filtered with the query
+            self._scan_input.setText(query)
+            self._open_item_picker()
+
+    def _open_item_picker(self):
+        """Ctrl+Enter: browse all items and select one."""
+        from services.purchase_service import PurchaseService
+        query = self._scan_input.text().strip()
+        rows = PurchaseService.search_items_by_usage(query, limit=200)
+        if not rows:
+            QMessageBox.information(self, "No Items", "No items found.")
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Item Search  —  ↑↓ browse · Enter select")
+        dlg.setMinimumSize(820, 480)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(10, 10, 10, 10)
+        lay.setSpacing(8)
+
+        # Filter bar
+        top = QHBoxLayout()
+        search_box = QLineEdit(query)
+        search_box.setPlaceholderText("Type to filter…")
+        search_box.setFixedHeight(34)
+        search_box.setStyleSheet("font-size:13px;")
+        top.addWidget(search_box)
+        lay.addLayout(top)
+
+        tbl = QTableWidget()
+        tbl.setColumnCount(4)
+        tbl.setHorizontalHeaderLabels(["Code", "Description", "Price (ل.ل)", "Stock"])
+        tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
+        tbl.setSelectionMode(QAbstractItemView.SingleSelection)
+        tbl.verticalHeader().setVisible(False)
+        tbl.verticalHeader().setDefaultSectionSize(32)
+        th = tbl.horizontalHeader()
+        th.setSectionResizeMode(1, QHeaderView.Stretch)
+        for c, w_ in ((0, 80), (2, 110), (3, 70)):
+            th.setSectionResizeMode(c, QHeaderView.Fixed)
+            tbl.setColumnWidth(c, w_)
+        th.setStyleSheet(
+            "QHeaderView::section{background:#1a3a5c;color:#fff;font-weight:700;"
+            "border:none;padding:4px;}"
+        )
+        lay.addWidget(tbl, 1)
+
+        def _fill(filter_text=""):
+            filtered = [r for r in rows
+                        if not filter_text
+                        or filter_text.lower() in r["name"].lower()
+                        or filter_text.lower() in r["code"].lower()]
+            tbl.setRowCount(len(filtered))
+            for i, r in enumerate(filtered):
+                sp = sell_prices.get(r["item_id"])
+                if sp:
+                    lbp_price = sp["amount"] * LBP_RATE if sp["currency"] == "USD" else sp["amount"]
+                else:
+                    lbp_price = r["cost"] * LBP_RATE
+                for c, txt, align in [
+                    (0, r["code"],              Qt.AlignCenter),
+                    (1, r["name"],              Qt.AlignLeft | Qt.AlignVCenter),
+                    (2, f"{lbp_price:,.0f}",   Qt.AlignRight | Qt.AlignVCenter),
+                    (3, str(int(r.get("usage", 0))), Qt.AlignCenter),
+                ]:
+                    it = QTableWidgetItem(txt)
+                    it.setTextAlignment(align)
+                    it.setData(Qt.UserRole, r)
+                    tbl.setItem(i, c, it)
+            if tbl.rowCount():
+                tbl.selectRow(0)
+
+        # Batch-fetch retail selling prices for all returned items
+        from database.engine import get_session, init_db
+        from database.models.items import ItemPrice
+        init_db()
+        _sess = get_session()
+        try:
+            item_ids = [r["item_id"] for r in rows]
+            _prices = _sess.query(ItemPrice).filter(
+                ItemPrice.item_id.in_(item_ids),
+                ItemPrice.price_type == POS_PRICE_TYPE,
+            ).all()
+            sell_prices = {p.item_id: {"amount": p.amount, "currency": p.currency}
+                           for p in _prices}
+        finally:
+            _sess.close()
+
+        search_box.textChanged.connect(_fill)
+        _fill(query)
+
+        chosen = [None]
+
+        def _pick():
+            row_idx = tbl.currentRow()
+            if row_idx >= 0:
+                it = tbl.item(row_idx, 0)
+                if it:
+                    chosen[0] = it.data(Qt.UserRole)
+                    dlg.accept()
+
+        tbl.doubleClicked.connect(_pick)
+
+        # Forward Up/Down/Enter from search box to the table
+        def _search_key(event):
+            key = event.key()
+            if key in (Qt.Key_Down, Qt.Key_Up):
+                cur = tbl.currentRow()
+                if key == Qt.Key_Down:
+                    tbl.selectRow(min(cur + 1, tbl.rowCount() - 1))
+                else:
+                    tbl.selectRow(max(cur - 1, 0))
+            elif key in (Qt.Key_Return, Qt.Key_Enter):
+                _pick()
+            else:
+                QLineEdit.keyPressEvent(search_box, event)
+
+        search_box.keyPressEvent = _search_key
+        search_box.setFocus()
+
+        btn_row = QHBoxLayout()
+        sel_btn = QPushButton("✓  Select")
+        sel_btn.setFixedHeight(34)
+        sel_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;font-weight:700;"
+            "border:none;border-radius:4px;padding:0 16px;}"
+        )
+        sel_btn.clicked.connect(_pick)
+        btn_row.addStretch()
+        btn_row.addWidget(sel_btn)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFixedHeight(34)
+        cancel_btn.setStyleSheet(
+            "QPushButton{background:#607d8b;color:#fff;font-weight:700;"
+            "border:none;border-radius:4px;padding:0 16px;}"
+        )
+        cancel_btn.clicked.connect(dlg.reject)
+        btn_row.addWidget(cancel_btn)
+        lay.addLayout(btn_row)
+
+        if not dlg.exec() or not chosen[0]:
+            return
+
+        r = chosen[0]
+        # Use the price already fetched in this dialog — avoids picking a
+        # different duplicate row via a second lookup_item call.
+        sp = sell_prices.get(r["item_id"])
+        if sp:
+            lbp_price = sp["amount"] * LBP_RATE if sp["currency"] == "USD" else sp["amount"]
+        else:
+            lbp_price = r["cost"] * LBP_RATE
+
+        # Build a lightweight PosLineItem directly from what we already have
+        item = PosLineItem(
+            item_id    = r["item_id"],
+            code       = r["code"],
+            barcode    = r["barcode"],
+            description= r["name"],
+            qty        = 1.0,
+            unit_price = lbp_price,
+            disc_pct   = 0.0,
+            vat_pct    = 0.0,
+            total      = lbp_price,
+            currency   = "LBP",
+        )
+        self._add_item(item)
+        self._scan_input.clear()
+
+    def _open_vege_dialog(self):
+        """Open vegetable/bulk price-entry dialog and add line to cart."""
+        dlg = VegeDialog(self)
+        if not dlg.exec():
+            self._scan_input.setFocus()
+            return
+        vege_id = PosService.get_or_create_vege_item()
+        item = PosLineItem(
+            item_id    = vege_id,
+            code       = "VEGE",
+            barcode    = "V",
+            description= "Vegetables",
+            qty        = dlg.result_qty,
+            unit_price = dlg.result_price,
+            disc_pct   = 0.0,
+            vat_pct    = 0.0,
+            total      = dlg.result_total,
+            currency   = "LBP",
+            price_type = "retail",
+            stock_qty  = 0.0,
+        )
+        self._lines.append({
+            "item":  item,
+            "qty":   dlg.result_qty,
+            "price": dlg.result_price,
+            "disc":  0.0,
+            "total": dlg.result_total,
+        })
+        self._refresh_table()
+        self._table.selectRow(len(self._lines) - 1)
+        self._scan_input.setFocus()
+
+    def _add_item(self, item, force_qty=None):
+        """Convert item price USD→LBP if needed, then add to cart.
+        Items built directly with currency='LBP' skip conversion.
+        force_qty overrides the qty spinner (used for negative/deduct lines)."""
+        if item.currency != "LBP":
+            item.unit_price = round(item.unit_price * LBP_RATE)
+            item.currency   = "LBP"
+
+        # force_qty → explicit override (negatives/deductions)
+        # spinner != 1 → user-set quantity (overrides pack_qty)
+        # otherwise → use item.qty which includes pack_qty from barcode
+        if force_qty is not None:
+            qty = force_qty
+        else:
+            qty = item.qty  # respects pack_qty from barcode
+
+        # Increment existing line if same item
+        existing = next(
+            (i for i, l in enumerate(self._lines) if l["item"].item_id == item.item_id), None
+        )
+        if existing is not None:
+            self._lines[existing]["qty"] += qty
+            self._recalc_line(existing)
+            self._refresh_table()
+            self._scan_input.clear()
+            return
+
+        price = item.unit_price
+        total = price * qty
+        self._lines.append({
+            "item":  item,
+            "qty":   qty,
+            "price": price,
+            "disc":  0.0,
+            "total": total,
+        })
+        self._refresh_table()
+        self._scan_input.clear()
+        self._table.selectRow(len(self._lines) - 1)
+
+    def _flash_scan(self, text, color):
+        self._scan_input.setText(text)
+        self._scan_input.setStyleSheet(
+            f"font-size:14px;font-weight:700;border:2px solid {color};"
+            f"border-radius:4px;padding:0 8px;background:#fff3f3;color:{color};"
+        )
+        QTimer.singleShot(900, self._reset_scan_style)
+
+    def _reset_scan_style(self):
+        self._scan_input.clear()
+        self._scan_input.setStyleSheet(
+            "font-size:14px;font-weight:600;border:2px solid #1a6cb5;"
+            "border-radius:4px;padding:0 8px;background:#fff;color:#1a1a2e;"
+        )
+
+    # ── Table ──────────────────────────────────────────────────────────────────
+
+    def _refresh_table(self):
+        self._table_updating = True
+        self._table.setRowCount(0)
+        self._table.setRowCount(len(self._lines))
+
+        for r, line in enumerate(self._lines):
+            it = line["item"]
+
+            is_void = line.get("voided", False)
+            void_color = QColor("#ffcccc") if is_void else None
+
+            def ro(text, align=Qt.AlignCenter, _vc=void_color):
+                cell = QTableWidgetItem(str(text))
+                cell.setTextAlignment(align)
+                cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+                if _vc:
+                    cell.setBackground(_vc)
+                    cell.setForeground(QColor("#a01010"))
+                return cell
+
+            def ed(text, align=Qt.AlignCenter, _vc=void_color):
+                cell = QTableWidgetItem(str(text))
+                cell.setTextAlignment(align)
+                if _vc:
+                    cell.setBackground(_vc)
+                    cell.setForeground(QColor("#a01010"))
+                    cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+                return cell
+
+            self._table.setItem(r, COL_NUM,   ro(str(r + 1)))
+            self._table.setItem(r, COL_CODE,  ro(it.barcode or it.code, Qt.AlignLeft | Qt.AlignVCenter))
+            self._table.setItem(r, COL_DESC,  ro(it.description, Qt.AlignLeft | Qt.AlignVCenter))
+            qty_cell = ro(f"{line['qty']:.3f}") if line["qty"] < 0 else ed(f"{line['qty']:.3f}")
+            self._table.setItem(r, COL_QTY, qty_cell)
+            self._table.setItem(r, COL_PRICE, ed(f"{line['price']:.0f}"))
+            self._table.setItem(r, COL_DISC,  ed(f"{line['disc']:.1f}"))
+
+            tot_cell = ro(f"{line['total']:,.0f}")
+            tot_cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            tot_cell.setFont(QFont("", -1, QFont.Bold))
+            self._table.setItem(r, COL_TOT, tot_cell)
+
+            btn_widget = QWidget()
+            btn_layout = QHBoxLayout(btn_widget)
+            btn_layout.setContentsMargins(3, 2, 3, 2)
+            btn_layout.setSpacing(4)
+
+            void_btn = QPushButton("⊘")
+            void_btn.setFixedSize(28, 30)
+            void_btn.setToolTip("Void — adds a negative entry")
+            void_btn.setStyleSheet(
+                "QPushButton{background:#e65100;color:#fff;border:none;"
+                "border-radius:4px;font-weight:700;font-size:14px;}"
+                "QPushButton:hover{background:#bf360c;}"
+            )
+            void_btn.clicked.connect(lambda _, row=r: self._void_or_delete(row, force_delete=False))
+
+            x_btn = QPushButton("✕")
+            x_btn.setFixedSize(28, 30)
+            x_btn.setToolTip("Delete line (manager only)")
+            x_btn.setStyleSheet(
+                "QPushButton{background:#c62828;color:#fff;border:none;"
+                "border-radius:4px;font-weight:700;font-size:12px;}"
+                "QPushButton:hover{background:#a01010;}"
+            )
+            x_btn.clicked.connect(lambda _, row=r: self._void_or_delete(row, force_delete=True))
+
+            btn_layout.addWidget(void_btn)
+            btn_layout.addWidget(x_btn)
+            self._table.setCellWidget(r, COL_DEL, btn_widget)
+
+        self._table_updating = False
+        self._update_totals()
+        self._items_count_lbl.setText(f"Items: {len(self._lines)}")
+
+    def _on_cell_edited(self, item):
+        if self._table_updating:
+            return
+        row = item.row()
+        col = item.column()
+        if row >= len(self._lines):
+            return
+        try:
+            val = float(item.text())
+        except ValueError:
+            return
+
+        if col == COL_QTY:
+            if val == 0:
+                return   # disallow zero
+            self._lines[row]["qty"] = val   # allow negatives (deduction lines)
+        elif col == COL_PRICE:
+            self._lines[row]["price"] = max(0.0, val)
+        elif col == COL_DISC:
+            self._lines[row]["disc"] = max(0.0, min(100.0, val))
+
+        self._recalc_line(row)
+        self._table_updating = True
+        tot_cell = self._table.item(row, COL_TOT)
+        if tot_cell:
+            tot_cell.setText(f"{self._lines[row]['total']:,.0f}")
+        self._table_updating = False
+        self._update_totals()
+
+    def _recalc_line(self, row: int):
+        line = self._lines[row]
+        line["total"] = line["qty"] * line["price"] * (1 - line["disc"] / 100)
+
+    # ── Totals ─────────────────────────────────────────────────────────────────
+
+    def _update_totals(self):
+        subtotal = sum(l["qty"] * l["price"] * (1 - l["disc"] / 100) for l in self._lines)
+        disc_val = subtotal * (self._global_disc.value() / 100)
+        grand    = subtotal - disc_val
+        self._sub_lbl.setText(f"{subtotal:,.0f}")
+        self._disc_lbl2.setText(f"{disc_val:,.0f}")
+        self._grand_lbl.setText(f"{grand:,.0f}")
+        usd = grand / LBP_RATE if grand else 0.0
+        self._grand_usd_lbl.setText(f"≈ $ {usd:,.2f}" if grand else "")
+
+    def _grand_total(self) -> float:
+        subtotal = sum(l["qty"] * l["price"] * (1 - l["disc"] / 100) for l in self._lines)
+        disc_val = subtotal * (self._global_disc.value() / 100)
+        return subtotal - disc_val
+
+    # ── Pay ────────────────────────────────────────────────────────────────────
+
+    def _do_pay(self):
+        if not self._lines:
+            QMessageBox.warning(self, "Empty", "No items in the sale.")
+            return
+        total = self._grand_total()
+        dlg = PaymentDialog(total, self)
+        if not dlg.exec():
+            return
+        self._finish_sale(dlg)
+
+    def _quick_pay(self, amount: float):
+        if not self._lines:
+            return
+        dlg = PaymentDialog(self._grand_total(), self)
+        dlg._set_tender(amount)
+        if dlg.exec():
+            self._finish_sale(dlg)
+
+    def _finish_sale(self, dlg: PaymentDialog):
+        user = AuthService.current_user()
+        total    = self._grand_total()
+        disc_val = (
+            sum(l["qty"] * l["price"] for l in self._lines)
+            * (self._global_disc.value() / 100)
+        )
+        lines = [
+            PosLineItem(
+                item_id    = l["item"].item_id,
+                code       = l["item"].code,
+                barcode    = l["item"].barcode,
+                description= l["item"].description,
+                qty        = l["qty"],
+                unit_price = l["price"],
+                disc_pct   = l["disc"],
+                vat_pct    = l["item"].vat_pct,
+                total      = l["total"],
+                currency   = self._currency,
+            )
+            for l in self._lines
+        ]
+        ok, result = PosService.save_sale(
+            customer_id    = self._customer_id,
+            operator_id    = user.id if user else "",
+            warehouse_id   = self._warehouse_id,
+            lines          = lines,
+            currency       = self._currency,
+            payment_method = dlg.method,
+            amount_paid    = dlg.tendered,
+            discount_value = disc_val,
+        )
+        if ok:
+            self._last_invoice_id     = result
+            self._last_payment_method = dlg.method
+            self._last_tendered       = dlg.tendered
+            change = max(0.0, dlg.tendered - total) if dlg.method == "cash" else 0.0
+            change_txt = f"  Change ل.ل {change:,.0f}" if change > 0 else ""
+            self._last_inv_amt_lbl.setText(f"ل.ل {total:,.0f}{change_txt}")
+            if self._print_enabled:
+                self._print_receipt(result, dlg.method, dlg.tendered)
+            self._new_sale()
+        else:
+            QMessageBox.critical(self, "Error", f"Failed to save sale:\n{result}")
+
+    # ── Hold / Recall ──────────────────────────────────────────────────────────
+
+    def _hold_sale(self):
+        if not self._lines:
+            return
+        user = AuthService.current_user()
+        lines_data = [
+            {
+                "item_id":     l["item"].item_id,
+                "code":        l["item"].code,
+                "description": l["item"].description,
+                "barcode":     l["item"].barcode,
+                "qty":         l["qty"],
+                "unit_price":  l["price"],
+                "disc_pct":    l["disc"],
+                "vat_pct":     l["item"].vat_pct,
+                "total":       l["total"],
+                "currency":    self._currency,
+            }
+            for l in self._lines
+        ]
+        ok, _ = PosService.hold_sale(
+            operator_id  = user.id if user else "",
+            customer_name= self._customer_name,
+            lines_json   = json.dumps(lines_data),
+            total        = self._grand_total(),
+            currency     = self._currency,
+            label        = self._customer_name,
+        )
+        if ok:
+            self._new_sale()
+            self._refresh_held_panel()
+
+    def _recall_sale(self):
+        dlg = RecallDialog(self)
+        if not dlg.exec() or not dlg.chosen_json:
+            return
+        try:
+            lines_data = json.loads(dlg.chosen_json)
+        except Exception:
+            return
+
+        self._lines.clear()
+        for d in lines_data:
+            it = PosLineItem(
+                item_id    = d["item_id"],
+                code       = d.get("code", ""),
+                barcode    = d.get("barcode", ""),
+                description= d["description"],
+                qty        = d["qty"],
+                unit_price = d["unit_price"],
+                disc_pct   = d["disc_pct"],
+                vat_pct    = d.get("vat_pct", 0.0),
+                total      = d["total"],
+                currency   = d.get("currency", self._currency),
+            )
+            self._lines.append({
+                "item":  it,
+                "qty":   d["qty"],
+                "price": d["unit_price"],
+                "disc":  d["disc_pct"],
+                "total": d["total"],
+            })
+        self._refresh_table()
+
+    # ── Line actions ───────────────────────────────────────────────────────────
+
+    def _refresh_held_panel(self):
+        self._held_list.clear()
+        held = PosService.list_held_sales()
+        for h in held:
+            it = QListWidgetItem(
+                f"  {h['label']}  —  ل.ل {h['total']:,.0f}  [{h['created_at'][11:16]}]"
+            )
+            it.setData(Qt.UserRole, h)
+            self._held_list.addItem(it)
+
+    def _recall_from_panel(self, item):
+        h = item.data(Qt.UserRole)
+        try:
+            lines_data = json.loads(h["items_json"])
+        except Exception:
+            return
+        if self._lines:
+            from PySide6.QtWidgets import QMessageBox as MB
+            r = MB.question(self, "Replace Cart",
+                            "Replace current items with held invoice?",
+                            MB.Yes | MB.No)
+            if r != MB.Yes:
+                return
+        PosService.delete_held_sale(h["id"])
+        self._lines.clear()
+        for d in lines_data:
+            it = PosLineItem(
+                item_id    = d["item_id"],
+                code       = d.get("code", ""),
+                barcode    = d.get("barcode", ""),
+                description= d["description"],
+                qty        = d["qty"],
+                unit_price = d["unit_price"],
+                disc_pct   = d["disc_pct"],
+                vat_pct    = d.get("vat_pct", 0.0),
+                total      = d["total"],
+                currency   = d.get("currency", self._currency),
+            )
+            self._lines.append({
+                "item":  it,
+                "qty":   d["qty"],
+                "price": d["unit_price"],
+                "disc":  d["disc_pct"],
+                "total": d["total"],
+            })
+        self._refresh_table()
+        self._refresh_held_panel()
+
+    def _open_invoices(self):
+        user = AuthService.current_user()
+        dlg = SalesListDialog(
+            self,
+            warehouse_id=self._warehouse_id,
+            operator_id=user.id if user else "",
+        )
+        dlg.exec()
+        if dlg.edit_lines:
+            self._load_invoice_into_cart(dlg.edit_lines)
+
+    def _load_invoice_into_cart(self, lines: list[dict]):
+        """Load saved invoice lines back into the current cart for editing."""
+        if self._lines:
+            if QMessageBox.question(
+                self, "Replace Cart",
+                "Replace current items with the invoice being edited?",
+                QMessageBox.Yes | QMessageBox.No,
+            ) != QMessageBox.Yes:
+                return
+        self._lines.clear()
+        for l in lines:
+            item = PosLineItem(
+                item_id    = l["item_id"],
+                code       = "",
+                barcode    = l["barcode"],
+                description= l["description"],
+                qty        = l["qty"],
+                unit_price = l["unit_price"],
+                disc_pct   = l["disc_pct"],
+                vat_pct    = l["vat_pct"],
+                total      = l["total"],
+                currency   = l["currency"],
+            )
+            self._lines.append({
+                "item":  item,
+                "qty":   l["qty"],
+                "price": l["unit_price"],
+                "disc":  l["disc_pct"],
+                "total": l["total"],
+            })
+        self._refresh_table()
+        self._update_totals()
+
+    def _new_sale(self):
+        self._lines.clear()
+        self._global_disc.setValue(0.0)
+        self._customer_id   = PosService.get_walk_in_customer_id(self._warehouse_id)
+        self._customer_name = self._resolve_customer_name(self._customer_id)
+        self._cust_name_lbl.setText(self._customer_name)
+        self._refresh_table()
+        self._scan_input.setFocus()
+
+    def _clear_all(self):
+        self._new_sale()
+
+    def _void_line(self):
+        """Del key — void the selected line (adds negative entry)."""
+        row = self._table.currentRow()
+        if 0 <= row < len(self._lines):
+            self._void_or_delete(row)
+
+    def _void_or_delete(self, row: int, force_delete: bool = False):
+        """
+        Normal press  → void (add a negative-qty mirror line).
+        Ctrl+click or manager role → actually remove the line (requires PIN).
+        """
+        if row < 0 or row >= len(self._lines):
+            return
+
+        from PySide6.QtWidgets import QApplication
+        ctrl_held = bool(QApplication.keyboardModifiers() & Qt.ControlModifier)
+
+        if ctrl_held or force_delete:
+            # Manager-only delete — ask for PIN
+            user = AuthService.current_user()
+            if user and user.role not in ("admin", "manager"):
+                from PySide6.QtWidgets import QInputDialog
+                pin, ok = QInputDialog.getText(
+                    self, "Manager Override",
+                    "Enter manager PIN to delete line:",
+                    QLineEdit.Password,
+                )
+                if not ok:
+                    return
+                # Simple PIN check — "0000" as default; replace with real auth if needed
+                if pin != "0000":
+                    QMessageBox.warning(self, "Access Denied", "Incorrect PIN.")
+                    return
+            del self._lines[row]
+        else:
+            # Void: append a negative-qty copy
+            orig = self._lines[row]
+            void_item = PosLineItem(
+                item_id    = orig["item"].item_id,
+                code       = orig["item"].code,
+                barcode    = orig["item"].barcode,
+                description= f"VOID — {orig['item'].description}",
+                qty        = -orig["qty"],
+                unit_price = orig["price"],
+                disc_pct   = orig["disc"],
+                vat_pct    = orig["item"].vat_pct,
+                total      = -orig["total"],
+                currency   = orig["item"].currency,
+            )
+            self._lines.append({
+                "item":  void_item,
+                "qty":   -orig["qty"],
+                "price": orig["price"],
+                "disc":  orig["disc"],
+                "total": -orig["total"],
+                "voided": True,
+            })
+
+        self._refresh_table()
+
+    def _increment_qty(self):
+        row = self._table.currentRow()
+        if 0 <= row < len(self._lines):
+            self._lines[row]["qty"] += 1
+            self._recalc_line(row)
+            self._refresh_table()
+            self._table.selectRow(row)
+
+    def _decrement_qty(self):
+        row = self._table.currentRow()
+        if 0 <= row < len(self._lines):
+            self._lines[row]["qty"] = max(0.001, self._lines[row]["qty"] - 1)
+            self._recalc_line(row)
+            self._refresh_table()
+            self._table.selectRow(row)
+
+    # ── Customer ───────────────────────────────────────────────────────────────
+
+    def _toggle_print(self):
+        self._print_enabled = not self._print_enabled
+        if self._print_enabled:
+            self._print_toggle_btn.setText("🖨 Print: ON")
+            self._print_toggle_btn.setStyleSheet(
+                "QPushButton{background:#2e7d32;color:#fff;border:none;"
+                "border-radius:3px;padding:0 10px;font-size:11px;font-weight:700;}"
+                "QPushButton:hover{background:#1b5e20;}"
+            )
+        else:
+            self._print_toggle_btn.setText("🖨 Print: OFF")
+            self._print_toggle_btn.setStyleSheet(
+                "QPushButton{background:#546e7a;color:#cfd8dc;border:none;"
+                "border-radius:3px;padding:0 10px;font-size:11px;font-weight:700;}"
+                "QPushButton:hover{background:#37474f;}"
+            )
+
+    def _change_customer(self):
+        from PySide6.QtWidgets import QInputDialog
+        query, ok = QInputDialog.getText(self, "Customer Search", "Search customer:")
+        if not ok or not query.strip():
+            return
+        results = PosService.search_customers(query.strip())
+        if not results:
+            QMessageBox.information(self, "Not Found", "No customer matched.")
+            return
+        if len(results) == 1:
+            c = results[0]
+        else:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Select Customer")
+            dlg.setFixedSize(380, 280)
+            vl = QVBoxLayout(dlg)
+            vl.setContentsMargins(12, 12, 12, 12)
+            lst = QListWidget()
+            lst.setStyleSheet("font-size:13px;")
+            for c in results:
+                it = QListWidgetItem(f"  {c['name']}  — {c['phone']}")
+                it.setData(Qt.UserRole, c)
+                lst.addItem(it)
+            lst.itemDoubleClicked.connect(lambda _: dlg.accept())
+            vl.addWidget(lst)
+            bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            bb.accepted.connect(dlg.accept)
+            bb.rejected.connect(dlg.reject)
+            vl.addWidget(bb)
+            if not dlg.exec() or not lst.currentItem():
+                return
+            c = lst.currentItem().data(Qt.UserRole)
+        self._customer_id   = c["id"]
+        self._customer_name = c["name"]
+        self._cust_name_lbl.setText(c["name"])
+
+    # ── Price check ────────────────────────────────────────────────────────────
+
+    def _price_check(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("POS Price Checking")
+        dlg.setFixedSize(460, 320)
+        dlg.setStyleSheet("background:#fff;")
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(8)
+
+        # ── Barcode row ───────────────────────────────────────────────────
+        bc_row = QHBoxLayout()
+        bc_lbl = QLabel("Barcode:")
+        bc_lbl.setStyleSheet("font-size:13px;font-weight:700;color:#1a1a2e;")
+        bc_row.addWidget(bc_lbl)
+
+        bc_input = QLineEdit()
+        bc_input.setFixedHeight(32)
+        bc_input.setStyleSheet(
+            "font-size:13px;border:2px solid #1a6cb5;border-radius:3px;"
+            "padding:0 8px;background:#fff;color:#1a1a2e;"
+        )
+        bc_row.addWidget(bc_input, 1)
+
+        search_btn = QPushButton("Search 🔍")
+        search_btn.setFixedHeight(32)
+        search_btn.setStyleSheet(
+            "QPushButton{background:#e8f0fb;color:#1a3a5c;font-size:12px;font-weight:700;"
+            "border:1px solid #b0c8e8;border-radius:3px;padding:0 10px;}"
+            "QPushButton:hover{background:#c0d8f0;}"
+        )
+        bc_row.addWidget(search_btn)
+        lay.addLayout(bc_row)
+
+        # ── Check button ──────────────────────────────────────────────────
+        check_btn = QPushButton("Check  ✔")
+        check_btn.setFixedHeight(38)
+        check_btn.setStyleSheet(
+            "QPushButton{background:#e8e8e8;color:#1a1a2e;font-size:15px;font-weight:700;"
+            "border:1px solid #aaa;border-radius:3px;}"
+            "QPushButton:hover{background:#d0d0d0;}"
+        )
+        lay.addWidget(check_btn)
+
+        # ── Result area ───────────────────────────────────────────────────
+        result_frame = QFrame()
+        result_frame.setStyleSheet(
+            "QFrame{background:#fff;border:1px solid #ddd;border-radius:4px;}"
+            "QLabel{background:transparent;}"
+        )
+        rl = QVBoxLayout(result_frame)
+        rl.setContentsMargins(12, 10, 12, 10)
+        rl.setSpacing(4)
+
+        code_lbl = QLabel("")
+        code_lbl.setStyleSheet("font-size:12px;color:#333;")
+        rl.addWidget(code_lbl)
+
+        name_lbl = QLabel("")
+        name_lbl.setStyleSheet("font-size:18px;font-weight:700;color:#cc0000;")
+        name_lbl.setWordWrap(True)
+        rl.addWidget(name_lbl)
+
+        lbp_lbl = QLabel("")
+        lbp_lbl.setStyleSheet("font-size:28px;font-weight:700;color:#cc0000;")
+        rl.addWidget(lbp_lbl)
+
+        usd_lbl = QLabel("")
+        usd_lbl.setStyleSheet("font-size:22px;font-weight:700;color:#cc0000;")
+        rl.addWidget(usd_lbl)
+
+        stock_title = QLabel("Stock Units:")
+        stock_title.setStyleSheet("font-size:12px;font-weight:700;color:#333;")
+        rl.addWidget(stock_title)
+
+        stock_lbl = QLabel("")
+        stock_lbl.setStyleSheet("font-size:16px;font-weight:700;color:#1a1a2e;")
+        rl.addWidget(stock_lbl)
+
+        lay.addWidget(result_frame, 1)
+
+        # ── Buttons ───────────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+
+        self._pc_item = [None]   # holds last found item
+
+        drop_btn = QPushButton("Drop To\nInvoice  ➕")
+        drop_btn.setFixedSize(90, 46)
+        drop_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;font-size:11px;font-weight:700;"
+            "border:none;border-radius:5px;}"
+            "QPushButton:hover{background:#1b5e20;}"
+        )
+
+        close_btn = QPushButton("Close  ✕")
+        close_btn.setFixedSize(70, 46)
+        close_btn.setStyleSheet(
+            "QPushButton{background:#c62828;color:#fff;font-size:11px;font-weight:700;"
+            "border:none;border-radius:5px;}"
+            "QPushButton:hover{background:#a01010;}"
+        )
+        close_btn.clicked.connect(dlg.reject)
+
+        btn_row.addWidget(drop_btn)
+        btn_row.addWidget(close_btn)
+        lay.addLayout(btn_row)
+
+        # ── Logic ─────────────────────────────────────────────────────────
+        def do_check():
+            query = bc_input.text().strip()
+            if not query:
+                return
+            item = PosService.lookup_item(query, currency="USD", price_type=POS_PRICE_TYPE)
+            if not item:
+                name_lbl.setText("NOT FOUND")
+                code_lbl.setText("")
+                lbp_lbl.setText("")
+                usd_lbl.setText("")
+                stock_lbl.setText("")
+                self._pc_item[0] = None
+                return
+            usd_price = item.unit_price if item.currency == "USD" else item.unit_price / LBP_RATE
+            lbp_price = item.unit_price * LBP_RATE if item.currency == "USD" else item.unit_price
+            self._pc_item[0] = item
+            code_lbl.setText(f"Code:   {item.code}")
+            name_lbl.setText(item.description)
+            lbp_lbl.setText(f"{lbp_price:,.0f} LL")
+            usd_lbl.setText(f"{usd_price:.4f} USD")
+            stock_lbl.setText(str(int(item.stock_qty)))
+
+        def do_drop():
+            if self._pc_item[0]:
+                self._add_item(self._pc_item[0])
+                dlg.accept()
+
+        check_btn.clicked.connect(do_check)
+        search_btn.clicked.connect(do_check)
+        bc_input.returnPressed.connect(do_check)
+        drop_btn.clicked.connect(do_drop)
+        QShortcut(QKeySequence("Escape"), dlg).activated.connect(dlg.reject)
+
+        bc_input.setFocus()
+        # Pre-fill if scan input had text
+        if self._scan_input.text().strip():
+            bc_input.setText(self._scan_input.text().strip())
+            do_check()
+
+        dlg.exec()
+
+    # ── Print ──────────────────────────────────────────────────────────────────
+
+    def _print_last(self):
+        if not self._last_invoice_id:
+            QMessageBox.information(self, "Print", "No sale to print yet.")
+            return
+        self._print_receipt(
+            self._last_invoice_id,
+            self._last_payment_method,
+            self._last_tendered,
+            show_preview=True,
+        )
+
+    def _print_receipt(
+        self,
+        invoice_id: str,
+        payment_method: str,
+        tendered: float,
+        show_preview: bool = False,
+    ):
+        from services.pos_service import PosService
+        from utils.receipt_printer import print_receipt
+        data = PosService.get_invoice_for_print(invoice_id)
+        if not data:
+            return
+        print_receipt(data, payment_method, tendered, parent=self, show_preview=show_preview)
+
+    def _open_daily_sales(self):
+        from ui.screens.pos.daily_sales_dialog import DailySalesDialog
+        wh_id = getattr(self, "_warehouse_id", "")
+        dlg = DailySalesDialog(warehouse_id=wh_id, parent=self)
+        dlg.exec()
+        if dlg._shift_was_closed:
+            # Clear current sale — new shift starts clean
+            self._new_sale()
+            self._refresh_held_panel()
+            # Notify the main window to refresh the Sales module if it's loaded
+            main = self.window()
+            if hasattr(main, "_modules") and "sales" in main._modules:
+                main._modules["sales"].refresh()
+
+    def _open_end_of_shift(self):
+        self._open_daily_sales()
+
+    def _placeholder(self):
+        QMessageBox.information(self, "Coming Soon", "This feature is coming soon.")
+
+    # ── Helpers ────────────────────────────────────────────────────────────────
+
+    def _update_clock(self):
+        from datetime import datetime
+        self._clock_lbl.setText(datetime.now().strftime("%a %d %b  %H:%M"))

@@ -1,0 +1,1176 @@
+"""
+Sync Service — pushes local data to Supabase, pulls master data down.
+
+Uses the Supabase REST API (no extra library needed — plain requests).
+Credentials come from .env / config.
+
+Bidirectional sync:
+  Push ↑  items_central, item_prices_central, item_barcodes_central,
+          customers_central, sales_invoices_central, stock_levels,
+          products (online catalog for mobile app)
+  Pull ↓  items_central → local items
+          item_prices_central → local item_prices
+          item_barcodes_central → local item_barcodes
+          customers_central → local customers
+"""
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+BRANCH_ID    = os.getenv("BRANCH_ID", "default")   # set to warehouse UUID in .env
+
+# Stores timestamps of last successful pulls
+_STATE_FILE = Path(__file__).parent.parent / ".sync_state.json"
+
+
+def _state_get(key: str) -> str:
+    try:
+        val = json.loads(_STATE_FILE.read_text()).get(key, "2000-01-01T00:00:00Z")
+        # Normalize to Z format to avoid + encoding issues in URLs
+        return val.replace("+00:00", "Z")
+    except Exception:
+        return "2000-01-01T00:00:00Z"
+
+
+def _state_set(key: str, value: str) -> None:
+    try:
+        # Always store in Z format
+        value = value.replace("+00:00", "Z")
+        data: dict = {}
+        if _STATE_FILE.exists():
+            data = json.loads(_STATE_FILE.read_text())
+        data[key] = value
+        _STATE_FILE.write_text(json.dumps(data))
+    except Exception:
+        pass
+
+
+def _headers() -> dict:
+    return {
+        "apikey":        SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type":  "application/json",
+        "Prefer":        "resolution=merge-duplicates",   # upsert
+    }
+
+
+def _url(table: str) -> str:
+    return f"{SUPABASE_URL}/rest/v1/{table}"
+
+
+def is_configured() -> bool:
+    return bool(SUPABASE_URL and SUPABASE_KEY)
+
+
+# ── Push helpers ──────────────────────────────────────────────────────────────
+
+def upsert_rows(table: str, rows: list[dict]) -> tuple[bool, str]:
+    """Upsert a list of dicts into a Supabase table."""
+    if not rows:
+        return True, ""
+    try:
+        r = requests.post(
+            _url(table),
+            headers=_headers(),
+            json=rows,
+            timeout=15,
+        )
+        if r.status_code not in (200, 201):
+            return False, f"HTTP {r.status_code}: {r.text[:200]}"
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+def delete_row(table: str, row_id: str) -> tuple[bool, str]:
+    try:
+        r = requests.delete(
+            f"{_url(table)}?id=eq.{row_id}",
+            headers=_headers(),
+            timeout=10,
+        )
+        if r.status_code not in (200, 204):
+            return False, f"HTTP {r.status_code}: {r.text[:200]}"
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+# ── Item sync ─────────────────────────────────────────────────────────────────
+
+def push_item(item_id: str) -> tuple[bool, str]:
+    """Push a single item (+ its online price + stock) to Supabase."""
+    from database.engine import get_session, init_db
+    from database.models.items import Item, ItemPrice, ItemStock
+
+    init_db()
+    session = get_session()
+    try:
+        item = session.get(Item, item_id)
+        if not item or not item.is_online:
+            return True, ""
+
+        # Primary barcode
+        primary_bc = next((b.barcode for b in item.barcodes if b.is_primary), "")
+
+        # Individual price (LBP preferred)
+        price_lbp = next(
+            (p.amount for p in item.prices
+             if p.price_type == "individual" and p.currency == "LBP"), 0.0
+        )
+        price_usd = next(
+            (p.amount for p in item.prices
+             if p.price_type == "individual" and p.currency == "USD"), 0.0
+        )
+
+        # Total stock across all warehouses
+        total_stock = sum(s.quantity for s in item.stock_entries)
+
+        cat_name = item.category.name if item.category else ""
+        brand_name = item.brand.name if item.brand else ""
+
+        row = {
+            "id":          item.id,
+            "code":        item.code,
+            "name":        item.name,
+            "name_ar":     item.name_ar or "",
+            "category":    cat_name,
+            "brand":       brand_name,
+            "barcode":     primary_bc,
+            "price_lbp":   price_lbp,
+            "price_usd":   price_usd,
+            "stock":       total_stock,
+            "unit":        item.unit,
+            "is_featured": item.is_featured,
+            "photo_url":   item.photo_url or "",
+            "is_active":   item.is_active and item.is_online,
+            "updated_at":  datetime.now(timezone.utc).isoformat(),
+        }
+        return upsert_rows("products", [row])
+    finally:
+        session.close()
+
+
+def push_stock_update(item_id: str) -> tuple[bool, str]:
+    """Update only the stock field for an item in Supabase."""
+    from database.engine import get_session, init_db
+    from database.models.items import Item
+
+    init_db()
+    session = get_session()
+    try:
+        item = session.get(Item, item_id)
+        if not item or not item.is_online:
+            return True, ""
+        total_stock = sum(s.quantity for s in item.stock_entries)
+        try:
+            r = requests.patch(
+                f"{_url('products')}?id=eq.{item_id}",
+                headers=_headers(),
+                json={"stock": total_stock, "updated_at": datetime.now(timezone.utc).isoformat()},
+                timeout=10,
+            )
+            if r.status_code not in (200, 204):
+                return False, f"HTTP {r.status_code}: {r.text[:200]}"
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+    finally:
+        session.close()
+
+
+# ── Order pull ────────────────────────────────────────────────────────────────
+
+def pull_new_orders() -> tuple[int, str]:
+    """
+    Fetch new orders from Supabase that haven't been imported yet.
+    Returns (count_imported, error).
+    """
+    from database.engine import get_session, init_db
+    from database.models.invoices import OnlineOrder
+
+    if not is_configured():
+        return 0, "Supabase not configured"
+
+    init_db()
+    session = get_session()
+    try:
+        # Fetch orders with status='new' from Supabase
+        r = requests.get(
+            f"{_url('orders')}?status=eq.new&order=created_at.asc",
+            headers={**_headers(), "Prefer": ""},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        orders = r.json()
+        imported = 0
+
+        for o in orders:
+            order_id = o.get("id", "")
+            # Skip if already imported
+            existing = session.get(OnlineOrder, order_id)
+            if existing:
+                continue
+
+            order = OnlineOrder(
+                id             = order_id,
+                customer_name  = o.get("customer_name", ""),
+                customer_phone = o.get("customer_phone", ""),
+                delivery_type  = o.get("delivery_type", "delivery"),
+                address        = o.get("address", ""),
+                notes          = o.get("notes", ""),
+                items_json     = json.dumps(o.get("items", [])),
+                total          = o.get("total", 0.0),
+                currency       = o.get("currency", "LBP"),
+                status         = "new",
+                payment_method = o.get("payment_method", "cash"),
+                ordered_at     = o.get("created_at", datetime.now(timezone.utc).isoformat()),
+            )
+            session.add(order)
+
+            # Mark as 'confirmed' on Supabase so we don't pull it again
+            requests.patch(
+                f"{_url('orders')}?id=eq.{order_id}",
+                headers=_headers(),
+                json={"status": "confirmed"},
+                timeout=10,
+            )
+
+            imported += 1
+
+        session.commit()
+        return imported, ""
+
+    except Exception as e:
+        session.rollback()
+        return 0, str(e)
+    finally:
+        session.close()
+
+
+# ── Sync queue drain ──────────────────────────────────────────────────────────
+
+def drain_sync_queue(batch_size: int = 50) -> tuple[int, int]:
+    """
+    Process pending sync_queue rows.
+    Returns (synced_count, failed_count).
+    """
+    from database.engine import get_session, init_db
+    from database.models.sync import SyncQueue
+
+    if not is_configured():
+        return 0, 0
+
+    init_db()
+    session = get_session()
+    synced = failed = 0
+
+    try:
+        rows = (
+            session.query(SyncQueue)
+            .filter(SyncQueue.sync_status == "pending", SyncQueue.retry_count < 3)
+            .limit(batch_size)
+            .all()
+        )
+
+        for row in rows:
+            ok, err = _process_sync_row(row)
+            if ok:
+                row.sync_status = "synced"
+                row.synced_at   = datetime.now(timezone.utc).isoformat()
+                synced += 1
+            else:
+                row.retry_count += 1
+                row.last_error   = err
+                if row.retry_count >= 3:
+                    row.sync_status = "failed"
+                failed += 1
+
+        session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+
+    return synced, failed
+
+
+def _process_sync_row(row) -> tuple[bool, str]:
+    """Route a sync_queue row to the right push function."""
+    try:
+        payload = json.loads(row.payload_json)
+    except Exception:
+        return False, "Invalid JSON payload"
+
+    if row.entity_type == "item":
+        # Push to both online catalog (products) and master data (items_central)
+        ok1, err1 = push_item(row.entity_id)
+        ok2, err2 = push_item_master(row.entity_id)
+        if not ok1:
+            return False, err1
+        if not ok2:
+            return False, err2
+        return True, ""
+
+    if row.entity_type == "item_stock":
+        return push_stock_update(row.entity_id)
+
+    if row.entity_type == "sales_invoice":
+        try:
+            item_ids = payload.get("item_ids", [])
+            # Push invoice to central
+            ok, err = push_invoice(row.entity_id)
+            if not ok:
+                return False, err
+            # Update stock levels for each sold item
+            for iid in item_ids:
+                push_stock_update(iid)
+                push_stock_level(iid)
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+
+    if row.entity_type == "customer":
+        return push_customer_master(row.entity_id)
+
+    return True, ""   # unknown type — skip silently
+
+
+# ── Master data push ───────────────────────────────────────────────────────────
+
+def push_item_master(item_id: str) -> tuple[bool, str]:
+    """Push full item data (not just online fields) to items_central."""
+    from database.engine import get_session, init_db
+    from database.models.items import Item
+
+    if not is_configured():
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        item = session.get(Item, item_id)
+        if not item or not item.is_active:
+            return True, ""
+
+        cat_name   = item.category.name if item.category else ""
+        brand_name = item.brand.name    if item.brand    else ""
+        now        = datetime.now(timezone.utc).isoformat()
+
+        # Upsert item
+        item_row = {
+            "id": item.id, "code": item.code, "name": item.name,
+            "name_ar": item.name_ar or "", "category": cat_name,
+            "brand": brand_name, "unit": item.unit,
+            "cost_price": item.cost_price, "cost_currency": item.cost_currency or "USD",
+            "vat_rate": item.vat_rate, "is_active": item.is_active,
+            "is_online": item.is_online, "is_pos_featured": item.is_pos_featured,
+            "photo_url": item.photo_url or "", "notes": item.notes or "",
+            "updated_at": now, "pushed_by": BRANCH_ID,
+        }
+        ok, err = upsert_rows("items_central", [item_row])
+        if not ok:
+            return False, err
+
+        # Upsert prices
+        price_rows = [
+            {
+                "id": p.id, "item_id": item.id,
+                "price_type": p.price_type, "amount": p.amount,
+                "currency": p.currency, "updated_at": now,
+            }
+            for p in item.prices
+        ]
+        if price_rows:
+            ok, err = upsert_rows("item_prices_central", price_rows)
+            if not ok:
+                return False, err
+
+        # Upsert barcodes
+        bc_rows = [
+            {
+                "id": b.id, "item_id": item.id,
+                "barcode": b.barcode, "is_primary": b.is_primary,
+                "pack_qty": b.pack_qty or 1, "updated_at": now,
+            }
+            for b in item.barcodes
+        ]
+        if bc_rows:
+            ok, err = upsert_rows("item_barcodes_central", bc_rows)
+            if not ok:
+                return False, err
+
+        return True, ""
+    finally:
+        session.close()
+
+
+def push_invoice(invoice_id: str) -> tuple[bool, str]:
+    """Push a finalized sales invoice + line items to Supabase central."""
+    from database.engine import get_session, init_db
+    from database.models.invoices import SalesInvoice
+
+    if not is_configured():
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        inv = session.get(SalesInvoice, invoice_id)
+        if not inv:
+            return True, ""
+
+        customer_name = inv.customer.name if inv.customer else ""
+        inv_row = {
+            "id":             inv.id,
+            "branch_id":      BRANCH_ID,
+            "invoice_number": inv.invoice_number,
+            "customer_id":    inv.customer_id,
+            "customer_name":  customer_name,
+            "operator_id":    inv.operator_id,
+            "invoice_date":   inv.invoice_date,
+            "total":          inv.total,
+            "currency":       inv.currency,
+            "status":         inv.status,
+            "payment_status": inv.payment_status,
+            "amount_paid":    inv.amount_paid,
+            "notes":          inv.notes or "",
+            "synced_at":      datetime.now(timezone.utc).isoformat(),
+        }
+        ok, err = upsert_rows("sales_invoices_central", [inv_row])
+        if not ok:
+            return False, err
+
+        item_rows = [
+            {
+                "id":         li.id,
+                "invoice_id": inv.id,
+                "item_id":    li.item_id,
+                "item_name":  li.item_name,
+                "barcode":    li.barcode or "",
+                "quantity":   li.quantity,
+                "unit_price": li.unit_price,
+                "currency":   li.currency,
+                "line_total": li.line_total,
+            }
+            for li in inv.items
+        ]
+        if item_rows:
+            ok, err = upsert_rows("sales_invoice_items_central", item_rows)
+            if not ok:
+                return False, err
+
+        return True, ""
+    finally:
+        session.close()
+
+
+def push_stock_level(item_id: str) -> tuple[bool, str]:
+    """Update the stock_levels table for this item + branch."""
+    from database.engine import get_session, init_db
+    from database.models.items import Item
+
+    if not is_configured() or not BRANCH_ID:
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        item = session.get(Item, item_id)
+        if not item:
+            return True, ""
+        total_stock = sum(s.quantity for s in item.stock_entries)
+        try:
+            r = requests.post(
+                _url("stock_levels"),
+                headers=_headers(),
+                json={
+                    "item_id":    item_id,
+                    "branch_id":  BRANCH_ID,
+                    "quantity":   total_stock,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                timeout=10,
+            )
+            if r.status_code not in (200, 201):
+                return False, f"HTTP {r.status_code}: {r.text[:200]}"
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+    finally:
+        session.close()
+
+
+def push_customer_master(customer_id: str) -> tuple[bool, str]:
+    """Push a customer record to customers_central."""
+    from database.engine import get_session, init_db
+    from database.models.parties import Customer
+
+    if not is_configured():
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        c = session.get(Customer, customer_id)
+        if not c:
+            return True, ""
+        row = {
+            "id": c.id, "name": c.name, "code": c.code or "",
+            "phone": c.phone or "", "email": c.email or "",
+            "address": c.address or "", "balance": c.balance,
+            "currency": c.currency, "is_active": c.is_active,
+            "is_cash_client": c.is_cash_client,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "pushed_by": BRANCH_ID,
+        }
+        return upsert_rows("customers_central", [row])
+    finally:
+        session.close()
+
+
+# ── Master data pull ───────────────────────────────────────────────────────────
+
+def pull_master_items() -> tuple[int, str]:
+    """
+    Pull item changes from items_central since last pull.
+    Updates local SQLite items, prices, barcodes.
+    Returns (updated_count, error).
+    """
+    from database.engine import get_session, init_db
+    from database.models.items import Item, ItemPrice, ItemBarcode, Category, Brand
+    from database.models.base import new_uuid
+
+    if not is_configured():
+        return 0, ""
+
+    last_pull = _state_get("items_pull")
+
+    try:
+        # Fetch changed items
+        r = requests.get(
+            f"{_url('items_central')}?updated_at=gt.{last_pull}&order=updated_at.asc&limit=500",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote_items = r.json()
+        if not remote_items:
+            return 0, ""
+
+        item_ids = [i["id"] for i in remote_items]
+
+        # Fetch prices for these items
+        ids_filter = ",".join(f'"{iid}"' for iid in item_ids)
+        rp = requests.get(
+            f"{_url('item_prices_central')}?item_id=in.({ids_filter})",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        prices_by_item: dict[str, list] = {}
+        if rp.status_code == 200:
+            for p in rp.json():
+                prices_by_item.setdefault(p["item_id"], []).append(p)
+
+        # Fetch barcodes
+        rb = requests.get(
+            f"{_url('item_barcodes_central')}?item_id=in.({ids_filter})",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        barcodes_by_item: dict[str, list] = {}
+        if rb.status_code == 200:
+            for b in rb.json():
+                barcodes_by_item.setdefault(b["item_id"], []).append(b)
+
+        init_db()
+        session = get_session()
+        updated = 0
+        latest_ts = last_pull
+
+        try:
+            # Build category/brand lookup by name
+            cats   = {c.name: c.id for c in session.query(Category).all()}
+            brands = {b.name: b.id for b in session.query(Brand).all()}
+
+            for ri in remote_items:
+                item = session.get(Item, ri["id"])
+                if not item:
+                    item = Item(id=ri["id"])
+                    session.add(item)
+
+                # Skip if pushed by this branch (we are the source)
+                if ri.get("pushed_by") == BRANCH_ID:
+                    latest_ts = ri["updated_at"]
+                    continue
+
+                item.code           = ri["code"]
+                item.name           = ri["name"]
+                item.name_ar        = ri.get("name_ar") or ""
+                item.unit           = ri.get("unit") or "PCS"
+                item.cost_price     = ri.get("cost_price") or 0
+                item.cost_currency  = ri.get("cost_currency") or "USD"
+                item.vat_rate       = ri.get("vat_rate") or 0
+                item.is_active      = ri.get("is_active", True)
+                item.is_online      = ri.get("is_online", False)
+                item.is_pos_featured = ri.get("is_pos_featured", False)
+                item.photo_url      = ri.get("photo_url") or ""
+                item.notes          = ri.get("notes") or ""
+
+                cat_name   = ri.get("category") or ""
+                brand_name = ri.get("brand") or ""
+                item.category_id = cats.get(cat_name)
+                item.brand_id    = brands.get(brand_name)
+
+                # Upsert prices
+                for rp_row in prices_by_item.get(ri["id"], []):
+                    price = session.get(ItemPrice, rp_row["id"])
+                    if not price:
+                        price = ItemPrice(id=rp_row["id"], item_id=ri["id"])
+                        session.add(price)
+                    price.price_type = rp_row["price_type"]
+                    price.amount     = rp_row["amount"]
+                    price.currency   = rp_row["currency"]
+
+                # Upsert barcodes
+                for rb_row in barcodes_by_item.get(ri["id"], []):
+                    bc = session.get(ItemBarcode, rb_row["id"])
+                    if not bc:
+                        bc = ItemBarcode(id=rb_row["id"], item_id=ri["id"])
+                        session.add(bc)
+                    bc.barcode    = rb_row["barcode"]
+                    bc.is_primary = rb_row.get("is_primary", False)
+                    bc.pack_qty   = rb_row.get("pack_qty", 1)
+
+                latest_ts = ri["updated_at"]
+                updated += 1
+
+            session.commit()
+            _state_set("items_pull", latest_ts)
+            return updated, ""
+
+        except Exception as e:
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+
+    except Exception as e:
+        return 0, str(e)
+
+
+def pull_master_customers() -> tuple[int, str]:
+    """
+    Pull customer changes from customers_central since last pull.
+    Returns (updated_count, error).
+    """
+    from database.engine import get_session, init_db
+    from database.models.parties import Customer
+
+    if not is_configured():
+        return 0, ""
+
+    last_pull = _state_get("customers_pull")
+
+    try:
+        r = requests.get(
+            f"{_url('customers_central')}?updated_at=gt.{last_pull}"
+            f"&order=updated_at.asc&limit=500",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote = r.json()
+        if not remote:
+            return 0, ""
+
+        init_db()
+        session = get_session()
+        updated  = 0
+        latest_ts = last_pull
+
+        try:
+            for rc in remote:
+                if rc.get("pushed_by") == BRANCH_ID:
+                    latest_ts = rc["updated_at"]
+                    continue
+
+                c = session.get(Customer, rc["id"])
+                if not c:
+                    c = Customer(id=rc["id"])
+                    session.add(c)
+
+                c.name           = rc["name"]
+                c.code           = rc.get("code") or None
+                c.phone          = rc.get("phone") or None
+                c.email          = rc.get("email") or None
+                c.address        = rc.get("address") or None
+                c.balance        = rc.get("balance", 0)
+                c.currency       = rc.get("currency", "USD")
+                c.is_active      = rc.get("is_active", True)
+                c.is_cash_client = rc.get("is_cash_client", False)
+
+                latest_ts = rc["updated_at"]
+                updated += 1
+
+            session.commit()
+            _state_set("customers_pull", latest_ts)
+            return updated, ""
+
+        except Exception as e:
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+
+    except Exception as e:
+        return 0, str(e)
+
+
+# ── Stock movements push/pull ─────────────────────────────────────────────────
+
+def push_stock_movements_for_invoice(reference_id: str) -> tuple[bool, str]:
+    """
+    Push all StockMovement rows for a given invoice/reference to Supabase.
+    Called after purchase or sale is committed.
+    """
+    from database.engine import get_session, init_db
+    from database.models.stock import StockMovement
+
+    if not is_configured():
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        movements = session.query(StockMovement).filter_by(
+            reference_id=reference_id
+        ).all()
+        if not movements:
+            return True, ""
+
+        rows = [
+            {
+                "id":             mv.id,
+                "item_id":        mv.item_id,
+                "warehouse_id":   mv.warehouse_id,
+                "qty_change":     mv.quantity,   # positive=IN, negative=OUT
+                "movement_type":  mv.movement_type,
+                "reference_type": mv.reference_type or "",
+                "reference_id":   mv.reference_id or "",
+                "branch_id":      BRANCH_ID,
+                "created_at":     mv.created_at or datetime.now(timezone.utc).isoformat(),
+            }
+            for mv in movements
+        ]
+        return upsert_rows("stock_movements_central", rows)
+    finally:
+        session.close()
+
+
+def pull_stock_movements() -> tuple[int, str]:
+    """
+    Pull stock movements from OTHER branches since last pull.
+    Applies qty changes to local ItemStock.
+    Skips movements already applied or originating from this branch.
+    Returns (applied_count, error).
+    """
+    from database.engine import get_session, init_db
+    from database.models.items import ItemStock
+    from database.models.base import new_uuid
+    import sqlalchemy
+
+    if not is_configured():
+        return 0, ""
+
+    last_pull = _state_get("movements_pull")
+
+    try:
+        r = requests.get(
+            f"{_url('stock_movements_central')}"
+            f"?created_at=gt.{last_pull}"
+            f"&branch_id=neq.{BRANCH_ID}"
+            f"&order=created_at.asc&limit=1000",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote = r.json()
+        if not remote:
+            return 0, ""
+
+        init_db()
+        session = get_session()
+        applied  = 0
+        latest_ts = last_pull
+
+        try:
+            for rm in remote:
+                mv_id = rm["id"]
+
+                # Skip if already applied
+                already = session.execute(
+                    sqlalchemy.text(
+                        "SELECT 1 FROM applied_central_movements WHERE movement_id=:id"
+                    ),
+                    {"id": mv_id},
+                ).fetchone()
+                if already:
+                    latest_ts = rm["created_at"]
+                    continue
+
+                item_id      = rm["item_id"]
+                warehouse_id = rm["warehouse_id"]
+                qty_change   = rm["qty_change"]
+
+                # Apply to local ItemStock
+                stock = session.query(ItemStock).filter_by(
+                    item_id=item_id, warehouse_id=warehouse_id
+                ).first()
+                if stock:
+                    stock.quantity += qty_change
+                else:
+                    stock = ItemStock(
+                        id=new_uuid(),
+                        item_id=item_id,
+                        warehouse_id=warehouse_id,
+                        quantity=qty_change,
+                    )
+                    session.add(stock)
+
+                # Mark as applied
+                session.execute(
+                    sqlalchemy.text(
+                        "INSERT OR IGNORE INTO applied_central_movements"
+                        " (movement_id, applied_at) VALUES (:id, :ts)"
+                    ),
+                    {"id": mv_id, "ts": datetime.now(timezone.utc).isoformat()},
+                )
+
+                latest_ts = rm["created_at"]
+                applied += 1
+
+            session.commit()
+            _state_set("movements_pull", latest_ts)
+            return applied, ""
+
+        except Exception as e:
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+
+    except Exception as e:
+        return 0, str(e)
+
+
+# ── User sync ─────────────────────────────────────────────────────────────────
+
+def push_user(user_id: str) -> tuple[bool, str]:
+    """Push a user record to users_central."""
+    from database.engine import get_session, init_db
+    from database.models.users import User
+
+    if not is_configured():
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        u = session.get(User, user_id)
+        if not u:
+            return True, ""
+        row = {
+            "id":            u.id,
+            "username":      u.username,
+            "password_hash": u.password_hash,
+            "full_name":     u.full_name,
+            "role":          u.role,
+            "warehouse_id":  u.warehouse_id or "",
+            "is_active":     u.is_active,
+            "updated_at":    datetime.now(timezone.utc).isoformat(),
+            "pushed_by":     BRANCH_ID,
+        }
+        return upsert_rows("users_central", [row])
+    finally:
+        session.close()
+
+
+def pull_users() -> tuple[int, str]:
+    """Pull user changes from users_central since last pull."""
+    from database.engine import get_session, init_db
+    from database.models.users import User
+
+    if not is_configured():
+        return 0, ""
+
+    last_pull = _state_get("users_pull")
+
+    try:
+        r = requests.get(
+            f"{_url('users_central')}?updated_at=gt.{last_pull}"
+            f"&order=updated_at.asc&limit=200",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote = r.json()
+        if not remote:
+            return 0, ""
+
+        init_db()
+        session = get_session()
+        updated   = 0
+        latest_ts = last_pull
+
+        try:
+            for ru in remote:
+                u = session.get(User, ru["id"])
+                if not u:
+                    u = User(id=ru["id"])
+                    session.add(u)
+
+                u.username      = ru["username"]
+                u.password_hash = ru["password_hash"]
+                u.full_name     = ru["full_name"]
+                u.role          = ru["role"]
+                u.warehouse_id  = ru.get("warehouse_id") or None
+                u.is_active     = ru.get("is_active", True)
+
+                latest_ts = ru["updated_at"]
+                updated += 1
+
+            session.commit()
+            _state_set("users_pull", latest_ts)
+            return updated, ""
+
+        except Exception as e:
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+
+    except Exception as e:
+        return 0, str(e)
+
+
+# ── Purchase invoice sync ─────────────────────────────────────────────────────
+
+def push_purchase_invoice(invoice_id: str) -> tuple[bool, str]:
+    """Push a purchase invoice + line items to purchase_invoices_central."""
+    from database.engine import get_session, init_db
+    from database.models.invoices import PurchaseInvoice
+
+    if not is_configured():
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        inv = session.get(PurchaseInvoice, invoice_id)
+        if not inv:
+            return True, ""
+
+        supplier_name = inv.supplier.name if inv.supplier else ""
+        inv_row = {
+            "id":             inv.id,
+            "branch_id":      BRANCH_ID,
+            "invoice_number": inv.invoice_number,
+            "supplier_id":    inv.supplier_id or "",
+            "supplier_name":  supplier_name,
+            "operator_id":    inv.operator_id or "",
+            "warehouse_id":   inv.warehouse_id or "",
+            "invoice_date":   inv.invoice_date,
+            "due_date":       inv.due_date or "",
+            "order_number":   inv.order_number or "",
+            "subtotal":       inv.subtotal,
+            "total":          inv.total,
+            "currency":       inv.currency,
+            "status":         inv.status,
+            "payment_status": inv.payment_status,
+            "notes":          inv.notes or "",
+            "synced_at":      datetime.now(timezone.utc).isoformat(),
+        }
+        ok, err = upsert_rows("purchase_invoices_central", [inv_row])
+        if not ok:
+            return False, err
+
+        item_rows = [
+            {
+                "id":         li.id,
+                "invoice_id": inv.id,
+                "item_id":    li.item_id,
+                "item_name":  li.item_name,
+                "quantity":   li.quantity,
+                "pack_size":  li.pack_size or 1,
+                "unit_cost":  li.unit_cost,
+                "currency":   li.currency,
+                "line_total": li.line_total,
+            }
+            for li in inv.items
+        ]
+        if item_rows:
+            ok, err = upsert_rows("purchase_invoice_items_central", item_rows)
+            if not ok:
+                return False, err
+
+        return True, ""
+    finally:
+        session.close()
+
+
+def pull_purchase_invoices() -> tuple[int, str]:
+    """
+    Pull purchase invoices from OTHER branches since last pull.
+    Stores them locally as read-only records (for visibility across branches).
+    Returns (count, error).
+    """
+    from database.engine import get_session, init_db
+    from database.models.invoices import PurchaseInvoice, PurchaseInvoiceItem
+    from database.models.base import new_uuid
+
+    if not is_configured():
+        return 0, ""
+
+    last_pull = _state_get("purchase_invoices_pull")
+
+    try:
+        r = requests.get(
+            f"{_url('purchase_invoices_central')}"
+            f"?synced_at=gt.{last_pull}"
+            f"&branch_id=neq.{BRANCH_ID}"
+            f"&order=synced_at.asc&limit=500",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote = r.json()
+        if not remote:
+            return 0, ""
+
+        inv_ids = [i["id"] for i in remote]
+        ids_filter = ",".join(f'"{iid}"' for iid in inv_ids)
+
+        # Fetch line items for these invoices
+        rl = requests.get(
+            f"{_url('purchase_invoice_items_central')}?invoice_id=in.({ids_filter})",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        lines_by_inv: dict[str, list] = {}
+        if rl.status_code == 200:
+            for li in rl.json():
+                lines_by_inv.setdefault(li["invoice_id"], []).append(li)
+
+        init_db()
+        session = get_session()
+        pulled = 0
+        latest_ts = last_pull
+
+        try:
+            for ri in remote:
+                inv = session.get(PurchaseInvoice, ri["id"])
+                if inv:
+                    # Already exists — update header fields only
+                    inv.payment_status = ri.get("payment_status", inv.payment_status)
+                    inv.status         = ri.get("status", inv.status)
+                    inv.notes          = ri.get("notes") or inv.notes
+                else:
+                    inv = PurchaseInvoice(
+                        id=ri["id"],
+                        invoice_number=ri["invoice_number"],
+                        supplier_id=ri.get("supplier_id") or None,
+                        operator_id=ri.get("operator_id") or "",
+                        warehouse_id=ri.get("warehouse_id") or "",
+                        invoice_date=ri["invoice_date"],
+                        due_date=ri.get("due_date") or None,
+                        order_number=ri.get("order_number") or None,
+                        invoice_type="purchase",
+                        subtotal=ri.get("subtotal", 0),
+                        total=ri.get("total", 0),
+                        currency=ri.get("currency", "USD"),
+                        status=ri.get("status", "finalized"),
+                        payment_status=ri.get("payment_status", "unpaid"),
+                        notes=ri.get("notes") or None,
+                    )
+                    session.add(inv)
+                    session.flush()
+
+                    # Add line items
+                    for li in lines_by_inv.get(ri["id"], []):
+                        existing_li = session.get(PurchaseInvoiceItem, li["id"])
+                        if not existing_li:
+                            session.add(PurchaseInvoiceItem(
+                                id=li["id"],
+                                invoice_id=ri["id"],
+                                item_id=li.get("item_id") or "",
+                                item_name=li["item_name"],
+                                quantity=li["quantity"],
+                                pack_size=li.get("pack_size", 1),
+                                unit_cost=li["unit_cost"],
+                                currency=li.get("currency", "USD"),
+                                line_total=li["line_total"],
+                            ))
+
+                latest_ts = ri["synced_at"]
+                pulled += 1
+
+            session.commit()
+            _state_set("purchase_invoices_pull", latest_ts)
+            return pulled, ""
+
+        except Exception as e:
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+
+    except Exception as e:
+        return 0, str(e)
+
+
+# ── Enqueue helper (called from services) ────────────────────────────────────
+
+def enqueue(entity_type: str, entity_id: str, action: str, payload: dict) -> None:
+    """Add a row to sync_queue. Call after any local write that needs syncing."""
+    from database.engine import get_session
+    from database.models.sync import SyncQueue
+    from database.models.base import new_uuid
+
+    session = get_session()
+    try:
+        session.add(SyncQueue(
+            id           = new_uuid(),
+            entity_type  = entity_type,
+            entity_id    = entity_id,
+            action_type  = action,
+            payload_json = json.dumps(payload),
+            sync_status  = "pending",
+        ))
+        session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
