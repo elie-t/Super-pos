@@ -447,6 +447,8 @@ def push_invoice(invoice_id: str) -> tuple[bool, str]:
             "payment_status": inv.payment_status,
             "amount_paid":    inv.amount_paid,
             "notes":          inv.notes or "",
+            "source":         inv.source or "manual",
+            "invoice_type":   inv.invoice_type or "sale",
             "synced_at":      datetime.now(timezone.utc).isoformat(),
         }
         ok, err = upsert_rows("sales_invoices_central", [inv_row])
@@ -1241,6 +1243,10 @@ def pull_sales_invoices() -> tuple[int, str]:
                 if inv:
                     inv.payment_status = ri.get("payment_status", inv.payment_status)
                     inv.status         = ri.get("status", inv.status)
+                    if ri.get("source"):
+                        inv.source       = ri["source"]
+                    if ri.get("invoice_type"):
+                        inv.invoice_type = ri["invoice_type"]
                 else:
                     # Skip if invoice_number already taken by a local invoice
                     clash = session.query(SalesInvoice).filter_by(
@@ -1264,7 +1270,8 @@ def pull_sales_invoices() -> tuple[int, str]:
                         payment_status=ri.get("payment_status", "unpaid"),
                         amount_paid=ri.get("amount_paid", 0),
                         notes=ri.get("notes") or None,
-                        source="backoffice",
+                        source=ri.get("source") or "manual",
+                        invoice_type=ri.get("invoice_type") or "sale",
                     )
                     session.add(inv)
                     session.flush()
