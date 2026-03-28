@@ -619,7 +619,7 @@ def pull_master_items() -> tuple[int, str]:
                     continue
 
                 item.code           = ri.get("code") or ri["id"][:12]
-                item.name           = ri["name"]
+                item.name           = ri.get("name") or ri.get("code") or ri["id"][:12]
                 item.name_ar        = ri.get("name_ar") or ""
                 item.unit           = ri.get("unit") or "PCS"
                 item.cost_price     = ri.get("cost_price") or 0
