@@ -21,6 +21,8 @@ class _SyncAllWorker(QThread):
             pull_stock_movements, pull_users,
             pull_purchase_invoices, pull_suppliers,
             pull_sales_invoices, pull_warehouses,
+            pull_categories, pull_transfers,
+            push_categories,
             drain_sync_queue,
         )
         from sync.push_all import push_all_online_items
@@ -70,6 +72,17 @@ class _SyncAllWorker(QThread):
         self.progress.emit("Pulling purchase invoices…")
         n, err = pull_purchase_invoices()
         results.append(f"Purchase invoices pulled: {n}" + (f" ⚠ {err}" if err else ""))
+
+        self.progress.emit("Pushing categories…")
+        push_categories()
+
+        self.progress.emit("Pulling categories…")
+        n, err = pull_categories()
+        results.append(f"Categories pulled: {n}" + (f" ⚠ {err}" if err else ""))
+
+        self.progress.emit("Pulling transfers…")
+        n, err = pull_transfers()
+        results.append(f"Transfers pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
         self.finished.emit("\n".join(results))
 

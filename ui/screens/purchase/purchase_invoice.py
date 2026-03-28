@@ -437,17 +437,18 @@ class PurchaseInvoiceScreen(QWidget):
 
     # Table column indices
     COL_NUM  = 0
-    COL_CODE = 1
-    COL_BC   = 2
-    COL_DESC = 3
-    COL_BOX  = 4
-    COL_PCS  = 5
-    COL_PRC  = 6
-    COL_DSC  = 7
-    COL_VAT  = 8
-    COL_TOT  = 9
-    COL_EDIT = 10
-    COL_DEL  = 11
+    COL_W    = 1
+    COL_CODE = 2
+    COL_BC   = 3
+    COL_DESC = 4
+    COL_BOX  = 5
+    COL_PCS  = 6
+    COL_PRC  = 7
+    COL_DSC  = 8
+    COL_VAT  = 9
+    COL_TOT  = 10
+    COL_EDIT = 11
+    COL_DEL  = 12
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -456,6 +457,7 @@ class PurchaseInvoiceScreen(QWidget):
         self._current_item: PurchaseLineItem | None = None
         self._current_pack_qty = 1
         self._editing_row: int = -1           # -1 = new line, ≥0 = editing existing row
+        self._wh_num_map: dict[str, int] = {} # wh_id → warehouse number
         self._build_ui()
         self._load_defaults()
 
@@ -616,7 +618,7 @@ class PurchaseInvoiceScreen(QWidget):
 
         lay.addSpacing(8)
 
-        # Box (always visible; disabled when pack_qty == 1)
+        # Box
         self._box_lbl = QLabel("Box:")
         self._box_lbl.setStyleSheet("font-weight:600;")
         lay.addWidget(self._box_lbl)
@@ -727,9 +729,9 @@ class PurchaseInvoiceScreen(QWidget):
 
     def _make_table(self):
         self._table = QTableWidget()
-        self._table.setColumnCount(12)
+        self._table.setColumnCount(13)
         self._table.setHorizontalHeaderLabels([
-            "#", "Code", "Barcode", "Description",
+            "#", "W", "Code", "Barcode", "Description",
             "Box", "Pcs", "Price", "Disc%", "VAT%", "Total", "", "",
         ])
         self._table.setAlternatingRowColors(True)
@@ -755,14 +757,17 @@ class PurchaseInvoiceScreen(QWidget):
         self._table.installEventFilter(self)
         hdr = self._table.horizontalHeader()
         # Description stretches to fill available space
-        hdr.setSectionResizeMode(3, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(self.COL_DESC, QHeaderView.Stretch)
         # Numeric columns: fixed minimum widths so editors are comfortable
-        for col in (0, 1, 2):
+        for col in (self.COL_NUM, self.COL_W, self.COL_CODE, self.COL_BC):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
-        for col, w in ((4, 52), (5, 72), (6, 90), (7, 68), (8, 68), (9, 90)):
+        for col, w in (
+            (self.COL_BOX, 52), (self.COL_PCS, 72), (self.COL_PRC, 90),
+            (self.COL_DSC, 68), (self.COL_VAT, 68), (self.COL_TOT, 90),
+        ):
             hdr.setSectionResizeMode(col, QHeaderView.Fixed)
             self._table.setColumnWidth(col, w)
-        for col in (10, 11):                                   # edit/del buttons
+        for col in (self.COL_EDIT, self.COL_DEL):              # edit/del buttons
             hdr.setSectionResizeMode(col, QHeaderView.Fixed)
             self._table.setColumnWidth(col, 30)
         # Taller rows — editor fits comfortably
@@ -905,12 +910,15 @@ class PurchaseInvoiceScreen(QWidget):
 
     def _load_defaults(self):
         warehouses = ItemService.get_warehouses()
+        self._wh_num_map = {}
         self._wh_combo.blockSignals(True)
         self._wh_combo.clear()
-        for wh_id, wh_name, is_default, _wh_num, _def_cust in warehouses:
+        for wh_id, wh_name, is_default, wh_num, _def_cust in warehouses:
             self._wh_combo.addItem(wh_name, wh_id)
             if is_default:
                 self._wh_combo.setCurrentText(wh_name)
+            if wh_num is not None:
+                self._wh_num_map[wh_id] = wh_num
         self._wh_combo.blockSignals(False)
         self._wh_combo.currentIndexChanged.connect(self._on_warehouse_changed)
         self._refresh_invoice_number()
@@ -1017,22 +1025,26 @@ class PurchaseInvoiceScreen(QWidget):
         self._block_total(False)
 
         self._set_box_enabled(item.pack_qty)
-        if item.pack_qty > 1:
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._box_spin.setFocus)
-            QTimer.singleShot(0, self._box_spin.selectAll)
+        self._bc_input.clearFocus()
+        if self._current_pack_qty > 1:
+            QTimer.singleShot(0, self._focus_box)
         else:
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._pcs_spin.setFocus)
-            QTimer.singleShot(0, self._pcs_spin.selectAll)
+            QTimer.singleShot(0, self._focus_pcs)
+
+    def _focus_box(self):
+        self._box_spin.setFocus()
+        self._box_spin.selectAll()
+
+    def _focus_pcs(self):
+        self._pcs_spin.setFocus()
+        self._pcs_spin.selectAll()
 
     def _set_box_enabled(self, pack_qty: int):
-        enabled = pack_qty > 1
-        self._box_spin.setEnabled(enabled)
+        active = pack_qty > 1
         self._box_lbl.setStyleSheet(
-            "font-weight:600;" if enabled else "font-weight:600;color:#aaa;"
+            "font-weight:600;" if active else "font-weight:600;color:#aaa;"
         )
-        self._pcs_lbl.setText(f"Pcs ({pack_qty}):" if enabled else "Pcs:")
+        self._pcs_lbl.setText(f"Pcs ({pack_qty}):" if active else "Pcs:")
 
     def _on_box_changed(self, val):
         if self._current_pack_qty > 1:
@@ -1074,23 +1086,12 @@ class PurchaseInvoiceScreen(QWidget):
         dlg = ItemPickerDialog(query, self)
         if dlg.exec() and dlg.chosen:
             row = dlg.chosen
-            # Build a minimal PurchaseLineItem from the dict
-            item = PurchaseLineItem(
-                item_id  = row["item_id"],
-                code     = row["code"],
-                barcode  = row["barcode"],
-                description = row["name"],
-                pack_qty = row["pack_qty"],
-                box_qty  = 0,
-                pcs_qty  = 1,
-                price    = row["cost"],
-                disc_pct = 0.0,
-                vat_pct  = 0.0,
-                total    = row["cost"],
-                last_cost = row["cost"],
-            )
+            # Use lookup_item so pack_qty is resolved correctly (box barcode check)
+            item = PurchaseService.lookup_item(row["code"], "code")
+            if not item:
+                return
             self._current_item = item
-            self._current_pack_qty = row["pack_qty"]
+            self._current_pack_qty = item.pack_qty
 
             self._bc_input.setText(row["barcode"] or row["code"])
             self._item_desc_label.setText(row["name"][:36])
@@ -1108,13 +1109,11 @@ class PurchaseInvoiceScreen(QWidget):
             self._block_total(False)
 
             self._set_box_enabled(row["pack_qty"])
-            from PySide6.QtCore import QTimer
-            if row["pack_qty"] > 1:
-                QTimer.singleShot(0, self._box_spin.setFocus)
-                QTimer.singleShot(0, self._box_spin.selectAll)
+            self._bc_input.clearFocus()
+            if self._current_pack_qty > 1:
+                QTimer.singleShot(0, self._focus_box)
             else:
-                QTimer.singleShot(0, self._pcs_spin.setFocus)
-                QTimer.singleShot(0, self._pcs_spin.selectAll)
+                QTimer.singleShot(0, self._focus_pcs)
 
     def _open_calculator(self, initial: float, target: str, row: int):
         """Open calculator. On accept, push value to price field or table cell."""
@@ -1290,6 +1289,9 @@ class PurchaseInvoiceScreen(QWidget):
         self._table_updating = True
         self._table.setRowCount(0)
         self._table.setRowCount(len(self._lines))
+        wh_id = self._wh_combo.currentData() or ""
+        wh_num = self._wh_num_map.get(wh_id, "")
+        wh_str = str(wh_num) if wh_num != "" else ""
         for row, line in enumerate(self._lines):
             item = line["item"]
             pkg = line["pkg"]
@@ -1299,6 +1301,7 @@ class PurchaseInvoiceScreen(QWidget):
             pcs_str = f"({int(pcs)})" if pkg > 1 else f"{pcs:.3f}"
             vals = [
                 str(row + 1),
+                wh_str,
                 item.code,
                 item.barcode,
                 item.description,
@@ -1314,7 +1317,7 @@ class PurchaseInvoiceScreen(QWidget):
                 cell = QTableWidgetItem(val)
                 if col in (self.COL_PRC, self.COL_TOT):
                     cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                if col in (self.COL_DSC, self.COL_VAT, self.COL_BOX, self.COL_PCS):
+                if col in (self.COL_W, self.COL_DSC, self.COL_VAT, self.COL_BOX, self.COL_PCS):
                     cell.setTextAlignment(Qt.AlignCenter)
                 # Pcs is read-only when pkg>1 (auto-calculated from box)
                 if col == self.COL_PCS and pkg > 1:

@@ -1230,6 +1230,9 @@ class ItemMaintenanceScreen(QWidget):
                     except ValueError:
                         pass
 
+        barcodes = self._collect_barcodes()
+        pack_size = max((bc[3] for bc in barcodes), default=1)
+
         detail = ItemDetail(
             id=self._item_id,
             code=self._code_edit.text().strip(),
@@ -1240,7 +1243,7 @@ class ItemMaintenanceScreen(QWidget):
             brand_id=self._brand_combo.currentData() or "",
             brand_name=self._brand_combo.currentText(),
             unit="PCS",
-            pack_size=1,
+            pack_size=pack_size,
             cost_price=self._brut_cost.value(),
             cost_currency=self._cost_currency.currentText(),
             vat_rate=self._vat_spin.value() / 100.0,
@@ -1250,7 +1253,7 @@ class ItemMaintenanceScreen(QWidget):
             is_online=self._chk_online.isChecked(),
             is_visible=True,
             notes=self._notes_edit.toPlainText(),
-            barcodes=self._collect_barcodes(),
+            barcodes=barcodes,
             prices=prices,
             stock_entries=[],
         )

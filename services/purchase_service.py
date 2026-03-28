@@ -103,12 +103,14 @@ class PurchaseService:
             from database.models.stock import StockMovement
 
             item = None
+            matched_bc = None   # the exact barcode row that was scanned
             if search_by == "barcode":
                 bc = session.query(ItemBarcode).filter(
                     ItemBarcode.barcode.ilike(query.strip())
                 ).first()
                 if bc:
                     item = session.query(Item).filter_by(id=bc.item_id).first()
+                    matched_bc = bc
             elif search_by == "code":
                 item = session.query(Item).filter(Item.code.ilike(query.strip())).first()
             else:
@@ -117,9 +119,12 @@ class PurchaseService:
             if not item:
                 return None
 
-            # Primary barcode
-            bc_obj = session.query(ItemBarcode).filter_by(item_id=item.id, is_primary=True).first()
-            barcode = bc_obj.barcode if bc_obj else ""
+            # Primary barcode (for display); if we matched by barcode, show that one
+            if matched_bc:
+                barcode = matched_bc.barcode
+            else:
+                bc_obj = session.query(ItemBarcode).filter_by(item_id=item.id, is_primary=True).first()
+                barcode = bc_obj.barcode if bc_obj else ""
 
             # Category
             cat = session.query(Category).filter_by(id=item.category_id).first() if item.category_id else None
@@ -140,7 +145,9 @@ class PurchaseService:
             prices = session.query(ItemPrice).filter_by(item_id=item.id).all()
             sales_prices = [(p.price_type, p.amount, p.currency) for p in prices]
 
-            # pack_qty: find the first barcode of this item that has pack_qty > 1
+            # pack_qty: item-level check — does this item have any box barcode?
+            # Always stop at Box if the item has a barcode with pack_qty > 1,
+            # regardless of which specific barcode was scanned.
             box_bc = session.query(ItemBarcode).filter(
                 ItemBarcode.item_id == item.id,
                 ItemBarcode.pack_qty > 1,

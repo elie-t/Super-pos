@@ -1485,6 +1485,247 @@ def pull_purchase_invoices() -> tuple[int, str]:
         return 0, str(e)
 
 
+# ── Category sync ─────────────────────────────────────────────────────────────
+
+def push_categories() -> tuple[bool, str]:
+    """Push all categories (including subcategories) to categories_central."""
+    from database.engine import get_session, init_db
+    from database.models.items import Category
+
+    if not is_configured():
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [
+            {
+                "id":            c.id,
+                "name":          c.name,
+                "parent_id":     c.parent_id or None,
+                "sort_order":    c.sort_order,
+                "is_active":     c.is_active,
+                "show_in_daily": c.show_in_daily,
+                "updated_at":    now,
+            }
+            for c in session.query(Category).all()
+        ]
+        if not rows:
+            return True, ""
+        return upsert_rows("categories_central", rows)
+    finally:
+        session.close()
+
+
+def pull_categories() -> tuple[int, str]:
+    """Pull all categories from categories_central (always full sync)."""
+    from database.engine import get_session, init_db
+    from database.models.items import Category
+
+    if not is_configured():
+        return 0, ""
+
+    try:
+        r = requests.get(
+            f"{_url('categories_central')}?order=sort_order.asc",
+            headers={**_headers(), "Prefer": ""},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote = r.json()
+        if not remote:
+            return 0, ""
+
+        init_db()
+        session = get_session()
+        updated = 0
+        try:
+            # First pass: upsert without parent_id to avoid FK issues
+            for rc in remote:
+                c = session.get(Category, rc["id"])
+                if not c:
+                    c = Category(id=rc["id"])
+                    session.add(c)
+                c.name          = rc["name"]
+                c.sort_order    = rc.get("sort_order", 0)
+                c.is_active     = rc.get("is_active", True)
+                c.show_in_daily = rc.get("show_in_daily", False)
+                c.parent_id     = None
+                updated += 1
+            session.flush()
+            # Second pass: set parent_id now that all rows exist
+            for rc in remote:
+                if rc.get("parent_id"):
+                    c = session.get(Category, rc["id"])
+                    if c:
+                        c.parent_id = rc["parent_id"]
+            session.commit()
+            return updated, ""
+        except Exception as e:
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+    except Exception as e:
+        return 0, str(e)
+
+
+# ── Warehouse transfer sync ───────────────────────────────────────────────────
+
+def push_transfer(transfer_id: str) -> tuple[bool, str]:
+    """Push a confirmed warehouse transfer to warehouse_transfers_central."""
+    from database.engine import get_session, init_db
+    from database.models.stock import WarehouseTransfer
+
+    if not is_configured():
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        t = session.get(WarehouseTransfer, transfer_id)
+        if not t:
+            return False, "Transfer not found"
+
+        now = datetime.now(timezone.utc).isoformat()
+        row = {
+            "id":                t.id,
+            "transfer_number":   t.transfer_number or "",
+            "from_warehouse_id": t.from_warehouse_id,
+            "to_warehouse_id":   t.to_warehouse_id,
+            "transfer_date":     t.transfer_date or "",
+            "status":            t.status,
+            "operator_id":       t.operator_id or None,
+            "notes":             t.notes or "",
+            "pushed_by":         BRANCH_ID,
+            "synced_at":         now,
+        }
+        ok, err = upsert_rows("warehouse_transfers_central", [row])
+        if not ok:
+            return False, err
+
+        item_rows = [
+            {
+                "id":          ti.id,
+                "transfer_id": t.id,
+                "item_id":     ti.item_id,
+                "item_name":   ti.item_name or "",
+                "quantity":    ti.quantity,
+                "unit_cost":   ti.unit_cost or 0.0,
+                "synced_at":   now,
+            }
+            for ti in t.items
+        ]
+        if item_rows:
+            ok, err = upsert_rows("warehouse_transfer_items_central", item_rows)
+            if not ok:
+                return False, err
+
+        return True, ""
+    finally:
+        session.close()
+
+
+def pull_transfers() -> tuple[int, str]:
+    """Pull warehouse transfers from other branches."""
+    import sqlalchemy
+    from database.engine import get_session, init_db
+    from database.models.stock import WarehouseTransfer, WarehouseTransferItem
+
+    if not is_configured():
+        return 0, ""
+
+    last_pull = _state_get("transfers_pull")
+    ts_filter = f"&synced_at=gt.{last_pull}" if last_pull else ""
+
+    try:
+        r = requests.get(
+            f"{_url('warehouse_transfers_central')}?order=synced_at.asc{ts_filter}",
+            headers={**_headers(), "Prefer": ""},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote = r.json()
+        if not remote:
+            return 0, ""
+
+        # Fetch all line items for these transfers
+        transfer_ids = [rt["id"] for rt in remote]
+        id_list = ",".join(f'"{i}"' for i in transfer_ids)
+        r2 = requests.get(
+            f"{_url('warehouse_transfer_items_central')}?transfer_id=in.({id_list})",
+            headers={**_headers(), "Prefer": ""},
+            timeout=15,
+        )
+        lines_by_transfer: dict[str, list] = {}
+        if r2.status_code == 200:
+            for li in r2.json():
+                lines_by_transfer.setdefault(li["transfer_id"], []).append(li)
+
+        init_db()
+        session = get_session()
+        pulled = 0
+        latest_ts = last_pull
+        try:
+            session.execute(sqlalchemy.text("PRAGMA foreign_keys=OFF"))
+            for rt in remote:
+                if rt.get("pushed_by") == BRANCH_ID:
+                    latest_ts = rt["synced_at"]
+                    continue
+
+                existing = session.get(WarehouseTransfer, rt["id"])
+                if existing:
+                    latest_ts = rt["synced_at"]
+                    continue
+
+                t = WarehouseTransfer(
+                    id=rt["id"],
+                    transfer_number=rt.get("transfer_number") or None,
+                    from_warehouse_id=rt["from_warehouse_id"],
+                    to_warehouse_id=rt["to_warehouse_id"],
+                    transfer_date=rt.get("transfer_date") or None,
+                    status=rt.get("status", "confirmed"),
+                    operator_id=rt.get("operator_id") or None,
+                    notes=rt.get("notes") or None,
+                )
+                session.add(t)
+                session.flush()
+
+                for li in lines_by_transfer.get(rt["id"], []):
+                    if not session.get(WarehouseTransferItem, li["id"]):
+                        session.add(WarehouseTransferItem(
+                            id=li["id"],
+                            transfer_id=rt["id"],
+                            item_id=li.get("item_id") or "",
+                            item_name=li.get("item_name") or "",
+                            quantity=li["quantity"],
+                            unit_cost=li.get("unit_cost") or 0.0,
+                        ))
+
+                latest_ts = rt["synced_at"]
+                pulled += 1
+
+            session.commit()
+            session.execute(sqlalchemy.text("PRAGMA foreign_keys=ON"))
+            if latest_ts:
+                _state_set("transfers_pull", latest_ts)
+            return pulled, ""
+
+        except Exception as e:
+            session.execute(sqlalchemy.text("PRAGMA foreign_keys=ON"))
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+    except Exception as e:
+        return 0, str(e)
+
+
 # ── Enqueue helper (called from services) ────────────────────────────────────
 
 def enqueue(entity_type: str, entity_id: str, action: str, payload: dict) -> None:

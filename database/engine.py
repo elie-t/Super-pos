@@ -117,6 +117,13 @@ def init_db() -> None:
             pass
         try:
             conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE item_barcodes ADD COLUMN pack_qty INTEGER NOT NULL DEFAULT 1"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(__import__("sqlalchemy").text(
                 """CREATE TABLE IF NOT EXISTS applied_central_movements (
                     movement_id TEXT PRIMARY KEY,
                     applied_at  TEXT NOT NULL

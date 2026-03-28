@@ -41,6 +41,7 @@ class SyncWorker(QThread):
             pull_stock_movements, pull_users,
             pull_purchase_invoices, pull_suppliers,
             pull_sales_invoices, pull_warehouses,
+            pull_categories, pull_transfers,
             is_configured,
         )
         if not is_configured():
@@ -87,6 +88,12 @@ class SyncWorker(QThread):
             pinv_pulled, err = pull_purchase_invoices()
             if err:
                 self.error.emit(f"Purchase inv pull: {err}")
+
+            # Pull categories (full sync)
+            pull_categories()
+
+            # Pull warehouse transfers from other branches
+            pull_transfers()
 
             # Pull new online orders
             count, err = pull_new_orders()

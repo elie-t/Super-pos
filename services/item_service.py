@@ -334,6 +334,13 @@ class ItemService:
             cat.parent_id     = parent_id or None
             cat.show_in_daily = show_in_daily
             session.commit()
+
+            try:
+                from sync.service import push_categories
+                push_categories()
+            except Exception:
+                pass
+
             return True, ""
         except Exception as exc:
             session.rollback()

@@ -171,6 +171,13 @@ class TransferService:
 
             session.commit()
             TransferService.increment_transfer_number(from_warehouse_id)
+
+            try:
+                from sync.service import push_transfer
+                push_transfer(transfer.id)
+            except Exception:
+                pass
+
             return True, transfer.id
 
         except Exception as exc:

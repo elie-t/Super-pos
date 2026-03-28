@@ -131,3 +131,45 @@ ALTER TABLE customers_central         DISABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_invoices_central    DISABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_invoice_items_central DISABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_levels              DISABLE ROW LEVEL SECURITY;
+
+-- Categories (shared across all branches, includes subcategories via parent_id)
+CREATE TABLE IF NOT EXISTS categories_central (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    parent_id     TEXT REFERENCES categories_central(id) ON DELETE SET NULL,
+    sort_order    INT DEFAULT 0,
+    is_active     BOOLEAN DEFAULT TRUE,
+    show_in_daily BOOLEAN DEFAULT FALSE,
+    updated_at    TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE categories_central DISABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories_central(parent_id);
+
+-- Warehouse transfers from all branches
+CREATE TABLE IF NOT EXISTS warehouse_transfers_central (
+    id                TEXT PRIMARY KEY,
+    transfer_number   TEXT DEFAULT '',
+    from_warehouse_id TEXT NOT NULL,
+    to_warehouse_id   TEXT NOT NULL,
+    transfer_date     TEXT DEFAULT '',
+    status            TEXT DEFAULT 'confirmed',
+    operator_id       TEXT,
+    notes             TEXT DEFAULT '',
+    pushed_by         TEXT DEFAULT '',
+    synced_at         TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE warehouse_transfers_central DISABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_transfers_synced ON warehouse_transfers_central(synced_at);
+
+-- Warehouse transfer line items
+CREATE TABLE IF NOT EXISTS warehouse_transfer_items_central (
+    id          TEXT PRIMARY KEY,
+    transfer_id TEXT NOT NULL REFERENCES warehouse_transfers_central(id) ON DELETE CASCADE,
+    item_id     TEXT NOT NULL,
+    item_name   TEXT DEFAULT '',
+    quantity    FLOAT NOT NULL,
+    unit_cost   FLOAT DEFAULT 0,
+    synced_at   TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE warehouse_transfer_items_central DISABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_transfer_items_transfer ON warehouse_transfer_items_central(transfer_id);
