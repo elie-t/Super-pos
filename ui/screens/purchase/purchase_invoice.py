@@ -440,13 +440,14 @@ class PurchaseInvoiceScreen(QWidget):
     COL_CODE = 1
     COL_BC   = 2
     COL_DESC = 3
-    COL_QTY  = 4   # shows "5 (60)" when pkg>1, else pcs directly
-    COL_PRC  = 5
-    COL_DSC  = 6
-    COL_VAT  = 7
-    COL_TOT  = 8
-    COL_EDIT = 9
-    COL_DEL  = 10
+    COL_BOX  = 4
+    COL_PCS  = 5
+    COL_PRC  = 6
+    COL_DSC  = 7
+    COL_VAT  = 8
+    COL_TOT  = 9
+    COL_EDIT = 10
+    COL_DEL  = 11
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -726,10 +727,10 @@ class PurchaseInvoiceScreen(QWidget):
 
     def _make_table(self):
         self._table = QTableWidget()
-        self._table.setColumnCount(11)
+        self._table.setColumnCount(12)
         self._table.setHorizontalHeaderLabels([
             "#", "Code", "Barcode", "Description",
-            "Qty", "Price", "Disc%", "VAT%", "Total", "", "",
+            "Box", "Pcs", "Price", "Disc%", "VAT%", "Total", "", "",
         ])
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -758,10 +759,10 @@ class PurchaseInvoiceScreen(QWidget):
         # Numeric columns: fixed minimum widths so editors are comfortable
         for col in (0, 1, 2):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
-        for col, w in ((4, 80), (5, 90), (6, 68), (7, 68), (8, 90)):
+        for col, w in ((4, 52), (5, 72), (6, 90), (7, 68), (8, 68), (9, 90)):
             hdr.setSectionResizeMode(col, QHeaderView.Fixed)
             self._table.setColumnWidth(col, w)
-        for col in (9, 10):                                    # edit/del buttons
+        for col in (10, 11):                                   # edit/del buttons
             hdr.setSectionResizeMode(col, QHeaderView.Fixed)
             self._table.setColumnWidth(col, 30)
         # Taller rows — editor fits comfortably
@@ -1274,11 +1275,12 @@ class PurchaseInvoiceScreen(QWidget):
 
     # Columns that the user can double-click and edit directly
     _EDITABLE_COLS = {
-        COL_QTY,   # 4
-        COL_PRC,   # 5
-        COL_DSC,   # 6
-        COL_VAT,   # 7
-        COL_TOT,   # 8
+        COL_BOX,   # 4
+        COL_PCS,   # 5
+        COL_PRC,   # 6
+        COL_DSC,   # 7
+        COL_VAT,   # 8
+        COL_TOT,   # 9
     }
 
     def _refresh_table(self):
@@ -1290,16 +1292,15 @@ class PurchaseInvoiceScreen(QWidget):
             pkg = line["pkg"]
             box = line["box"]
             pcs = line["pcs"]
-            if pkg > 1:
-                qty_str = f"{int(box)} ({int(pcs)})"
-            else:
-                qty_str = f"{pcs:.3f}"
+            box_str = str(int(box)) if pkg > 1 else ""
+            pcs_str = f"({int(pcs)})" if pkg > 1 else f"{pcs:.3f}"
             vals = [
                 str(row + 1),
                 item.code,
                 item.barcode,
                 item.description,
-                qty_str,
+                box_str,
+                pcs_str,
                 f"{line['price']:.4f}",
                 f"{line['disc']:.2f}",
                 f"{line['vat']:.2f}",
@@ -1310,8 +1311,11 @@ class PurchaseInvoiceScreen(QWidget):
                 cell = QTableWidgetItem(val)
                 if col in (self.COL_PRC, self.COL_TOT):
                     cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                if col in (self.COL_DSC, self.COL_VAT, self.COL_QTY):
+                if col in (self.COL_DSC, self.COL_VAT, self.COL_BOX, self.COL_PCS):
                     cell.setTextAlignment(Qt.AlignCenter)
+                # Pcs is read-only when pkg>1 (auto-calculated from box)
+                if col == self.COL_PCS and pkg > 1:
+                    cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
                 # Editable columns: normal flags; read-only: remove Editable flag
                 if col not in self._EDITABLE_COLS:
                     cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
@@ -1360,14 +1364,12 @@ class PurchaseInvoiceScreen(QWidget):
 
         line = self._lines[row]
 
-        if col == self.COL_QTY:
-            pkg = line["pkg"]
-            if pkg > 1:
-                line["box"] = val
-                line["pcs"] = val * pkg
-            else:
-                line["pcs"] = val
-                line["box"] = 0
+        if col == self.COL_BOX:
+            line["box"] = val
+            if line["pkg"] > 1:
+                line["pcs"] = val * line["pkg"]
+        elif col == self.COL_PCS:
+            line["pcs"] = val
         elif col == self.COL_PRC:
             line["price"] = val
         elif col == self.COL_DSC:
