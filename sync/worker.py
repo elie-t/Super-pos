@@ -40,7 +40,8 @@ class SyncWorker(QThread):
             pull_master_items, pull_master_customers,
             pull_stock_movements, pull_users,
             pull_purchase_invoices, pull_suppliers,
-            pull_sales_invoices, is_configured,
+            pull_sales_invoices, pull_warehouses,
+            is_configured,
         )
         if not is_configured():
             return
@@ -72,6 +73,9 @@ class SyncWorker(QThread):
                 self.error.emit(f"Users pull: {err}")
             elif users_pulled > 0:
                 self.users_changed.emit()
+
+            # Pull warehouses first (other pulls depend on them)
+            pull_warehouses()
 
             # Pull suppliers
             pull_suppliers()

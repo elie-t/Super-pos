@@ -995,6 +995,85 @@ def pull_users() -> tuple[int, str]:
         return 0, str(e)
 
 
+# ── Warehouse sync ────────────────────────────────────────────────────────────
+
+def push_warehouses() -> tuple[bool, str]:
+    """Push all warehouses to warehouses_central."""
+    from database.engine import get_session, init_db
+    from database.models.items import Warehouse
+
+    if not is_configured():
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        rows = [
+            {
+                "id":         w.id,
+                "number":     w.number,
+                "name":       w.name,
+                "location":   w.location or "",
+                "is_default": w.is_default,
+                "is_active":  w.is_active,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            for w in session.query(Warehouse).all()
+        ]
+        if not rows:
+            return True, ""
+        return upsert_rows("warehouses_central", rows)
+    finally:
+        session.close()
+
+
+def pull_warehouses() -> tuple[int, str]:
+    """Pull all warehouses from warehouses_central."""
+    from database.engine import get_session, init_db
+    from database.models.items import Warehouse
+
+    if not is_configured():
+        return 0, ""
+
+    try:
+        r = requests.get(
+            f"{_url('warehouses_central')}?order=number.asc",
+            headers={**_headers(), "Prefer": ""},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote = r.json()
+        if not remote:
+            return 0, ""
+
+        init_db()
+        session = get_session()
+        updated = 0
+        try:
+            for rw in remote:
+                w = session.get(Warehouse, rw["id"])
+                if not w:
+                    w = Warehouse(id=rw["id"])
+                    session.add(w)
+                w.number     = rw.get("number")
+                w.name       = rw["name"]
+                w.location   = rw.get("location") or None
+                w.is_default = rw.get("is_default", False)
+                w.is_active  = rw.get("is_active", True)
+                updated += 1
+            session.commit()
+            return updated, ""
+        except Exception as e:
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+    except Exception as e:
+        return 0, str(e)
+
+
 # ── Supplier sync ─────────────────────────────────────────────────────────────
 
 def push_supplier(supplier_id: str) -> tuple[bool, str]:
