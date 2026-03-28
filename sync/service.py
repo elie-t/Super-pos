@@ -649,9 +649,18 @@ def pull_master_items() -> tuple[int, str]:
                     price.currency   = rp_row["currency"]
 
                 # Upsert barcodes
+                from sqlalchemy import func as sa_func
                 for rb_row in barcodes_by_item.get(ri["id"], []):
                     bc = session.get(ItemBarcode, rb_row["id"])
                     if not bc:
+                        # Check for barcode value conflict with a different item
+                        conflict = session.query(ItemBarcode).filter(
+                            sa_func.lower(ItemBarcode.barcode) == rb_row["barcode"].lower(),
+                            ItemBarcode.item_id != ri["id"],
+                        ).first()
+                        if conflict:
+                            # Local barcode for a different item takes priority — skip
+                            continue
                         bc = ItemBarcode(id=rb_row["id"], item_id=ri["id"])
                         session.add(bc)
                     bc.barcode    = rb_row["barcode"]
