@@ -39,7 +39,8 @@ class SyncWorker(QThread):
             drain_sync_queue, pull_new_orders,
             pull_master_items, pull_master_customers,
             pull_stock_movements, pull_users,
-            pull_purchase_invoices, is_configured,
+            pull_purchase_invoices, pull_suppliers,
+            pull_sales_invoices, is_configured,
         )
         if not is_configured():
             return
@@ -71,6 +72,12 @@ class SyncWorker(QThread):
                 self.error.emit(f"Users pull: {err}")
             elif users_pulled > 0:
                 self.users_changed.emit()
+
+            # Pull suppliers
+            pull_suppliers()
+
+            # Pull sales invoices from other branches
+            pull_sales_invoices()
 
             # Pull purchase invoices from other branches
             pinv_pulled, err = pull_purchase_invoices()

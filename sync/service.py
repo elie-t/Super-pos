@@ -995,6 +995,224 @@ def pull_users() -> tuple[int, str]:
         return 0, str(e)
 
 
+# ── Supplier sync ─────────────────────────────────────────────────────────────
+
+def push_supplier(supplier_id: str) -> tuple[bool, str]:
+    """Push a supplier record to suppliers_central."""
+    from database.engine import get_session, init_db
+    from database.models.parties import Supplier
+
+    if not is_configured():
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        s = session.get(Supplier, supplier_id)
+        if not s:
+            return True, ""
+        row = {
+            "id":             s.id,
+            "name":           s.name,
+            "code":           s.code or "",
+            "phone":          s.phone or "",
+            "phone2":         s.phone2 or "",
+            "email":          s.email or "",
+            "address":        s.address or "",
+            "classification": s.classification or "",
+            "credit_limit":   s.credit_limit,
+            "balance":        s.balance,
+            "currency":       s.currency,
+            "notes":          s.notes or "",
+            "is_active":      s.is_active,
+            "updated_at":     datetime.now(timezone.utc).isoformat(),
+            "pushed_by":      BRANCH_ID,
+        }
+        return upsert_rows("suppliers_central", [row])
+    finally:
+        session.close()
+
+
+def pull_suppliers() -> tuple[int, str]:
+    """Pull supplier changes from suppliers_central since last pull."""
+    from database.engine import get_session, init_db
+    from database.models.parties import Supplier
+
+    if not is_configured():
+        return 0, ""
+
+    last_pull = _state_get("suppliers_pull")
+
+    try:
+        r = requests.get(
+            f"{_url('suppliers_central')}?updated_at=gt.{last_pull}"
+            f"&order=updated_at.asc&limit=500",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote = r.json()
+        if not remote:
+            return 0, ""
+
+        init_db()
+        session = get_session()
+        updated   = 0
+        latest_ts = last_pull
+
+        try:
+            for rs in remote:
+                if rs.get("pushed_by") == BRANCH_ID:
+                    latest_ts = rs["updated_at"]
+                    continue
+
+                s = session.get(Supplier, rs["id"])
+                if not s:
+                    s = Supplier(id=rs["id"])
+                    session.add(s)
+
+                s.name           = rs["name"]
+                s.code           = rs.get("code") or None
+                s.phone          = rs.get("phone") or None
+                s.phone2         = rs.get("phone2") or None
+                s.email          = rs.get("email") or None
+                s.address        = rs.get("address") or None
+                s.classification = rs.get("classification") or None
+                s.credit_limit   = rs.get("credit_limit", 0)
+                s.balance        = rs.get("balance", 0)
+                s.currency       = rs.get("currency", "USD")
+                s.notes          = rs.get("notes") or None
+                s.is_active      = rs.get("is_active", True)
+
+                latest_ts = rs["updated_at"]
+                updated += 1
+
+            session.commit()
+            _state_set("suppliers_pull", latest_ts)
+            return updated, ""
+
+        except Exception as e:
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+
+    except Exception as e:
+        return 0, str(e)
+
+
+# ── Sales invoice pull ────────────────────────────────────────────────────────
+
+def pull_sales_invoices() -> tuple[int, str]:
+    """
+    Pull sales invoices from OTHER branches since last pull.
+    Stores them locally for reporting/visibility.
+    Returns (count, error).
+    """
+    from database.engine import get_session, init_db
+    from database.models.invoices import SalesInvoice, SalesInvoiceItem
+
+    if not is_configured():
+        return 0, ""
+
+    last_pull = _state_get("sales_invoices_pull")
+
+    try:
+        r = requests.get(
+            f"{_url('sales_invoices_central')}"
+            f"?synced_at=gt.{last_pull}"
+            f"&branch_id=neq.{BRANCH_ID}"
+            f"&order=synced_at.asc&limit=500",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote = r.json()
+        if not remote:
+            return 0, ""
+
+        inv_ids = [i["id"] for i in remote]
+        ids_filter = ",".join(f'"{iid}"' for iid in inv_ids)
+
+        rl = requests.get(
+            f"{_url('sales_invoice_items_central')}?invoice_id=in.({ids_filter})",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        lines_by_inv: dict[str, list] = {}
+        if rl.status_code == 200:
+            for li in rl.json():
+                lines_by_inv.setdefault(li["invoice_id"], []).append(li)
+
+        init_db()
+        session = get_session()
+        pulled    = 0
+        latest_ts = last_pull
+
+        try:
+            import sqlalchemy
+            session.execute(sqlalchemy.text("PRAGMA foreign_keys=OFF"))
+
+            for ri in remote:
+                inv = session.get(SalesInvoice, ri["id"])
+                if inv:
+                    inv.payment_status = ri.get("payment_status", inv.payment_status)
+                    inv.status         = ri.get("status", inv.status)
+                else:
+                    inv = SalesInvoice(
+                        id=ri["id"],
+                        invoice_number=ri["invoice_number"],
+                        customer_id=ri.get("customer_id") or "",
+                        operator_id=ri.get("operator_id") or "",
+                        warehouse_id=ri.get("warehouse_id") or "",
+                        invoice_date=ri["invoice_date"],
+                        total=ri.get("total", 0),
+                        currency=ri.get("currency", "USD"),
+                        status=ri.get("status", "finalized"),
+                        payment_status=ri.get("payment_status", "unpaid"),
+                        amount_paid=ri.get("amount_paid", 0),
+                        notes=ri.get("notes") or None,
+                        source="backoffice",
+                    )
+                    session.add(inv)
+                    session.flush()
+
+                    for li in lines_by_inv.get(ri["id"], []):
+                        if not session.get(SalesInvoiceItem, li["id"]):
+                            session.add(SalesInvoiceItem(
+                                id=li["id"],
+                                invoice_id=ri["id"],
+                                item_id=li.get("item_id") or "",
+                                item_name=li["item_name"],
+                                barcode=li.get("barcode") or "",
+                                quantity=li["quantity"],
+                                unit_price=li["unit_price"],
+                                currency=li.get("currency", "USD"),
+                                line_total=li["line_total"],
+                            ))
+
+                latest_ts = ri["synced_at"]
+                pulled += 1
+
+            session.commit()
+            session.execute(sqlalchemy.text("PRAGMA foreign_keys=ON"))
+            _state_set("sales_invoices_pull", latest_ts)
+            return pulled, ""
+
+        except Exception as e:
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+
+    except Exception as e:
+        return 0, str(e)
+
+
 # ── Purchase invoice sync ─────────────────────────────────────────────────────
 
 def push_purchase_invoice(invoice_id: str) -> tuple[bool, str]:
