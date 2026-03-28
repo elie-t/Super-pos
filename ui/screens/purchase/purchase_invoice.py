@@ -440,15 +440,13 @@ class PurchaseInvoiceScreen(QWidget):
     COL_CODE = 1
     COL_BC   = 2
     COL_DESC = 3
-    COL_PKG  = 4
-    COL_BOX  = 5
-    COL_PCS  = 6
-    COL_PRC  = 7
-    COL_DSC  = 8
-    COL_VAT  = 9
-    COL_TOT  = 10
-    COL_EDIT = 11
-    COL_DEL  = 12
+    COL_QTY  = 4   # shows "5 (60)" when pkg>1, else pcs directly
+    COL_PRC  = 5
+    COL_DSC  = 6
+    COL_VAT  = 7
+    COL_TOT  = 8
+    COL_EDIT = 9
+    COL_DEL  = 10
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -728,10 +726,10 @@ class PurchaseInvoiceScreen(QWidget):
 
     def _make_table(self):
         self._table = QTableWidget()
-        self._table.setColumnCount(13)
+        self._table.setColumnCount(11)
         self._table.setHorizontalHeaderLabels([
             "#", "Code", "Barcode", "Description",
-            "Pkg", "Box", "Pcs", "Price", "Disc%", "VAT%", "Total", "", "",
+            "Qty", "Price", "Disc%", "VAT%", "Total", "", "",
         ])
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -758,12 +756,12 @@ class PurchaseInvoiceScreen(QWidget):
         # Description stretches to fill available space
         hdr.setSectionResizeMode(3, QHeaderView.Stretch)
         # Numeric columns: fixed minimum widths so editors are comfortable
-        for col in (0, 1, 2, 4):                              # tiny cols
+        for col in (0, 1, 2):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
-        for col, w in ((5, 52), (6, 72), (7, 90), (8, 68), (9, 68), (10, 90)):
+        for col, w in ((4, 80), (5, 90), (6, 68), (7, 68), (8, 90)):
             hdr.setSectionResizeMode(col, QHeaderView.Fixed)
             self._table.setColumnWidth(col, w)
-        for col in (11, 12):                                   # edit/del buttons
+        for col in (9, 10):                                    # edit/del buttons
             hdr.setSectionResizeMode(col, QHeaderView.Fixed)
             self._table.setColumnWidth(col, 30)
         # Taller rows — editor fits comfortably
@@ -1170,8 +1168,14 @@ class PurchaseInvoiceScreen(QWidget):
                     self._bc_input.selectAll()
                     return True
                 if obj is self._box_spin:
-                    self._pcs_spin.setFocus()
-                    self._pcs_spin.selectAll()
+                    if self._current_pack_qty > 1:
+                        # pcs is auto-calculated — skip to price
+                        self._recalc_total()
+                        self._price_spin.setFocus()
+                        self._price_spin.selectAll()
+                    else:
+                        self._pcs_spin.setFocus()
+                        self._pcs_spin.selectAll()
                     return True
                 if obj is self._pcs_spin:
                     self._recalc_total()
@@ -1270,12 +1274,11 @@ class PurchaseInvoiceScreen(QWidget):
 
     # Columns that the user can double-click and edit directly
     _EDITABLE_COLS = {
-        COL_BOX,   # 5
-        COL_PCS,   # 6
-        COL_PRC,   # 7
-        COL_DSC,   # 8
-        COL_VAT,   # 9
-        COL_TOT,   # 10
+        COL_QTY,   # 4
+        COL_PRC,   # 5
+        COL_DSC,   # 6
+        COL_VAT,   # 7
+        COL_TOT,   # 8
     }
 
     def _refresh_table(self):
@@ -1284,14 +1287,19 @@ class PurchaseInvoiceScreen(QWidget):
         self._table.setRowCount(len(self._lines))
         for row, line in enumerate(self._lines):
             item = line["item"]
+            pkg = line["pkg"]
+            box = line["box"]
+            pcs = line["pcs"]
+            if pkg > 1:
+                qty_str = f"{int(box)} ({int(pcs)})"
+            else:
+                qty_str = f"{pcs:.3f}"
             vals = [
                 str(row + 1),
                 item.code,
                 item.barcode,
                 item.description,
-                str(line["pkg"]),
-                str(int(line["box"])) if line["box"] else "0",
-                f"{line['pcs']:.3f}",
+                qty_str,
                 f"{line['price']:.4f}",
                 f"{line['disc']:.2f}",
                 f"{line['vat']:.2f}",
@@ -1302,7 +1310,7 @@ class PurchaseInvoiceScreen(QWidget):
                 cell = QTableWidgetItem(val)
                 if col in (self.COL_PRC, self.COL_TOT):
                     cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                if col in (self.COL_DSC, self.COL_VAT, self.COL_BOX, self.COL_PCS):
+                if col in (self.COL_DSC, self.COL_VAT, self.COL_QTY):
                     cell.setTextAlignment(Qt.AlignCenter)
                 # Editable columns: normal flags; read-only: remove Editable flag
                 if col not in self._EDITABLE_COLS:
@@ -1352,13 +1360,14 @@ class PurchaseInvoiceScreen(QWidget):
 
         line = self._lines[row]
 
-        if col == self.COL_BOX:
-            line["box"] = val
+        if col == self.COL_QTY:
             pkg = line["pkg"]
             if pkg > 1:
+                line["box"] = val
                 line["pcs"] = val * pkg
-        elif col == self.COL_PCS:
-            line["pcs"] = val
+            else:
+                line["pcs"] = val
+                line["box"] = 0
         elif col == self.COL_PRC:
             line["price"] = val
         elif col == self.COL_DSC:
