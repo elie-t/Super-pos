@@ -608,15 +608,15 @@ def pull_master_items() -> tuple[int, str]:
             brands = {b.name: b.id for b in session.query(Brand).all()}
 
             for ri in remote_items:
-                item = session.get(Item, ri["id"])
-                if not item:
-                    item = Item(id=ri["id"])
-                    session.add(item)
-
                 # Skip if pushed by this branch (we are the source)
                 if ri.get("pushed_by") == BRANCH_ID:
                     latest_ts = ri["updated_at"]
                     continue
+
+                item = session.get(Item, ri["id"])
+                if not item:
+                    item = Item(id=ri["id"])
+                    session.add(item)
 
                 item.code           = ri.get("code") or ri["id"][:12]
                 item.name           = ri.get("name") or ri.get("code") or ri["id"][:12]
