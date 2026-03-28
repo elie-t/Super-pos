@@ -618,7 +618,7 @@ def pull_master_items() -> tuple[int, str]:
                     latest_ts = ri["updated_at"]
                     continue
 
-                item.code           = ri["code"]
+                item.code           = ri.get("code") or ri["id"][:12]
                 item.name           = ri["name"]
                 item.name_ar        = ri.get("name_ar") or ""
                 item.unit           = ri.get("unit") or "PCS"
@@ -819,8 +819,10 @@ def pull_stock_movements() -> tuple[int, str]:
 
         init_db()
         session = get_session()
-        applied  = 0
+        applied   = 0
         latest_ts = last_pull
+        # Track new ItemStock rows added this batch to avoid UNIQUE conflicts
+        stock_cache: dict[tuple, ItemStock] = {}
 
         try:
             for rm in remote:
@@ -841,12 +843,16 @@ def pull_stock_movements() -> tuple[int, str]:
                 warehouse_id = rm["warehouse_id"]
                 qty_change   = rm["qty_change"]
 
-                # Apply to local ItemStock
-                stock = session.query(ItemStock).filter_by(
-                    item_id=item_id, warehouse_id=warehouse_id
-                ).first()
+                # Apply to local ItemStock (check cache first to avoid UNIQUE clash)
+                cache_key = (item_id, warehouse_id)
+                stock = stock_cache.get(cache_key)
+                if stock is None:
+                    stock = session.query(ItemStock).filter_by(
+                        item_id=item_id, warehouse_id=warehouse_id
+                    ).first()
                 if stock:
                     stock.quantity += qty_change
+                    stock_cache[cache_key] = stock
                 else:
                     stock = ItemStock(
                         id=new_uuid(),
@@ -855,6 +861,7 @@ def pull_stock_movements() -> tuple[int, str]:
                         quantity=qty_change,
                     )
                     session.add(stock)
+                    stock_cache[cache_key] = stock
 
                 # Mark as applied
                 session.execute(
