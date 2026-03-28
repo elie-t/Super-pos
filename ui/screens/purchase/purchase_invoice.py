@@ -1018,11 +1018,13 @@ class PurchaseInvoiceScreen(QWidget):
 
         self._set_box_enabled(item.pack_qty)
         if item.pack_qty > 1:
-            self._box_spin.setFocus()
-            self._box_spin.selectAll()
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._box_spin.setFocus)
+            QTimer.singleShot(0, self._box_spin.selectAll)
         else:
-            self._pcs_spin.setFocus()
-            self._pcs_spin.selectAll()
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._pcs_spin.setFocus)
+            QTimer.singleShot(0, self._pcs_spin.selectAll)
 
     def _set_box_enabled(self, pack_qty: int):
         enabled = pack_qty > 1
@@ -1106,12 +1108,13 @@ class PurchaseInvoiceScreen(QWidget):
             self._block_total(False)
 
             self._set_box_enabled(row["pack_qty"])
+            from PySide6.QtCore import QTimer
             if row["pack_qty"] > 1:
-                self._box_spin.setFocus()
-                self._box_spin.selectAll()
+                QTimer.singleShot(0, self._box_spin.setFocus)
+                QTimer.singleShot(0, self._box_spin.selectAll)
             else:
-                self._pcs_spin.setFocus()
-                self._pcs_spin.selectAll()
+                QTimer.singleShot(0, self._pcs_spin.setFocus)
+                QTimer.singleShot(0, self._pcs_spin.selectAll)
 
     def _open_calculator(self, initial: float, target: str, row: int):
         """Open calculator. On accept, push value to price field or table cell."""
