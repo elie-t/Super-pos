@@ -1163,6 +1163,15 @@ def pull_sales_invoices() -> tuple[int, str]:
                     inv.payment_status = ri.get("payment_status", inv.payment_status)
                     inv.status         = ri.get("status", inv.status)
                 else:
+                    # Skip if invoice_number already taken by a local invoice
+                    clash = session.query(SalesInvoice).filter_by(
+                        invoice_number=ri["invoice_number"]
+                    ).first()
+                    if clash:
+                        latest_ts = ri["synced_at"]
+                        pulled += 1
+                        continue
+
                     inv = SalesInvoice(
                         id=ri["id"],
                         invoice_number=ri["invoice_number"],
