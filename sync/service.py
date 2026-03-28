@@ -954,8 +954,15 @@ def pull_users() -> tuple[int, str]:
                 u.password_hash = ru["password_hash"]
                 u.full_name     = ru["full_name"]
                 u.role          = ru["role"]
-                u.warehouse_id  = ru.get("warehouse_id") or None
                 u.is_active     = ru.get("is_active", True)
+
+                # Only assign warehouse_id if it exists locally (avoids FK error)
+                wh_id = ru.get("warehouse_id") or None
+                if wh_id:
+                    from database.models.items import Warehouse
+                    u.warehouse_id = wh_id if session.get(Warehouse, wh_id) else None
+                else:
+                    u.warehouse_id = None
 
                 latest_ts = ru["updated_at"]
                 updated += 1
