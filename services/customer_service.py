@@ -84,12 +84,19 @@ class CustomerService:
             c.is_active      = is_active
 
             session.commit()
-            return True, c.id
+            saved_id = c.id
         except Exception as e:
             session.rollback()
             return False, str(e)
         finally:
             session.close()
+
+        try:
+            from sync.service import push_customer_master
+            push_customer_master(saved_id)
+        except Exception:
+            pass
+        return True, saved_id
 
     @staticmethod
     def get_statement(customer_id: str) -> dict:
