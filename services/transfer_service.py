@@ -220,28 +220,40 @@ class TransferService:
         session = get_session()
         try:
             from database.models.stock import WarehouseTransfer
-            from database.models.items import Warehouse
+            from database.models.items import Warehouse, ItemBarcode
             t = session.query(WarehouseTransfer).filter_by(id=transfer_id).first()
             if not t:
                 return None
             fw = session.query(Warehouse).filter_by(id=t.from_warehouse_id).first()
             tw = session.query(Warehouse).filter_by(id=t.to_warehouse_id).first()
+
+            lines = []
+            for li in t.items:
+                bc_obj = session.query(ItemBarcode).filter_by(
+                    item_id=li.item_id, is_primary=True
+                ).first()
+                code = li.item.code if li.item else ""
+                barcode = bc_obj.barcode if bc_obj else ""
+                lines.append({
+                    "item_id":   li.item_id,
+                    "item_name": li.item_name or "",
+                    "code":      code,
+                    "barcode":   barcode,
+                    "qty":       li.quantity,
+                    "unit_cost": li.unit_cost or 0.0,
+                })
+
             return {
-                "id":        t.id,
-                "number":    t.transfer_number or "—",
-                "date":      t.transfer_date or "",
-                "from_wh":   fw.name if fw else "?",
-                "to_wh":     tw.name if tw else "?",
-                "status":    t.status,
-                "notes":     t.notes or "",
-                "lines": [
-                    {
-                        "item_name": li.item_name or "",
-                        "qty":       li.quantity,
-                        "unit_cost": li.unit_cost,
-                    }
-                    for li in t.items
-                ],
+                "id":             t.id,
+                "number":         t.transfer_number or "—",
+                "date":           t.transfer_date or "",
+                "from_wh_id":     t.from_warehouse_id,
+                "to_wh_id":       t.to_warehouse_id,
+                "from_wh":        fw.name if fw else "?",
+                "to_wh":          tw.name if tw else "?",
+                "status":         t.status,
+                "notes":          t.notes or "",
+                "lines":          lines,
             }
         finally:
             session.close()

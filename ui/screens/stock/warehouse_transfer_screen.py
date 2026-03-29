@@ -1174,35 +1174,100 @@ class WarehouseTransferScreen(QWidget):
     # ── History ───────────────────────────────────────────────────────────────
 
     def _open_history(self):
+        from PySide6.QtWidgets import QVBoxLayout as _VL, QHBoxLayout as _HL, QSplitter
         dlg = QDialog(self)
         dlg.setWindowTitle("Transfer History")
-        dlg.resize(820, 520)
-        from PySide6.QtWidgets import QVBoxLayout as _VL
-        lay = _VL(dlg)
-        lay.setContentsMargins(12, 12, 12, 12)
+        dlg.resize(1100, 620)
+        root = _VL(dlg)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(8)
 
-        t = QTableWidget()
-        t.setColumnCount(6)
-        t.setHorizontalHeaderLabels(["Transfer #", "Date", "From", "To", "Items", "Status"])
-        t.setAlternatingRowColors(True)
-        t.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        t.setSelectionBehavior(QAbstractItemView.SelectRows)
-        t.verticalHeader().setVisible(False)
-        t.setStyleSheet(
+        splitter = QSplitter(Qt.Horizontal)
+
+        # ── Left: transfers list ──────────────────────────────────────────────
+        left = QWidget()
+        llay = _VL(left)
+        llay.setContentsMargins(0, 0, 0, 0)
+        llay.setSpacing(4)
+
+        llay.addWidget(QLabel("All Transfers:"))
+
+        list_tbl = QTableWidget()
+        list_tbl.setColumnCount(6)
+        list_tbl.setHorizontalHeaderLabels(["#", "Date", "From", "To", "Items", "Status"])
+        list_tbl.setAlternatingRowColors(True)
+        list_tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        list_tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
+        list_tbl.verticalHeader().setVisible(False)
+        list_tbl.setStyleSheet(
             "QHeaderView::section{background:#1a3a5c;color:#fff;"
             "font-weight:700;border:none;padding:5px;}"
         )
-        hdr = t.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(2, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(3, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        hdr = list_tbl.horizontalHeader()
+        for i, m in enumerate([
+            QHeaderView.ResizeToContents, QHeaderView.ResizeToContents,
+            QHeaderView.Stretch, QHeaderView.Stretch,
+            QHeaderView.ResizeToContents, QHeaderView.ResizeToContents,
+        ]):
+            hdr.setSectionResizeMode(i, m)
+        llay.addWidget(list_tbl)
 
-        rows = TransferService.list_transfers()
-        t.setRowCount(len(rows))
-        for r, d in enumerate(rows):
+        # ── Right: detail view ────────────────────────────────────────────────
+        right = QWidget()
+        rlay = _VL(right)
+        rlay.setContentsMargins(0, 0, 0, 0)
+        rlay.setSpacing(4)
+
+        detail_header = QLabel("Select a transfer to view details")
+        detail_header.setStyleSheet("font-weight:700;font-size:13px;color:#1a3a5c;")
+        rlay.addWidget(detail_header)
+
+        detail_tbl = QTableWidget()
+        detail_tbl.setColumnCount(5)
+        detail_tbl.setHorizontalHeaderLabels(["Code", "Name", "Barcode", "Qty", "Unit Cost"])
+        detail_tbl.setAlternatingRowColors(True)
+        detail_tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        detail_tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
+        detail_tbl.verticalHeader().setVisible(False)
+        detail_tbl.setStyleSheet(
+            "QHeaderView::section{background:#37474f;color:#fff;"
+            "font-weight:700;border:none;padding:5px;}"
+        )
+        dhdr = detail_tbl.horizontalHeader()
+        dhdr.setSectionResizeMode(1, QHeaderView.Stretch)
+        for i in (0, 2, 3, 4):
+            dhdr.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        rlay.addWidget(detail_tbl)
+
+        # Action buttons
+        btn_row = _HL()
+        btn_row.setSpacing(8)
+        load_btn = QPushButton("✏  Load for Edit")
+        load_btn.setStyleSheet(
+            "QPushButton{background:#1565c0;color:#fff;font-size:12px;font-weight:700;"
+            "border:none;border-radius:4px;padding:6px 16px;}"
+            "QPushButton:hover{background:#0d47a1;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        load_btn.setEnabled(False)
+        load_btn.setCursor(Qt.PointingHandCursor)
+        btn_row.addWidget(load_btn)
+
+        notes_lbl = QLabel("")
+        notes_lbl.setStyleSheet("color:#555;font-size:11px;font-style:italic;")
+        btn_row.addWidget(notes_lbl)
+        btn_row.addStretch()
+        rlay.addLayout(btn_row)
+
+        splitter.addWidget(left)
+        splitter.addWidget(right)
+        splitter.setSizes([380, 680])
+        root.addWidget(splitter)
+
+        # ── Populate list ─────────────────────────────────────────────────────
+        transfer_rows = TransferService.list_transfers(limit=500)
+        list_tbl.setRowCount(len(transfer_rows))
+        for r, d in enumerate(transfer_rows):
             for c, val in enumerate([
                 d["number"], d["date"], d["from_wh"], d["to_wh"],
                 str(d["item_count"]), d["status"],
@@ -1212,9 +1277,108 @@ class WarehouseTransferScreen(QWidget):
                 if c == 5:
                     it.setForeground(
                         QColor("#2e7d32") if d["status"] == "confirmed"
-                        else QColor("#c62828")
+                        else QColor("#e65100")
                     )
-                t.setItem(r, c, it)
+                list_tbl.setItem(r, c, it)
 
-        lay.addWidget(t)
+        # ── Row selection → show detail ────────────────────────────────────────
+        def on_row_selected():
+            sel = list_tbl.selectedItems()
+            if not sel:
+                return
+            row = list_tbl.currentRow()
+            if row < 0 or row >= len(transfer_rows):
+                return
+            d = transfer_rows[row]
+            detail = TransferService.get_transfer_detail(d["id"])
+            if not detail:
+                return
+
+            status = detail["status"]
+            detail_header.setText(
+                f"Transfer {detail['number']}  ·  {detail['from_wh']} → {detail['to_wh']}"
+                f"  ·  {detail['date']}  ·  [{status.upper()}]"
+            )
+            notes_lbl.setText(f"Notes: {detail['notes']}" if detail["notes"] else "")
+
+            lines = detail["lines"]
+            detail_tbl.setRowCount(len(lines))
+            for r2, li in enumerate(lines):
+                for c2, val in enumerate([
+                    li["code"], li["item_name"], li["barcode"],
+                    f"{li['qty']:,.2f}", f"{li['unit_cost']:,.4f}",
+                ]):
+                    it2 = QTableWidgetItem(val)
+                    it2.setTextAlignment(
+                        Qt.AlignRight | Qt.AlignVCenter if c2 in (3, 4)
+                        else Qt.AlignLeft | Qt.AlignVCenter
+                    )
+                    detail_tbl.setItem(r2, c2, it2)
+
+            # Only allow load/edit for draft transfers
+            load_btn.setEnabled(status == "draft")
+            load_btn.setProperty("transfer_detail", detail)
+
+        list_tbl.itemSelectionChanged.connect(on_row_selected)
+        list_tbl.doubleClicked.connect(lambda _: on_row_selected())
+
+        # ── Load for edit ──────────────────────────────────────────────────────
+        def on_load():
+            detail = load_btn.property("transfer_detail")
+            if not detail:
+                return
+            dlg.accept()
+            self._load_transfer(detail)
+
+        load_btn.clicked.connect(on_load)
+
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(
+            "QPushButton{background:#607d8b;color:#fff;font-size:12px;font-weight:700;"
+            "border:none;border-radius:4px;padding:6px 16px;}"
+            "QPushButton:hover{background:#455a64;}"
+        )
+        close_btn.clicked.connect(dlg.accept)
+        root.addWidget(close_btn, 0, Qt.AlignRight)
+
         dlg.exec()
+
+    def _load_transfer(self, detail: dict):
+        """Load a draft transfer back into the create screen for editing."""
+        self._clear_all()
+
+        # Set warehouses
+        for i in range(self._from_combo.count()):
+            if self._from_combo.itemData(i) == detail["from_wh_id"]:
+                self._from_combo.setCurrentIndex(i)
+                break
+        for i in range(self._to_combo.count()):
+            if self._to_combo.itemData(i) == detail["to_wh_id"]:
+                self._to_combo.setCurrentIndex(i)
+                break
+
+        self._notes_input.setText(detail.get("notes", ""))
+
+        # Load lines
+        for li in detail["lines"]:
+            stock_src = TransferService.get_item_stock(li["item_id"], detail["from_wh_id"])
+            stock_dst = TransferService.get_item_stock(li["item_id"], detail["to_wh_id"])
+            self._lines.append({
+                "item_id":   li["item_id"],
+                "code":      li["code"],
+                "barcode":   li["barcode"],
+                "name":      li["item_name"],
+                "pack_qty":  1,
+                "subgroup":  "",
+                "last_cost": li["unit_cost"],
+                "qty":       li["qty"],
+                "price":     li["unit_cost"],
+                "disc":      0.0,
+                "total":     li["qty"] * li["unit_cost"],
+                "src_stock": stock_src,
+                "dst_stock": stock_dst,
+                "sales_prices": [],
+            })
+
+        self._refresh_table()
+        self._refresh_totals()
