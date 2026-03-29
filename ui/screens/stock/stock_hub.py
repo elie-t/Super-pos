@@ -25,6 +25,7 @@ STOCK_TOOLS = [
     ("Item Classifications",      "item_classifications"),
     # Row 3
     ("Import Items\nfrom Excel",  "import_items"),
+    ("Old Inventory",             "old_inventory"),
 ]
 
 
