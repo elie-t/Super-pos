@@ -368,6 +368,12 @@ class DailySalesService:
                 inv.is_archived = True
 
             session.commit()
+            try:
+                from sync.service import enqueue
+                item_ids = list(agg.keys())
+                enqueue("sales_invoice", shift_inv.id, "create", {"item_ids": item_ids})
+            except Exception:
+                pass
             return count, str(filepath)
         except Exception:
             session.rollback()

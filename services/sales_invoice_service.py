@@ -254,6 +254,12 @@ class SalesInvoiceService:
 
             session.commit()
             SalesInvoiceService.increment_invoice_number(warehouse_id)
+            try:
+                from sync.service import enqueue
+                item_ids = [l.item_id for l in lines]
+                enqueue("sales_invoice", inv.id, "create", {"item_ids": item_ids})
+            except Exception:
+                pass
             return True, inv.id
         except Exception as e:
             session.rollback()
