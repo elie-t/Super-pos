@@ -120,5 +120,20 @@ try:
 
     print("\nFull push complete!")
 
+    # Verify count in Supabase
+    print("Verifying counts in Supabase...")
+    for table, label in [
+        ("items_central", "Items"),
+        ("item_barcodes_central", "Barcodes"),
+        ("item_prices_central", "Prices"),
+    ]:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{table}?select=id",
+            headers={**HEADERS, "Prefer": "count=exact", "Range-Unit": "items", "Range": "0-0"},
+            timeout=15,
+        )
+        count = r.headers.get("Content-Range", "?/?").split("/")[-1]
+        print(f"  {label} in Supabase: {count}")
+
 finally:
     session.close()

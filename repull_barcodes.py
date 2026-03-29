@@ -1,8 +1,6 @@
 """
 Re-pull ALL barcodes from item_barcodes_central into the local SQLite DB.
-Useful when local barcodes were lost or corrupted after a sync.
-
-Fetches in pages of 1000. Skips barcodes whose item_id doesn't exist locally.
+Uses cursor-based pagination (id > last_id) to bypass Supabase's 1000-row cap.
 
 Usage:
     python repull_barcodes.py
@@ -29,36 +27,39 @@ HEADERS = {
     "Prefer":        "",
 }
 
+PAGE = 1000
+
 def fetch_all_barcodes():
+    """Cursor-based pagination — avoids Supabase max_rows=1000 cap."""
     rows = []
-    offset = 0
-    page_size = 1000
+    last_id = "00000000-0000-0000-0000-000000000000"
     while True:
-        r = requests.get(
+        url = (
             f"{SUPABASE_URL}/rest/v1/item_barcodes_central"
-            f"?order=id.asc&limit={page_size}&offset={offset}",
-            headers=HEADERS,
-            timeout=30,
+            f"?id=gt.{last_id}&order=id.asc&limit={PAGE}"
         )
+        r = requests.get(url, headers=HEADERS, timeout=30)
         if r.status_code != 200:
-            print(f"ERROR fetching barcodes: HTTP {r.status_code} {r.text[:200]}")
+            print(f"\nERROR: HTTP {r.status_code} {r.text[:300]}")
             sys.exit(1)
         page = r.json()
-        rows.extend(page)
-        print(f"  Fetched {len(rows)} barcodes so far...")
-        if len(page) < page_size:
+        if not page:
             break
-        offset += page_size
+        rows.extend(page)
+        last_id = page[-1]["id"]
+        print(f"  Fetched {len(rows)} barcodes...", end="\r")
+        if len(page) < PAGE:
+            break
+    print()
     return rows
+
 
 from database.engine import get_session, init_db
 from database.models.items import Item, ItemBarcode
-from database.models.base import new_uuid
 
 init_db()
 session = get_session()
 
-# Build set of local item IDs for fast lookup
 local_item_ids = {str(r[0]) for r in session.query(Item.id).all()}
 print(f"Local items: {len(local_item_ids)}")
 
@@ -88,7 +89,7 @@ try:
         bc.pack_qty   = rb.get("pack_qty", 1)
 
     session.commit()
-    print(f"\nDone: {added} added, {updated} updated, {skipped} skipped (item not local).")
+    print(f"Done: {added} added, {updated} updated, {skipped} skipped (item not local).")
 except Exception as e:
     session.rollback()
     print(f"ERROR: {e}")
