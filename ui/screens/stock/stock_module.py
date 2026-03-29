@@ -50,6 +50,8 @@ class StockModule(QWidget):
             self._show("stock_card", lambda: StockCardScreen())
         elif key == "warehouse_transfer":
             self._show("warehouse_transfer", lambda: WarehouseTransferScreen())
+        elif key == "inventory_invoice":
+            self._show("inventory_invoice", lambda: self._make_inventory_session())
         elif key == "old_inventory":
             self._show("old_inventory", lambda: self._make_inventory())
         elif key == "import_items":
@@ -114,6 +116,10 @@ class StockModule(QWidget):
     def _make_inventory(self):
         from ui.screens.stock.inventory_screen import InventoryScreen
         return InventoryScreen()
+
+    def _make_inventory_session(self):
+        from ui.screens.stock.inventory_session_screen import InventorySessionScreen
+        return InventorySessionScreen()
 
     def _make_categories(self, sub: bool):
         return CategoriesScreen(subcategories_mode=sub)

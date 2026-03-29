@@ -40,6 +40,7 @@ def init_db() -> None:
     import database.models.stock        # noqa: F401
     import database.models.financials   # noqa: F401
     import database.models.sync         # noqa: F401
+    import database.models.inventory    # noqa: F401
     Base.metadata.create_all(bind=engine)
     # Idempotent migrations for columns added after initial schema
     # NOTE: SQLite ALTER TABLE ADD COLUMN cannot have UNIQUE — uniqueness is

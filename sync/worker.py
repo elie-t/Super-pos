@@ -41,7 +41,7 @@ class SyncWorker(QThread):
             pull_stock_movements, pull_users,
             pull_purchase_invoices, pull_suppliers,
             pull_sales_invoices, pull_warehouses, push_warehouses,
-            pull_categories, pull_transfers,
+            pull_categories, pull_transfers, pull_inventory_sessions,
             is_configured,
         )
         if not is_configured():
@@ -95,6 +95,9 @@ class SyncWorker(QThread):
 
             # Pull warehouse transfers from other branches
             pull_transfers()
+
+            # Pull inventory sessions from other branches
+            pull_inventory_sessions()
 
             # Pull new online orders
             count, err = pull_new_orders()

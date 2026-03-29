@@ -71,7 +71,7 @@ class StockCardService:
 
             # Opening: sum of all movements before date_from
             opening_rows = base.filter(StockMovement.created_at < dt_from).all()
-            opening_qty   = sum(r.quantity for r in opening_rows)
+            opening_qty_from_mvs = sum(r.quantity for r in opening_rows)
             opening_value = sum(abs(r.quantity) * r.unit_cost for r in opening_rows)
 
             # Period movements
@@ -80,11 +80,38 @@ class StockCardService:
                 StockMovement.created_at <= dt_to,
             ).order_by(StockMovement.created_at).all()
 
+            # ── Derive true opening from ItemStock (handles stock set without movements) ──
+            from database.models.items import ItemStock
+            from sqlalchemy import func as _fn
+            if warehouse_id:
+                _s = session.query(ItemStock).filter_by(
+                    item_id=item_id, warehouse_id=warehouse_id
+                ).first()
+                actual_stock = _s.quantity if _s else None
+            else:
+                actual_stock = session.query(_fn.sum(ItemStock.quantity)).filter_by(
+                    item_id=item_id
+                ).scalar()
+
+            if actual_stock is not None:
+                # Sum of movements after the period (needed to back-calculate)
+                future_sum = sum(
+                    r.quantity for r in base.filter(
+                        StockMovement.created_at > dt_to
+                    ).all()
+                )
+                period_sum = sum(r.quantity for r in period_rows)
+                opening_qty = actual_stock - future_sum - period_sum
+            else:
+                opening_qty = opening_qty_from_mvs
+
             # ── Pre-fetch reference data ────────────────────────────────────
             sale_ids  = [r.reference_id for r in period_rows
                          if r.reference_type == "sales_invoice"   and r.reference_id]
             purch_ids = [r.reference_id for r in period_rows
                          if r.reference_type == "purchase_invoice" and r.reference_id]
+            inv_sess_ids = [r.reference_id for r in period_rows
+                            if r.reference_type == "inventory" and r.reference_id]
 
             # Sales invoices
             sales_inv = {}
@@ -127,6 +154,17 @@ class StockCardService:
                         PurchaseInvoiceItem.invoice_id.in_(purch_ids),
                         PurchaseInvoiceItem.item_id == item_id).all():
                     purch_line[pi.invoice_id] = (pi.unit_cost, pi.discount_pct, pi.line_total)
+
+            # Inventory sessions
+            inv_sess_map: dict[str, str] = {}   # session_id → session_number
+            if inv_sess_ids:
+                try:
+                    from database.models.inventory import InventorySession
+                    for inv in session.query(InventorySession).filter(
+                            InventorySession.id.in_(inv_sess_ids)).all():
+                        inv_sess_map[inv.id] = inv.session_number or inv.id[:8]
+                except Exception:
+                    pass
 
             # Warehouse name cache
             wh_cache: dict[str, str] = {}
@@ -175,6 +213,13 @@ class StockCardService:
                     if ref_id in purch_line:
                         price, disc, total = purch_line[ref_id]
                         total = abs(total)
+                elif mv.reference_type == "inventory":
+                    inv_no = inv_sess_map.get(ref_id, ref_id[:8] if ref_id else "")
+                    label  = "Inventory"
+                    price  = mv.unit_cost
+                    if mv.operator_id:
+                        op = session.query(User).filter_by(id=mv.operator_id).first()
+                        cashier = op.full_name if op else ""
                 else:
                     if mv.operator_id:
                         op = session.query(User).filter_by(id=mv.operator_id).first()

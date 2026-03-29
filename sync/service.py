@@ -1754,6 +1754,165 @@ def pull_transfers() -> tuple[int, str]:
         return 0, str(e)
 
 
+# ── Inventory sessions sync ────────────────────────────────────────────────────
+
+def push_inventory_session(session_id: str) -> tuple[bool, str]:
+    """Push an inventory session + its items to Supabase central tables."""
+    from database.engine import get_session as get_db, init_db
+    from database.models.inventory import InventorySession, InventorySessionItem
+
+    if not is_configured():
+        return True, ""
+
+    init_db()
+    db = get_db()
+    try:
+        inv = db.get(InventorySession, session_id)
+        if not inv:
+            return False, "Inventory session not found"
+
+        now = datetime.now(timezone.utc).isoformat()
+        row = {
+            "id":             inv.id,
+            "session_number": inv.session_number or "",
+            "warehouse_id":   inv.warehouse_id,
+            "session_date":   inv.session_date or "",
+            "status":         inv.status,
+            "operator_id":    inv.operator_id or None,
+            "notes":          inv.notes or "",
+            "pushed_by":      BRANCH_ID,
+            "synced_at":      now,
+        }
+        ok, err = upsert_rows("inventory_sessions_central", [row])
+        if not ok:
+            return False, err
+
+        items = db.query(InventorySessionItem).filter_by(session_id=session_id).all()
+        if items:
+            item_rows = [
+                {
+                    "id":          li.id,
+                    "session_id":  session_id,
+                    "item_id":     li.item_id,
+                    "item_name":   li.item_name or "",
+                    "system_qty":  li.system_qty,
+                    "counted_qty": li.counted_qty,
+                    "diff_qty":    li.diff_qty,
+                    "unit_cost":   li.unit_cost or 0.0,
+                    "synced_at":   now,
+                }
+                for li in items
+            ]
+            ok, err = upsert_rows("inventory_session_items_central", item_rows)
+            if not ok:
+                return False, err
+
+        return True, ""
+    finally:
+        db.close()
+
+
+def pull_inventory_sessions() -> tuple[int, str]:
+    """Pull inventory sessions from other branches."""
+    import sqlalchemy
+    from database.engine import get_session as get_db, init_db
+    from database.models.inventory import InventorySession, InventorySessionItem
+
+    if not is_configured():
+        return 0, ""
+
+    last_pull = _state_get("inventory_sessions_pull")
+    ts_filter = f"&synced_at=gt.{last_pull}" if last_pull else ""
+
+    try:
+        r = requests.get(
+            f"{_url('inventory_sessions_central')}?order=synced_at.asc{ts_filter}",
+            headers={**_headers(), "Prefer": ""},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote = r.json()
+        if not remote:
+            return 0, ""
+
+        # Fetch all line items for these sessions
+        session_ids = [rs["id"] for rs in remote]
+        id_list = ",".join(f'"{i}"' for i in session_ids)
+        r2 = requests.get(
+            f"{_url('inventory_session_items_central')}?session_id=in.({id_list})&limit=5000",
+            headers={**_headers(), "Prefer": ""},
+            timeout=15,
+        )
+        lines_by_session: dict[str, list] = {}
+        if r2.status_code == 200:
+            for li in r2.json():
+                lines_by_session.setdefault(li["session_id"], []).append(li)
+
+        init_db()
+        db = get_db()
+        pulled = 0
+        latest_ts = last_pull
+        try:
+            db.execute(sqlalchemy.text("PRAGMA foreign_keys=OFF"))
+            for rs in remote:
+                if rs.get("pushed_by") == BRANCH_ID:
+                    latest_ts = rs["synced_at"]
+                    continue
+
+                existing = db.get(InventorySession, rs["id"])
+                if not existing:
+                    inv = InventorySession(
+                        id=rs["id"],
+                        session_number=rs.get("session_number") or None,
+                        warehouse_id=rs["warehouse_id"],
+                        session_date=rs.get("session_date") or None,
+                        status=rs.get("status", "open"),
+                        operator_id=rs.get("operator_id") or None,
+                        notes=rs.get("notes") or None,
+                    )
+                    db.add(inv)
+                    db.flush()
+                    pulled += 1
+
+                remote_items = lines_by_session.get(rs["id"], [])
+                if remote_items:
+                    # Full replacement to avoid duplicates on re-edit
+                    db.query(InventorySessionItem).filter_by(
+                        session_id=rs["id"]
+                    ).delete()
+                    db.flush()
+                    for li in remote_items:
+                        db.add(InventorySessionItem(
+                            id=li["id"],
+                            session_id=rs["id"],
+                            item_id=li.get("item_id") or "",
+                            item_name=li.get("item_name") or "",
+                            system_qty=li.get("system_qty") or 0.0,
+                            counted_qty=li.get("counted_qty") or 0.0,
+                            diff_qty=li.get("diff_qty") or 0.0,
+                            unit_cost=li.get("unit_cost") or 0.0,
+                        ))
+
+                latest_ts = rs["synced_at"]
+
+            db.commit()
+            db.execute(sqlalchemy.text("PRAGMA foreign_keys=ON"))
+            if latest_ts:
+                _state_set("inventory_sessions_pull", latest_ts)
+            return pulled, ""
+
+        except Exception as e:
+            db.execute(sqlalchemy.text("PRAGMA foreign_keys=ON"))
+            db.rollback()
+            return 0, str(e)
+        finally:
+            db.close()
+    except Exception as e:
+        return 0, str(e)
+
+
 # ── Enqueue helper (called from services) ────────────────────────────────────
 
 def enqueue(entity_type: str, entity_id: str, action: str, payload: dict) -> None:
