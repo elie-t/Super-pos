@@ -1247,17 +1247,37 @@ def pull_sales_invoices() -> tuple[int, str]:
 
         try:
             import sqlalchemy
+            from database.models.stock import StockMovement
+            from database.models.base import new_uuid as _new_uuid
             session.execute(sqlalchemy.text("PRAGMA foreign_keys=OFF"))
 
             for ri in remote:
                 inv = session.get(SalesInvoice, ri["id"])
-                if inv:
+                wh_id    = ri.get("warehouse_id") or ""
+                src      = ri.get("source") or "manual"
+                # pos_shift invoices are shift-summary records; their item-level
+                # stock movements already arrive via pull_stock_movements(), so
+                # we skip creating duplicate audit movements for them.
+                is_shift = (src == "pos_shift")
+                is_update = bool(inv)
+
+                if is_update:
                     inv.payment_status = ri.get("payment_status", inv.payment_status)
                     inv.status         = ri.get("status", inv.status)
                     if ri.get("source"):
                         inv.source       = ri["source"]
                     if ri.get("invoice_type"):
                         inv.invoice_type = ri["invoice_type"]
+                    if not is_shift:
+                        # Reverse old audit movements + wipe old line items
+                        session.query(StockMovement).filter(
+                            StockMovement.reference_type == "sales_invoice",
+                            StockMovement.reference_id   == ri["id"],
+                        ).delete()
+                        session.query(SalesInvoiceItem).filter_by(
+                            invoice_id=ri["id"]
+                        ).delete()
+                        session.flush()
                 else:
                     # Skip if invoice_number already taken by a local invoice
                     clash = session.query(SalesInvoice).filter_by(
@@ -1273,7 +1293,7 @@ def pull_sales_invoices() -> tuple[int, str]:
                         invoice_number=ri["invoice_number"],
                         customer_id=ri.get("customer_id") or "",
                         operator_id=ri.get("operator_id") or "",
-                        warehouse_id=ri.get("warehouse_id") or "",
+                        warehouse_id=wh_id,
                         invoice_date=ri["invoice_date"],
                         total=ri.get("total", 0),
                         currency=ri.get("currency", "USD"),
@@ -1281,24 +1301,41 @@ def pull_sales_invoices() -> tuple[int, str]:
                         payment_status=ri.get("payment_status", "unpaid"),
                         amount_paid=ri.get("amount_paid", 0),
                         notes=ri.get("notes") or None,
-                        source=ri.get("source") or "manual",
+                        source=src,
                         invoice_type=ri.get("invoice_type") or "sale",
                     )
                     session.add(inv)
                     session.flush()
 
+                # Add / re-add line items and create audit trail movements
+                # (skip for pos_shift — movements come via pull_stock_movements)
+                if not is_shift:
                     for li in lines_by_inv.get(ri["id"], []):
-                        if not session.get(SalesInvoiceItem, li["id"]):
-                            session.add(SalesInvoiceItem(
-                                id=li["id"],
-                                invoice_id=ri["id"],
-                                item_id=li.get("item_id") or "",
-                                item_name=li["item_name"],
-                                barcode=li.get("barcode") or "",
-                                quantity=li["quantity"],
-                                unit_price=li["unit_price"],
-                                currency=li.get("currency", "USD"),
-                                line_total=li["line_total"],
+                        item_id = li.get("item_id") or ""
+                        qty     = float(li["quantity"])
+                        price   = float(li.get("unit_price") or 0)
+                        session.add(SalesInvoiceItem(
+                            id=li["id"] if not is_update else _new_uuid(),
+                            invoice_id=ri["id"],
+                            item_id=item_id,
+                            item_name=li["item_name"],
+                            barcode=li.get("barcode") or "",
+                            quantity=qty,
+                            unit_price=price,
+                            currency=li.get("currency", "USD"),
+                            line_total=float(li.get("line_total") or 0),
+                        ))
+                        # Audit trail movement — sale removes stock
+                        if item_id and wh_id:
+                            session.add(StockMovement(
+                                id=_new_uuid(),
+                                item_id=item_id,
+                                warehouse_id=wh_id,
+                                movement_type="sale",
+                                quantity=-qty,
+                                unit_cost=price,
+                                reference_type="sales_invoice",
+                                reference_id=ri["id"],
                             ))
 
                 latest_ts = ri["synced_at"]
@@ -1438,22 +1475,38 @@ def pull_purchase_invoices() -> tuple[int, str]:
             # Disable FK checks so invoices from other branches can be stored
             # even if their supplier/operator/warehouse don't exist locally
             import sqlalchemy
+            from database.models.stock import StockMovement
+            from database.models.base import new_uuid as _new_uuid
             session.execute(sqlalchemy.text("PRAGMA foreign_keys=OFF"))
 
             for ri in remote:
                 inv = session.get(PurchaseInvoice, ri["id"])
-                if inv:
-                    # Already exists — update header fields only
+                wh_id = ri.get("warehouse_id") or ""
+                is_update = bool(inv)
+
+                if is_update:
+                    # Update header fields
                     inv.payment_status = ri.get("payment_status", inv.payment_status)
                     inv.status         = ri.get("status", inv.status)
                     inv.notes          = ri.get("notes") or inv.notes
+                    inv.total          = ri.get("total", inv.total)
+                    inv.subtotal       = ri.get("subtotal", inv.subtotal)
+                    # Reverse old audit movements then wipe old line items
+                    session.query(StockMovement).filter(
+                        StockMovement.reference_type == "purchase_invoice",
+                        StockMovement.reference_id   == ri["id"],
+                    ).delete()
+                    session.query(PurchaseInvoiceItem).filter_by(
+                        invoice_id=ri["id"]
+                    ).delete()
+                    session.flush()
                 else:
                     inv = PurchaseInvoice(
                         id=ri["id"],
                         invoice_number=ri["invoice_number"],
                         supplier_id=ri.get("supplier_id") or None,
                         operator_id=ri.get("operator_id") or "",
-                        warehouse_id=ri.get("warehouse_id") or "",
+                        warehouse_id=wh_id,
                         invoice_date=ri["invoice_date"],
                         due_date=ri.get("due_date") or None,
                         order_number=ri.get("order_number") or None,
@@ -1468,21 +1521,35 @@ def pull_purchase_invoices() -> tuple[int, str]:
                     session.add(inv)
                     session.flush()
 
-                    # Add line items
-                    for li in lines_by_inv.get(ri["id"], []):
-                        existing_li = session.get(PurchaseInvoiceItem, li["id"])
-                        if not existing_li:
-                            session.add(PurchaseInvoiceItem(
-                                id=li["id"],
-                                invoice_id=ri["id"],
-                                item_id=li.get("item_id") or "",
-                                item_name=li["item_name"],
-                                quantity=li["quantity"],
-                                pack_size=li.get("pack_size", 1),
-                                unit_cost=li["unit_cost"],
-                                currency=li.get("currency", "USD"),
-                                line_total=li["line_total"],
-                            ))
+                # Add / re-add line items and create audit trail movements
+                for li in lines_by_inv.get(ri["id"], []):
+                    item_id = li.get("item_id") or ""
+                    qty     = float(li["quantity"])
+                    cost    = float(li.get("unit_cost") or 0)
+                    session.add(PurchaseInvoiceItem(
+                        id=li["id"] if not is_update else _new_uuid(),
+                        invoice_id=ri["id"],
+                        item_id=item_id,
+                        item_name=li["item_name"],
+                        quantity=qty,
+                        pack_size=li.get("pack_size", 1),
+                        unit_cost=cost,
+                        currency=li.get("currency", "USD"),
+                        line_total=float(li.get("line_total") or 0),
+                    ))
+                    # Audit trail movement (stock card history) — ItemStock is
+                    # already kept in sync by pull_stock_movements()
+                    if item_id and wh_id:
+                        session.add(StockMovement(
+                            id=_new_uuid(),
+                            item_id=item_id,
+                            warehouse_id=wh_id,
+                            movement_type="purchase",
+                            quantity=qty,
+                            unit_cost=cost,
+                            reference_type="purchase_invoice",
+                            reference_id=ri["id"],
+                        ))
 
                 latest_ts = ri["synced_at"]
                 pulled += 1
