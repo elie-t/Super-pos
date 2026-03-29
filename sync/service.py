@@ -1674,7 +1674,7 @@ def pull_transfers() -> tuple[int, str]:
         transfer_ids = [rt["id"] for rt in remote]
         id_list = ",".join(f'"{i}"' for i in transfer_ids)
         r2 = requests.get(
-            f"{_url('warehouse_transfer_items_central')}?transfer_id=in.({id_list})",
+            f"{_url('warehouse_transfer_items_central')}?transfer_id=in.({id_list})&limit=5000",
             headers={**_headers(), "Prefer": ""},
             timeout=15,
         )
@@ -1695,23 +1695,22 @@ def pull_transfers() -> tuple[int, str]:
                     continue
 
                 existing = session.get(WarehouseTransfer, rt["id"])
-                if existing:
-                    latest_ts = rt["synced_at"]
-                    continue
+                if not existing:
+                    t = WarehouseTransfer(
+                        id=rt["id"],
+                        transfer_number=rt.get("transfer_number") or None,
+                        from_warehouse_id=rt["from_warehouse_id"],
+                        to_warehouse_id=rt["to_warehouse_id"],
+                        transfer_date=rt.get("transfer_date") or None,
+                        status=rt.get("status", "open"),
+                        operator_id=rt.get("operator_id") or None,
+                        notes=rt.get("notes") or None,
+                    )
+                    session.add(t)
+                    session.flush()
+                    pulled += 1
 
-                t = WarehouseTransfer(
-                    id=rt["id"],
-                    transfer_number=rt.get("transfer_number") or None,
-                    from_warehouse_id=rt["from_warehouse_id"],
-                    to_warehouse_id=rt["to_warehouse_id"],
-                    transfer_date=rt.get("transfer_date") or None,
-                    status=rt.get("status", "confirmed"),
-                    operator_id=rt.get("operator_id") or None,
-                    notes=rt.get("notes") or None,
-                )
-                session.add(t)
-                session.flush()
-
+                # Always upsert items — fixes case where header synced but items didn't
                 for li in lines_by_transfer.get(rt["id"], []):
                     if not session.get(WarehouseTransferItem, li["id"]):
                         session.add(WarehouseTransferItem(
@@ -1724,7 +1723,6 @@ def pull_transfers() -> tuple[int, str]:
                         ))
 
                 latest_ts = rt["synced_at"]
-                pulled += 1
 
             session.commit()
             session.execute(sqlalchemy.text("PRAGMA foreign_keys=ON"))
