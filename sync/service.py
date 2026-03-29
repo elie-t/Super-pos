@@ -1878,22 +1878,80 @@ def pull_inventory_sessions() -> tuple[int, str]:
 
                 remote_items = lines_by_session.get(rs["id"], [])
                 if remote_items:
-                    # Full replacement to avoid duplicates on re-edit
+                    wh_id = rs["warehouse_id"]
+                    from database.models.stock import StockMovement
+                    from database.models.items import ItemStock
+
+                    # Reverse old stock adjustments before replacing items
+                    old_items = db.query(InventorySessionItem).filter_by(
+                        session_id=rs["id"]
+                    ).all()
+                    for old_li in old_items:
+                        # Restore ItemStock to system_qty
+                        old_stock = db.query(ItemStock).filter_by(
+                            item_id=old_li.item_id, warehouse_id=wh_id
+                        ).first()
+                        if old_stock:
+                            old_stock.quantity = old_li.system_qty
+                        # Remove old movements for this session+item
+                        db.query(StockMovement).filter_by(
+                            reference_id=rs["id"], item_id=old_li.item_id
+                        ).delete()
+
+                    # Delete old items
                     db.query(InventorySessionItem).filter_by(
                         session_id=rs["id"]
                     ).delete()
                     db.flush()
+
+                    # Insert new items, apply movements and update ItemStock
                     for li in remote_items:
+                        item_id     = li.get("item_id") or ""
+                        counted_qty = li.get("counted_qty") or 0.0
+                        system_qty  = li.get("system_qty") or 0.0
+                        diff        = li.get("diff_qty") or 0.0
+                        unit_cost   = li.get("unit_cost") or 0.0
+
                         db.add(InventorySessionItem(
                             id=li["id"],
                             session_id=rs["id"],
-                            item_id=li.get("item_id") or "",
+                            item_id=item_id,
                             item_name=li.get("item_name") or "",
-                            system_qty=li.get("system_qty") or 0.0,
-                            counted_qty=li.get("counted_qty") or 0.0,
-                            diff_qty=li.get("diff_qty") or 0.0,
-                            unit_cost=li.get("unit_cost") or 0.0,
+                            system_qty=system_qty,
+                            counted_qty=counted_qty,
+                            diff_qty=diff,
+                            unit_cost=unit_cost,
                         ))
+
+                        # Create local StockMovement so stock card shows it
+                        if diff != 0 and item_id:
+                            from database.models.base import new_uuid as _uuid
+                            db.add(StockMovement(
+                                id=_uuid(),
+                                item_id=item_id,
+                                warehouse_id=wh_id,
+                                movement_type="adjustment_in" if diff > 0 else "adjustment_out",
+                                quantity=diff,
+                                unit_cost=unit_cost,
+                                reference_type="inventory",
+                                reference_id=rs["id"],
+                            ))
+
+                        # Set ItemStock to exact counted qty (absolute, not delta)
+                        if item_id:
+                            stock = db.query(ItemStock).filter_by(
+                                item_id=item_id, warehouse_id=wh_id
+                            ).first()
+                            if stock:
+                                stock.quantity = counted_qty
+                            else:
+                                from database.models.base import new_uuid as _uuid
+                                db.add(ItemStock(
+                                    id=_uuid(),
+                                    item_id=item_id,
+                                    warehouse_id=wh_id,
+                                    quantity=counted_qty,
+                                ))
 
                 latest_ts = rs["synced_at"]
 
