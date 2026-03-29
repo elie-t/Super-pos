@@ -60,6 +60,62 @@ class TransferService:
             session.close()
 
     @staticmethod
+    def save_draft(
+        from_warehouse_id: str,
+        to_warehouse_id: str,
+        operator_id: str,
+        transfer_date: str,
+        notes: str,
+        lines: list[dict],
+        transfer_number: str = "",
+    ) -> tuple[bool, str]:
+        """Save transfer as draft — no stock movements, no commit to inventory."""
+        if not lines:
+            return False, "No items to save."
+        if from_warehouse_id == to_warehouse_id:
+            return False, "Source and destination must be different warehouses."
+
+        from database.engine import get_session, init_db
+        from database.models.stock import WarehouseTransfer, WarehouseTransferItem
+        from database.models.base import new_uuid
+        init_db()
+        session = get_session()
+        try:
+            if not transfer_number:
+                transfer_number = TransferService.next_transfer_number(from_warehouse_id)
+
+            transfer = WarehouseTransfer(
+                id=new_uuid(),
+                transfer_number=transfer_number,
+                from_warehouse_id=from_warehouse_id,
+                to_warehouse_id=to_warehouse_id,
+                transfer_date=transfer_date,
+                status="draft",
+                operator_id=operator_id,
+                notes=notes or None,
+            )
+            session.add(transfer)
+            session.flush()
+
+            for line in lines:
+                session.add(WarehouseTransferItem(
+                    id=new_uuid(),
+                    transfer_id=transfer.id,
+                    item_id=line["item_id"],
+                    item_name=line.get("item_name") or line.get("name", ""),
+                    quantity=float(line["qty"]),
+                    unit_cost=float(line.get("unit_cost", 0.0)),
+                ))
+
+            session.commit()
+            return True, transfer.id
+        except Exception as e:
+            session.rollback()
+            return False, str(e)
+        finally:
+            session.close()
+
+    @staticmethod
     def confirm_transfer(
         from_warehouse_id: str,
         to_warehouse_id: str,

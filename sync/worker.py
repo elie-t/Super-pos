@@ -40,7 +40,7 @@ class SyncWorker(QThread):
             pull_master_items, pull_master_customers,
             pull_stock_movements, pull_users,
             pull_purchase_invoices, pull_suppliers,
-            pull_sales_invoices, pull_warehouses,
+            pull_sales_invoices, pull_warehouses, push_warehouses,
             pull_categories, pull_transfers,
             is_configured,
         )
@@ -75,7 +75,8 @@ class SyncWorker(QThread):
             elif users_pulled > 0:
                 self.users_changed.emit()
 
-            # Pull warehouses first (other pulls depend on them)
+            # Push local warehouses, then pull all from central
+            push_warehouses()
             pull_warehouses()
 
             # Pull suppliers

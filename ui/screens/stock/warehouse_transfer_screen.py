@@ -494,6 +494,17 @@ class WarehouseTransferScreen(QWidget):
         confirm_btn.clicked.connect(self._confirm)
         lay.addWidget(confirm_btn)
 
+        draft_btn = QPushButton("💾  Save Draft")
+        draft_btn.setFixedHeight(38)
+        draft_btn.setStyleSheet(
+            "QPushButton{background:#1565c0;color:#fff;border:none;"
+            "border-radius:4px;font-size:13px;font-weight:600;padding:0 16px;}"
+            "QPushButton:hover{background:#0d47a1;}"
+        )
+        draft_btn.setCursor(Qt.PointingHandCursor)
+        draft_btn.clicked.connect(self._save_draft)
+        lay.addWidget(draft_btn)
+
         clear_btn = QPushButton("🗑  Clear All")
         clear_btn.setObjectName("warningBtn")
         clear_btn.setFixedHeight(38)
@@ -1047,6 +1058,32 @@ class WarehouseTransferScreen(QWidget):
 
     # ── Confirm ───────────────────────────────────────────────────────────────
 
+    def _save_draft(self):
+        if not self._lines:
+            QMessageBox.warning(self, "Empty", "No items to save.")
+            return
+        if not self._from_wh_id or not self._to_wh_id:
+            QMessageBox.warning(self, "Warehouse", "Select source and destination warehouses.")
+            return
+
+        lines = [{"item_id": l["item_id"], "name": l["name"],
+                  "qty": l["qty"], "unit_cost": l["price"]} for l in self._lines]
+        operator_id = AuthService.current_user_id() or ""
+        ok, result = TransferService.save_draft(
+            from_warehouse_id=self._from_wh_id,
+            to_warehouse_id=self._to_wh_id,
+            operator_id=operator_id,
+            transfer_date=self._date_edit.date().toString("yyyy-MM-dd"),
+            notes=self._notes_input.text().strip(),
+            lines=lines,
+        )
+        if ok:
+            QMessageBox.information(self, "Draft Saved",
+                                    "Transfer saved as draft.\nOpen History to confirm it later.")
+            self._clear_all()
+        else:
+            QMessageBox.critical(self, "Error", result)
+
     def _confirm(self):
         if not self._lines:
             QMessageBox.warning(self, "Empty", "No items to transfer.")
@@ -1349,11 +1386,11 @@ class WarehouseTransferScreen(QWidget):
 
         # Set warehouses
         for i in range(self._from_combo.count()):
-            if self._from_combo.itemData(i) == detail["from_wh_id"]:
+            if self._from_combo.itemData(i)[0] == detail["from_wh_id"]:
                 self._from_combo.setCurrentIndex(i)
                 break
         for i in range(self._to_combo.count()):
-            if self._to_combo.itemData(i) == detail["to_wh_id"]:
+            if self._to_combo.itemData(i)[0] == detail["to_wh_id"]:
                 self._to_combo.setCurrentIndex(i)
                 break
 
