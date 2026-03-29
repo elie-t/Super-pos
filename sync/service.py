@@ -1021,13 +1021,14 @@ def push_warehouses() -> tuple[bool, str]:
     try:
         rows = [
             {
-                "id":         w.id,
-                "number":     w.number,
-                "name":       w.name,
-                "location":   w.location or "",
-                "is_default": w.is_default,
-                "is_active":  w.is_active,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "id":                  w.id,
+                "number":              w.number,
+                "name":                w.name,
+                "location":            w.location or "",
+                "is_default":          w.is_default,
+                "is_active":           w.is_active,
+                "default_customer_id": w.default_customer_id or None,
+                "updated_at":          datetime.now(timezone.utc).isoformat(),
             }
             for w in session.query(Warehouse).all()
         ]
@@ -1068,11 +1069,12 @@ def pull_warehouses() -> tuple[int, str]:
                 if not w:
                     w = Warehouse(id=rw["id"])
                     session.add(w)
-                w.number     = rw.get("number")
-                w.name       = rw["name"]
-                w.location   = rw.get("location") or None
-                w.is_default = rw.get("is_default", False)
-                w.is_active  = rw.get("is_active", True)
+                w.number              = rw.get("number")
+                w.name                = rw["name"]
+                w.location            = rw.get("location") or None
+                w.is_default          = rw.get("is_default", False)
+                w.is_active           = rw.get("is_active", True)
+                w.default_customer_id = rw.get("default_customer_id") or None
                 updated += 1
             session.commit()
             return updated, ""
