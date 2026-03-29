@@ -1720,21 +1720,97 @@ def pull_transfers() -> tuple[int, str]:
 
                 remote_items = lines_by_transfer.get(rt["id"], [])
                 if remote_items:
-                    # Full replace: delete all local items then re-insert from remote
-                    # Prevents duplicates when a transfer is edited on another branch
+                    from database.models.stock import StockMovement
+                    from database.models.items import ItemStock
+                    from database.models.base import new_uuid
+
+                    from_wh = rt["from_warehouse_id"]
+                    to_wh   = rt["to_warehouse_id"]
+
+                    # Reverse old stock movements before replacing items
+                    old_items = session.query(WarehouseTransferItem).filter_by(
+                        transfer_id=rt["id"]
+                    ).all()
+                    for old_li in old_items:
+                        # Restore source stock
+                        src = session.query(ItemStock).filter_by(
+                            item_id=old_li.item_id, warehouse_id=from_wh
+                        ).first()
+                        if src:
+                            src.quantity += old_li.quantity
+                        # Restore destination stock
+                        dst = session.query(ItemStock).filter_by(
+                            item_id=old_li.item_id, warehouse_id=to_wh
+                        ).first()
+                        if dst:
+                            dst.quantity -= old_li.quantity
+                        # Remove old movements
+                        session.query(StockMovement).filter_by(
+                            reference_id=rt["id"], item_id=old_li.item_id
+                        ).delete()
+
+                    # Full replace items
                     session.query(WarehouseTransferItem).filter_by(
                         transfer_id=rt["id"]
                     ).delete()
                     session.flush()
+
                     for li in remote_items:
+                        item_id  = li.get("item_id") or ""
+                        qty      = float(li["quantity"])
+                        cost     = float(li.get("unit_cost") or 0.0)
+
                         session.add(WarehouseTransferItem(
                             id=li["id"],
                             transfer_id=rt["id"],
-                            item_id=li.get("item_id") or "",
+                            item_id=item_id,
                             item_name=li.get("item_name") or "",
-                            quantity=li["quantity"],
-                            unit_cost=li.get("unit_cost") or 0.0,
+                            quantity=qty,
+                            unit_cost=cost,
                         ))
+
+                        if item_id:
+                            # transfer_out from source
+                            session.add(StockMovement(
+                                id=new_uuid(),
+                                item_id=item_id,
+                                warehouse_id=from_wh,
+                                movement_type="transfer_out",
+                                quantity=-qty,
+                                unit_cost=cost,
+                                reference_type="transfer",
+                                reference_id=rt["id"],
+                            ))
+                            # transfer_in to destination
+                            session.add(StockMovement(
+                                id=new_uuid(),
+                                item_id=item_id,
+                                warehouse_id=to_wh,
+                                movement_type="transfer_in",
+                                quantity=qty,
+                                unit_cost=cost,
+                                reference_type="transfer",
+                                reference_id=rt["id"],
+                            ))
+
+                            # Update ItemStock
+                            src = session.query(ItemStock).filter_by(
+                                item_id=item_id, warehouse_id=from_wh
+                            ).first()
+                            if src:
+                                src.quantity -= qty
+                            else:
+                                session.add(ItemStock(id=new_uuid(), item_id=item_id,
+                                                      warehouse_id=from_wh, quantity=-qty))
+
+                            dst = session.query(ItemStock).filter_by(
+                                item_id=item_id, warehouse_id=to_wh
+                            ).first()
+                            if dst:
+                                dst.quantity += qty
+                            else:
+                                session.add(ItemStock(id=new_uuid(), item_id=item_id,
+                                                      warehouse_id=to_wh, quantity=qty))
 
                 latest_ts = rt["synced_at"]
 

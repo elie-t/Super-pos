@@ -22,6 +22,7 @@ class _SyncAllWorker(QThread):
             pull_purchase_invoices, pull_suppliers,
             pull_sales_invoices, pull_warehouses,
             pull_categories, pull_transfers,
+            pull_inventory_sessions,
             push_categories,
             drain_sync_queue,
         )
@@ -83,6 +84,10 @@ class _SyncAllWorker(QThread):
         self.progress.emit("Pulling transfers…")
         n, err = pull_transfers()
         results.append(f"Transfers pulled: {n}" + (f" ⚠ {err}" if err else ""))
+
+        self.progress.emit("Pulling inventory sessions…")
+        n, err = pull_inventory_sessions()
+        results.append(f"Inventory sessions pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
         self.finished.emit("\n".join(results))
 
