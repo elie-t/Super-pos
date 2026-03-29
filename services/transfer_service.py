@@ -243,6 +243,74 @@ class TransferService:
             session.close()
 
     @staticmethod
+    def unconfirm_transfer(transfer_id: str) -> tuple[bool, str]:
+        """
+        Reverses a confirmed transfer back to draft:
+          - Deletes the transfer_out / transfer_in StockMovements
+          - Restores ItemStock for both warehouses
+          - Sets status = "draft"
+        """
+        init_db()
+        session = get_session()
+        try:
+            from database.models.stock import WarehouseTransfer, StockMovement
+            from database.models.items import ItemStock
+            from database.models.base import new_uuid
+
+            t = session.query(WarehouseTransfer).filter_by(id=transfer_id).first()
+            if not t:
+                return False, "Transfer not found."
+            if t.status != "confirmed":
+                return False, "Transfer is not confirmed."
+
+            for li in t.items:
+                qty     = li.quantity
+                item_id = li.item_id
+
+                # Remove the transfer_out / transfer_in movements
+                session.query(StockMovement).filter_by(
+                    reference_id=transfer_id, item_id=item_id,
+                    movement_type="transfer_out",
+                ).delete()
+                session.query(StockMovement).filter_by(
+                    reference_id=transfer_id, item_id=item_id,
+                    movement_type="transfer_in",
+                ).delete()
+
+                # Restore source stock (add back)
+                src = session.query(ItemStock).filter_by(
+                    item_id=item_id, warehouse_id=t.from_warehouse_id
+                ).first()
+                if src:
+                    src.quantity += qty
+                else:
+                    session.add(ItemStock(
+                        id=new_uuid(), item_id=item_id,
+                        warehouse_id=t.from_warehouse_id, quantity=qty,
+                    ))
+
+                # Restore destination stock (deduct)
+                dst = session.query(ItemStock).filter_by(
+                    item_id=item_id, warehouse_id=t.to_warehouse_id
+                ).first()
+                if dst:
+                    dst.quantity -= qty
+                else:
+                    session.add(ItemStock(
+                        id=new_uuid(), item_id=item_id,
+                        warehouse_id=t.to_warehouse_id, quantity=-qty,
+                    ))
+
+            t.status = "draft"
+            session.commit()
+            return True, transfer_id
+        except Exception as exc:
+            session.rollback()
+            return False, str(exc)
+        finally:
+            session.close()
+
+    @staticmethod
     def list_transfers(limit: int = 100) -> list[dict]:
         """Recent confirmed transfers for the history view."""
         init_db()

@@ -482,28 +482,29 @@ class WarehouseTransferScreen(QWidget):
         lay.setContentsMargins(12, 8, 12, 8)
         lay.setSpacing(10)
 
-        confirm_btn = QPushButton("✔  Confirm Transfer")
-        confirm_btn.setFixedHeight(38)
-        confirm_btn.setMinimumWidth(180)
-        confirm_btn.setStyleSheet(
+        draft_btn = QPushButton("💾  Save Draft")
+        draft_btn.setFixedHeight(38)
+        draft_btn.setMinimumWidth(160)
+        draft_btn.setStyleSheet(
             "QPushButton{background:#2e7d32;color:#fff;font-size:14px;font-weight:700;"
             "border-radius:4px;border:none;}"
             "QPushButton:hover{background:#1b5e20;}"
         )
-        confirm_btn.setCursor(Qt.PointingHandCursor)
-        confirm_btn.clicked.connect(self._confirm)
-        lay.addWidget(confirm_btn)
+        draft_btn.setCursor(Qt.PointingHandCursor)
+        draft_btn.clicked.connect(self._save_draft)
+        lay.addWidget(draft_btn)
 
-        draft_btn = QPushButton("💾  Save Draft")
-        draft_btn.setFixedHeight(38)
-        draft_btn.setStyleSheet(
+        confirm_btn = QPushButton("✔  Confirm Transfer")
+        confirm_btn.setFixedHeight(38)
+        confirm_btn.setMinimumWidth(180)
+        confirm_btn.setStyleSheet(
             "QPushButton{background:#1565c0;color:#fff;border:none;"
             "border-radius:4px;font-size:13px;font-weight:600;padding:0 16px;}"
             "QPushButton:hover{background:#0d47a1;}"
         )
-        draft_btn.setCursor(Qt.PointingHandCursor)
-        draft_btn.clicked.connect(self._save_draft)
-        lay.addWidget(draft_btn)
+        confirm_btn.setCursor(Qt.PointingHandCursor)
+        confirm_btn.clicked.connect(self._confirm)
+        lay.addWidget(confirm_btn)
 
         clear_btn = QPushButton("🗑  Clear All")
         clear_btn.setObjectName("warningBtn")
@@ -1290,6 +1291,17 @@ class WarehouseTransferScreen(QWidget):
         load_btn.setCursor(Qt.PointingHandCursor)
         btn_row.addWidget(load_btn)
 
+        unconfirm_btn = QPushButton("↩  Unconfirm")
+        unconfirm_btn.setStyleSheet(
+            "QPushButton{background:#e65100;color:#fff;font-size:12px;font-weight:700;"
+            "border:none;border-radius:4px;padding:6px 16px;}"
+            "QPushButton:hover{background:#bf360c;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        unconfirm_btn.setEnabled(False)
+        unconfirm_btn.setCursor(Qt.PointingHandCursor)
+        btn_row.addWidget(unconfirm_btn)
+
         notes_lbl = QLabel("")
         notes_lbl.setStyleSheet("color:#555;font-size:11px;font-style:italic;")
         btn_row.addWidget(notes_lbl)
@@ -1352,9 +1364,11 @@ class WarehouseTransferScreen(QWidget):
                     )
                     detail_tbl.setItem(r2, c2, it2)
 
-            # Only allow load/edit for draft transfers
+            # Only allow load/edit for draft transfers; unconfirm for confirmed
             load_btn.setEnabled(status == "draft")
+            unconfirm_btn.setEnabled(status == "confirmed")
             load_btn.setProperty("transfer_detail", detail)
+            unconfirm_btn.setProperty("transfer_id", detail["id"])
 
         list_tbl.itemSelectionChanged.connect(on_row_selected)
         list_tbl.doubleClicked.connect(lambda _: on_row_selected())
@@ -1368,6 +1382,25 @@ class WarehouseTransferScreen(QWidget):
             self._load_transfer(detail)
 
         load_btn.clicked.connect(on_load)
+
+        def on_unconfirm():
+            tid = unconfirm_btn.property("transfer_id")
+            if not tid:
+                return
+            if QMessageBox.question(
+                self, "Unconfirm Transfer",
+                "This will reverse all stock movements for this transfer and set it back to draft.\n\nProceed?",
+                QMessageBox.Yes | QMessageBox.No,
+            ) != QMessageBox.Yes:
+                return
+            ok, msg = TransferService.unconfirm_transfer(tid)
+            if ok:
+                QMessageBox.information(self, "Done", "Transfer reverted to draft.")
+                dlg.accept()
+            else:
+                QMessageBox.critical(self, "Error", msg)
+
+        unconfirm_btn.clicked.connect(on_unconfirm)
 
         close_btn = QPushButton("Close")
         close_btn.setStyleSheet(
