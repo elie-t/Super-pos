@@ -163,11 +163,15 @@ class PosService:
             from database.models.parties import Customer
             from database.models.base import new_uuid
 
-            # Prefer warehouse-specific default customer
+            # Prefer warehouse-specific default customer (only if it exists locally)
             if warehouse_id:
                 wh = session.query(Warehouse).filter_by(id=warehouse_id).first()
                 if wh and wh.default_customer_id:
-                    return wh.default_customer_id
+                    cust = session.query(Customer).filter_by(
+                        id=wh.default_customer_id, is_active=True
+                    ).first()
+                    if cust:
+                        return cust.id
 
             # Fall back to global cash client
             c = session.query(Customer).filter_by(is_cash_client=True).first()
