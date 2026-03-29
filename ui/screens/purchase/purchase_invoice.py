@@ -936,7 +936,7 @@ class PurchaseInvoiceScreen(QWidget):
 
     def _update_sup_completions(self):
         query = self._sup_input.text().strip()
-        if len(query) < 2:
+        if len(query) < 3:
             self._sup_completer_model.setStringList([])
             return
         results = SupplierService.search(query, limit=30)
