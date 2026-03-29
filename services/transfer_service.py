@@ -145,7 +145,7 @@ class TransferService:
         session = get_session()
         try:
             from database.models.stock import WarehouseTransfer, WarehouseTransferItem, StockMovement
-            from database.models.items import ItemStock
+            from database.models.items import ItemStock, Warehouse, Setting
             from database.models.base import new_uuid
 
             if transfer_id:
@@ -178,8 +178,19 @@ class TransferService:
                 session.flush()
             else:
                 # ── Create new transfer ───────────────────────────────────────
+                # Compute transfer number and increment counter in the same session
+                wh = session.query(Warehouse).filter_by(id=from_warehouse_id).first()
+                wh_num = wh.number if (wh and wh.number is not None) else 0
+                seq_key = f"next_transfer_number_wh{wh_num}"
+                s = session.get(Setting, seq_key)
+                seq = int(s.value) if s else 1
                 if not transfer_number:
-                    transfer_number = TransferService.next_transfer_number(from_warehouse_id)
+                    transfer_number = f"T{wh_num * 10000 + seq}"
+                # Increment in same session
+                if s:
+                    s.value = str(seq + 1)
+                else:
+                    session.add(Setting(key=seq_key, value="2"))
 
                 t = WarehouseTransfer(
                     id=new_uuid(),
@@ -193,7 +204,6 @@ class TransferService:
                 )
                 session.add(t)
                 session.flush()
-                TransferService.increment_transfer_number(from_warehouse_id)
 
             # Add new line items
             for line in lines:
