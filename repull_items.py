@@ -52,6 +52,7 @@ def fetch_all(table: str, label: str) -> list[dict]:
     return rows
 
 
+from sqlalchemy import func as sa_func
 from database.engine import get_session, init_db
 from database.models.items import Item, ItemPrice, ItemBarcode, Category, Brand
 from database.models.base import new_uuid
@@ -115,6 +116,17 @@ try:
         for rb in barcodes_by_item.get(ri["id"], []):
             bc = session.get(ItemBarcode, rb["id"])
             if not bc:
+                # Check for barcode value conflict (UNIQUE constraint on barcode column)
+                conflict = session.query(ItemBarcode).filter(
+                    sa_func.lower(ItemBarcode.barcode) == rb["barcode"].lower()
+                ).first()
+                if conflict:
+                    # Update the existing row to point to the correct item
+                    conflict.item_id   = ri["id"]
+                    conflict.is_primary = rb.get("is_primary", False)
+                    conflict.pack_qty  = rb.get("pack_qty", 1)
+                    barcodes_done += 1
+                    continue
                 bc = ItemBarcode(id=rb["id"], item_id=ri["id"])
                 session.add(bc)
             bc.barcode    = rb["barcode"]
