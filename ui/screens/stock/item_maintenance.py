@@ -633,6 +633,16 @@ class ItemMaintenanceScreen(QWidget):
 
         curr_row.addStretch()
 
+        # LBP equivalent display (shows individual price converted to LBP)
+        self._lbp_display = QLabel("≈ — LBP")
+        self._lbp_display.setStyleSheet(
+            "background:#fff9e6; border:1px solid #f0c040; border-radius:4px;"
+            " padding:2px 8px; color:#7a5500; font-size:12px; font-weight:600;"
+        )
+        self._lbp_display.setMinimumWidth(140)
+        self._lbp_display.setAlignment(Qt.AlignCenter)
+        curr_row.addWidget(self._lbp_display)
+
         # Fixed / Variable
         self._fixed_radio    = QRadioButton("Fixed Price")
         self._variable_radio = QRadioButton("Variable Price")
@@ -737,6 +747,7 @@ class ItemMaintenanceScreen(QWidget):
 
         # Populate price table from barcodes
         self._rebuild_price_table(detail)
+        self._refresh_lbp_display()
 
         # Load suppliers
         self._load_suppliers(detail)
@@ -1035,6 +1046,8 @@ class ItemMaintenanceScreen(QWidget):
                     pass
         finally:
             self._price_table.blockSignals(False)
+            if price_idx == 0:   # Individual currency changed
+                self._refresh_lbp_display()
 
     def _on_price_cell_changed(self, item: QTableWidgetItem):
         """
@@ -1150,6 +1163,24 @@ class ItemMaintenanceScreen(QWidget):
         finally:
             self._price_table.blockSignals(False)
             self._price_table.viewport().update()
+            self._refresh_lbp_display()
+
+    def _refresh_lbp_display(self):
+        """Update the LBP equivalent label from row 0's individual price (col 5)."""
+        try:
+            price_item = self._price_table.item(0, 5)
+            if not price_item or not price_item.text().strip():
+                self._lbp_display.setText("≈ — LBP")
+                return
+            price = float(price_item.text().replace(",", ""))
+            currency = self._sale_currency_combos[0].currentText()  # Individual currency
+            if currency == "USD":
+                lbp = price * self._lbp_rate
+            else:
+                lbp = price
+            self._lbp_display.setText(f"≈ {lbp:,.0f} LBP")
+        except (ValueError, AttributeError):
+            self._lbp_display.setText("≈ — LBP")
 
     def _set_margins(self):
         """Apply a single margin % to all price columns on all rows."""
