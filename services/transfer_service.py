@@ -60,7 +60,68 @@ class TransferService:
             session.close()
 
     @staticmethod
-    def save_draft(
+    def _apply_stock(session, transfer_id, from_wh, to_wh, lines, operator_id,
+                     new_uuid, ItemStock, StockMovement):
+        """Add stock movements and update ItemStock for a list of lines."""
+        for line in lines:
+            qty     = float(line["qty"])
+            item_id = line["item_id"]
+            cost    = float(line.get("unit_cost", 0.0))
+
+            session.add(StockMovement(
+                id=new_uuid(), item_id=item_id, warehouse_id=from_wh,
+                movement_type="transfer_out", quantity=-qty, unit_cost=cost,
+                reference_type="transfer", reference_id=transfer_id,
+                operator_id=operator_id,
+            ))
+            session.add(StockMovement(
+                id=new_uuid(), item_id=item_id, warehouse_id=to_wh,
+                movement_type="transfer_in", quantity=qty, unit_cost=cost,
+                reference_type="transfer", reference_id=transfer_id,
+                operator_id=operator_id,
+            ))
+
+            src = session.query(ItemStock).filter_by(item_id=item_id, warehouse_id=from_wh).first()
+            if src:
+                src.quantity -= qty
+            else:
+                session.add(ItemStock(id=new_uuid(), item_id=item_id, warehouse_id=from_wh, quantity=-qty))
+
+            dst = session.query(ItemStock).filter_by(item_id=item_id, warehouse_id=to_wh).first()
+            if dst:
+                dst.quantity += qty
+            else:
+                session.add(ItemStock(id=new_uuid(), item_id=item_id, warehouse_id=to_wh, quantity=qty))
+
+    @staticmethod
+    def _reverse_stock(session, transfer_id, from_wh, to_wh, items,
+                       new_uuid, ItemStock, StockMovement):
+        """Reverse all stock movements for a transfer (used before re-save or unlock)."""
+        for li in items:
+            qty     = li.quantity
+            item_id = li.item_id
+
+            session.query(StockMovement).filter_by(
+                reference_id=transfer_id, item_id=item_id, movement_type="transfer_out",
+            ).delete()
+            session.query(StockMovement).filter_by(
+                reference_id=transfer_id, item_id=item_id, movement_type="transfer_in",
+            ).delete()
+
+            src = session.query(ItemStock).filter_by(item_id=item_id, warehouse_id=from_wh).first()
+            if src:
+                src.quantity += qty
+            else:
+                session.add(ItemStock(id=new_uuid(), item_id=item_id, warehouse_id=from_wh, quantity=qty))
+
+            dst = session.query(ItemStock).filter_by(item_id=item_id, warehouse_id=to_wh).first()
+            if dst:
+                dst.quantity -= qty
+            else:
+                session.add(ItemStock(id=new_uuid(), item_id=item_id, warehouse_id=to_wh, quantity=-qty))
+
+    @staticmethod
+    def save_transfer(
         from_warehouse_id: str,
         to_warehouse_id: str,
         operator_id: str,
@@ -68,69 +129,12 @@ class TransferService:
         notes: str,
         lines: list[dict],
         transfer_number: str = "",
-    ) -> tuple[bool, str]:
-        """Save transfer as draft — no stock movements, no commit to inventory."""
-        if not lines:
-            return False, "No items to save."
-        if from_warehouse_id == to_warehouse_id:
-            return False, "Source and destination must be different warehouses."
-
-        from database.engine import get_session, init_db
-        from database.models.stock import WarehouseTransfer, WarehouseTransferItem
-        from database.models.base import new_uuid
-        init_db()
-        session = get_session()
-        try:
-            if not transfer_number:
-                transfer_number = TransferService.next_transfer_number(from_warehouse_id)
-
-            transfer = WarehouseTransfer(
-                id=new_uuid(),
-                transfer_number=transfer_number,
-                from_warehouse_id=from_warehouse_id,
-                to_warehouse_id=to_warehouse_id,
-                transfer_date=transfer_date,
-                status="draft",
-                operator_id=operator_id,
-                notes=notes or None,
-            )
-            session.add(transfer)
-            session.flush()
-
-            for line in lines:
-                session.add(WarehouseTransferItem(
-                    id=new_uuid(),
-                    transfer_id=transfer.id,
-                    item_id=line["item_id"],
-                    item_name=line.get("item_name") or line.get("name", ""),
-                    quantity=float(line["qty"]),
-                    unit_cost=float(line.get("unit_cost", 0.0)),
-                ))
-
-            session.commit()
-            return True, transfer.id
-        except Exception as e:
-            session.rollback()
-            return False, str(e)
-        finally:
-            session.close()
-
-    @staticmethod
-    def confirm_transfer(
-        from_warehouse_id: str,
-        to_warehouse_id: str,
-        operator_id: str,
-        transfer_date: str,
-        notes: str,
-        lines: list[dict],          # [{"item_id", "item_name", "barcode", "qty", "unit_cost"}]
-        transfer_number: str = "",  # override auto-generated number if provided
+        transfer_id: str = "",      # pass existing ID to update
     ) -> tuple[bool, str]:
         """
-        Creates a WarehouseTransfer record + 2 StockMovements per line:
-          - transfer_out  (negative qty) from source
-          - transfer_in   (positive qty) to destination
-        Updates ItemStock cache for both warehouses.
-        Returns (success, transfer_id_or_error).
+        Create a new transfer or update an existing open one.
+        Stock movements are applied immediately (status = "open").
+        If updating, existing movements are reversed first then reapplied.
         """
         if not lines:
             return False, "No items to transfer."
@@ -144,97 +148,80 @@ class TransferService:
             from database.models.items import ItemStock
             from database.models.base import new_uuid
 
-            if not transfer_number:
-                transfer_number = TransferService.next_transfer_number(from_warehouse_id)
+            if transfer_id:
+                # ── Update existing transfer ──────────────────────────────────
+                t = session.query(WarehouseTransfer).filter_by(id=transfer_id).first()
+                if not t:
+                    return False, "Transfer not found."
+                if t.status == "locked":
+                    return False, "Transfer is locked and cannot be edited."
 
-            transfer = WarehouseTransfer(
-                id=new_uuid(),
-                transfer_number=transfer_number,
-                from_warehouse_id=from_warehouse_id,
-                to_warehouse_id=to_warehouse_id,
-                transfer_date=transfer_date,
-                status="confirmed",
-                operator_id=operator_id,
-                notes=notes or None,
-            )
-            session.add(transfer)
-            session.flush()
+                # Reverse old stock movements
+                TransferService._reverse_stock(
+                    session, transfer_id,
+                    t.from_warehouse_id, t.to_warehouse_id,
+                    t.items, new_uuid, ItemStock, StockMovement,
+                )
 
+                # Remove old line items
+                for li in list(t.items):
+                    session.delete(li)
+                session.flush()
+
+                # Update header
+                t.from_warehouse_id = from_warehouse_id
+                t.to_warehouse_id   = to_warehouse_id
+                t.transfer_date     = transfer_date
+                t.operator_id       = operator_id
+                t.notes             = notes or None
+                t.status            = "open"
+                session.flush()
+            else:
+                # ── Create new transfer ───────────────────────────────────────
+                if not transfer_number:
+                    transfer_number = TransferService.next_transfer_number(from_warehouse_id)
+
+                t = WarehouseTransfer(
+                    id=new_uuid(),
+                    transfer_number=transfer_number,
+                    from_warehouse_id=from_warehouse_id,
+                    to_warehouse_id=to_warehouse_id,
+                    transfer_date=transfer_date,
+                    status="open",
+                    operator_id=operator_id,
+                    notes=notes or None,
+                )
+                session.add(t)
+                session.flush()
+                TransferService.increment_transfer_number(from_warehouse_id)
+
+            # Add new line items
             for line in lines:
-                qty      = float(line["qty"])
-                item_id  = line["item_id"]
-                cost     = float(line.get("unit_cost", 0.0))
-
-                # Transfer record item
                 session.add(WarehouseTransferItem(
                     id=new_uuid(),
-                    transfer_id=transfer.id,
-                    item_id=item_id,
-                    item_name=line.get("item_name", ""),
-                    quantity=qty,
-                    unit_cost=cost,
+                    transfer_id=t.id,
+                    item_id=line["item_id"],
+                    item_name=line.get("item_name") or line.get("name", ""),
+                    quantity=float(line["qty"]),
+                    unit_cost=float(line.get("unit_cost", 0.0)),
                 ))
 
-                # Stock movement OUT from source
-                session.add(StockMovement(
-                    id=new_uuid(),
-                    item_id=item_id,
-                    warehouse_id=from_warehouse_id,
-                    movement_type="transfer_out",
-                    quantity=-qty,
-                    unit_cost=cost,
-                    reference_type="transfer",
-                    reference_id=transfer.id,
-                    operator_id=operator_id,
-                ))
-
-                # Stock movement IN to destination
-                session.add(StockMovement(
-                    id=new_uuid(),
-                    item_id=item_id,
-                    warehouse_id=to_warehouse_id,
-                    movement_type="transfer_in",
-                    quantity=qty,
-                    unit_cost=cost,
-                    reference_type="transfer",
-                    reference_id=transfer.id,
-                    operator_id=operator_id,
-                ))
-
-                # Update ItemStock cache for source (deduct)
-                src_stock = session.query(ItemStock).filter_by(
-                    item_id=item_id, warehouse_id=from_warehouse_id
-                ).first()
-                if src_stock:
-                    src_stock.quantity -= qty
-                else:
-                    session.add(ItemStock(
-                        id=new_uuid(), item_id=item_id,
-                        warehouse_id=from_warehouse_id, quantity=-qty,
-                    ))
-
-                # Update ItemStock cache for destination (add)
-                dst_stock = session.query(ItemStock).filter_by(
-                    item_id=item_id, warehouse_id=to_warehouse_id
-                ).first()
-                if dst_stock:
-                    dst_stock.quantity += qty
-                else:
-                    session.add(ItemStock(
-                        id=new_uuid(), item_id=item_id,
-                        warehouse_id=to_warehouse_id, quantity=qty,
-                    ))
+            # Apply stock movements
+            TransferService._apply_stock(
+                session, t.id,
+                from_warehouse_id, to_warehouse_id,
+                lines, operator_id, new_uuid, ItemStock, StockMovement,
+            )
 
             session.commit()
-            TransferService.increment_transfer_number(from_warehouse_id)
 
             try:
                 from sync.service import push_transfer
-                push_transfer(transfer.id)
+                push_transfer(t.id)
             except Exception:
                 pass
 
-            return True, transfer.id
+            return True, t.id
 
         except Exception as exc:
             session.rollback()
@@ -243,65 +230,37 @@ class TransferService:
             session.close()
 
     @staticmethod
-    def unconfirm_transfer(transfer_id: str) -> tuple[bool, str]:
-        """
-        Reverses a confirmed transfer back to draft:
-          - Deletes the transfer_out / transfer_in StockMovements
-          - Restores ItemStock for both warehouses
-          - Sets status = "draft"
-        """
+    def lock_transfer(transfer_id: str) -> tuple[bool, str]:
+        """Lock an open transfer to prevent further edits."""
         init_db()
         session = get_session()
         try:
-            from database.models.stock import WarehouseTransfer, StockMovement
-            from database.models.items import ItemStock
-            from database.models.base import new_uuid
-
+            from database.models.stock import WarehouseTransfer
             t = session.query(WarehouseTransfer).filter_by(id=transfer_id).first()
             if not t:
                 return False, "Transfer not found."
-            if t.status != "confirmed":
-                return False, "Transfer is not confirmed."
+            if t.status == "locked":
+                return True, transfer_id   # already locked
+            t.status = "locked"
+            session.commit()
+            return True, transfer_id
+        except Exception as exc:
+            session.rollback()
+            return False, str(exc)
+        finally:
+            session.close()
 
-            for li in t.items:
-                qty     = li.quantity
-                item_id = li.item_id
-
-                # Remove the transfer_out / transfer_in movements
-                session.query(StockMovement).filter_by(
-                    reference_id=transfer_id, item_id=item_id,
-                    movement_type="transfer_out",
-                ).delete()
-                session.query(StockMovement).filter_by(
-                    reference_id=transfer_id, item_id=item_id,
-                    movement_type="transfer_in",
-                ).delete()
-
-                # Restore source stock (add back)
-                src = session.query(ItemStock).filter_by(
-                    item_id=item_id, warehouse_id=t.from_warehouse_id
-                ).first()
-                if src:
-                    src.quantity += qty
-                else:
-                    session.add(ItemStock(
-                        id=new_uuid(), item_id=item_id,
-                        warehouse_id=t.from_warehouse_id, quantity=qty,
-                    ))
-
-                # Restore destination stock (deduct)
-                dst = session.query(ItemStock).filter_by(
-                    item_id=item_id, warehouse_id=t.to_warehouse_id
-                ).first()
-                if dst:
-                    dst.quantity -= qty
-                else:
-                    session.add(ItemStock(
-                        id=new_uuid(), item_id=item_id,
-                        warehouse_id=t.to_warehouse_id, quantity=-qty,
-                    ))
-
-            t.status = "draft"
+    @staticmethod
+    def unlock_transfer(transfer_id: str) -> tuple[bool, str]:
+        """Unlock a locked transfer so it can be edited again."""
+        init_db()
+        session = get_session()
+        try:
+            from database.models.stock import WarehouseTransfer
+            t = session.query(WarehouseTransfer).filter_by(id=transfer_id).first()
+            if not t:
+                return False, "Transfer not found."
+            t.status = "open"
             session.commit()
             return True, transfer_id
         except Exception as exc:

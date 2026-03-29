@@ -98,6 +98,7 @@ class WarehouseTransferScreen(QWidget):
         self._from_wh_name = ""
         self._to_wh_name   = ""
         self._transfer_no  = ""
+        self._current_transfer_id = None   # None = new, str = editing existing
         self._current_item    = None   # PurchaseLineItem from purchase_service
         self._current_pack_qty = 1
         self._editing_row  = -1
@@ -482,36 +483,42 @@ class WarehouseTransferScreen(QWidget):
         lay.setContentsMargins(12, 8, 12, 8)
         lay.setSpacing(10)
 
-        draft_btn = QPushButton("💾  Save Draft")
-        draft_btn.setFixedHeight(38)
-        draft_btn.setMinimumWidth(160)
-        draft_btn.setStyleSheet(
+        self._save_btn = QPushButton("💾  Save")
+        self._save_btn.setFixedHeight(38)
+        self._save_btn.setMinimumWidth(140)
+        self._save_btn.setStyleSheet(
             "QPushButton{background:#2e7d32;color:#fff;font-size:14px;font-weight:700;"
             "border-radius:4px;border:none;}"
             "QPushButton:hover{background:#1b5e20;}"
         )
-        draft_btn.setCursor(Qt.PointingHandCursor)
-        draft_btn.clicked.connect(self._save_draft)
-        lay.addWidget(draft_btn)
+        self._save_btn.setCursor(Qt.PointingHandCursor)
+        self._save_btn.clicked.connect(self._save_transfer)
+        lay.addWidget(self._save_btn)
 
-        confirm_btn = QPushButton("✔  Confirm Transfer")
-        confirm_btn.setFixedHeight(38)
-        confirm_btn.setMinimumWidth(180)
-        confirm_btn.setStyleSheet(
+        self._lock_btn = QPushButton("🔒  Lock")
+        self._lock_btn.setFixedHeight(38)
+        self._lock_btn.setMinimumWidth(100)
+        self._lock_btn.setStyleSheet(
+            "QPushButton{background:#f57c00;color:#fff;border:none;"
+            "border-radius:4px;font-size:13px;font-weight:600;padding:0 16px;}"
+            "QPushButton:hover{background:#e65100;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._lock_btn.setCursor(Qt.PointingHandCursor)
+        self._lock_btn.setEnabled(False)
+        self._lock_btn.clicked.connect(self._toggle_lock)
+        lay.addWidget(self._lock_btn)
+
+        new_btn = QPushButton("✚  New")
+        new_btn.setFixedHeight(38)
+        new_btn.setStyleSheet(
             "QPushButton{background:#1565c0;color:#fff;border:none;"
             "border-radius:4px;font-size:13px;font-weight:600;padding:0 16px;}"
             "QPushButton:hover{background:#0d47a1;}"
         )
-        confirm_btn.setCursor(Qt.PointingHandCursor)
-        confirm_btn.clicked.connect(self._confirm)
-        lay.addWidget(confirm_btn)
-
-        clear_btn = QPushButton("🗑  Clear All")
-        clear_btn.setObjectName("warningBtn")
-        clear_btn.setFixedHeight(38)
-        clear_btn.setCursor(Qt.PointingHandCursor)
-        clear_btn.clicked.connect(self._clear_all)
-        lay.addWidget(clear_btn)
+        new_btn.setCursor(Qt.PointingHandCursor)
+        new_btn.clicked.connect(self._clear_all)
+        lay.addWidget(new_btn)
 
         history_btn = QPushButton("History")
         history_btn.setFixedHeight(38)
@@ -1059,33 +1066,7 @@ class WarehouseTransferScreen(QWidget):
 
     # ── Confirm ───────────────────────────────────────────────────────────────
 
-    def _save_draft(self):
-        if not self._lines:
-            QMessageBox.warning(self, "Empty", "No items to save.")
-            return
-        if not self._from_wh_id or not self._to_wh_id:
-            QMessageBox.warning(self, "Warehouse", "Select source and destination warehouses.")
-            return
-
-        lines = [{"item_id": l["item_id"], "name": l["name"],
-                  "qty": l["qty"], "unit_cost": l["price"]} for l in self._lines]
-        operator_id = AuthService.current_user_id() or ""
-        ok, result = TransferService.save_draft(
-            from_warehouse_id=self._from_wh_id,
-            to_warehouse_id=self._to_wh_id,
-            operator_id=operator_id,
-            transfer_date=self._date_edit.date().toString("yyyy-MM-dd"),
-            notes=self._notes_input.text().strip(),
-            lines=lines,
-        )
-        if ok:
-            QMessageBox.information(self, "Draft Saved",
-                                    "Transfer saved as draft.\nOpen History to confirm it later.")
-            self._clear_all()
-        else:
-            QMessageBox.critical(self, "Error", result)
-
-    def _confirm(self):
+    def _save_transfer(self):
         if not self._lines:
             QMessageBox.warning(self, "Empty", "No items to transfer.")
             return
@@ -1107,17 +1088,15 @@ class WarehouseTransferScreen(QWidget):
             ) == QMessageBox.No:
                 return
 
-        user     = AuthService.current_user()
-        op_id    = user.id if user else ""
-        date     = self._date_edit.date().toString("yyyy-MM-dd")
-        no       = self._no_input.text().strip() or self._transfer_no
-        currency = self._cur_combo.currentText()
+        user  = AuthService.current_user()
+        op_id = user.id if user else ""
+        no    = self._no_input.text().strip() or self._transfer_no
 
-        ok, result = TransferService.confirm_transfer(
+        ok, result = TransferService.save_transfer(
             from_warehouse_id=self._from_wh_id,
             to_warehouse_id=self._to_wh_id,
             operator_id=op_id,
-            transfer_date=date,
+            transfer_date=self._date_edit.date().toString("yyyy-MM-dd"),
             notes=self._notes_input.text().strip(),
             lines=[{
                 "item_id":   l["item_id"],
@@ -1127,15 +1106,21 @@ class WarehouseTransferScreen(QWidget):
                 "unit_cost": l["price"],
             } for l in self._lines],
             transfer_number=no,
+            transfer_id=self._current_transfer_id or "",
         )
 
         if not ok:
             QMessageBox.critical(self, "Error", f"Transfer failed:\n{result}")
             return
 
+        self._current_transfer_id = result
+        self._lock_btn.setEnabled(True)
+        self._lock_btn.setText("🔒  Lock")
+
         total   = sum(l["total"] for l in self._lines)
         n_lines = len(self._lines)
-        saved_lines = list(self._lines)   # keep for print
+        currency = self._cur_combo.currentText()
+        saved_lines = list(self._lines)
 
         dlg = PostTransferDialog(
             transfer_no=no, line_count=n_lines, total=total,
@@ -1201,7 +1186,43 @@ class WarehouseTransferScreen(QWidget):
 
     # ── Clear all ─────────────────────────────────────────────────────────────
 
+    def _toggle_lock(self):
+        if not self._current_transfer_id:
+            return
+        detail = TransferService.get_transfer_detail(self._current_transfer_id)
+        if not detail:
+            return
+        if detail["status"] == "locked":
+            ok, msg = TransferService.unlock_transfer(self._current_transfer_id)
+            if ok:
+                self._lock_btn.setText("🔒  Lock")
+                self._set_locked(False)
+            else:
+                QMessageBox.critical(self, "Error", msg)
+        else:
+            ok, msg = TransferService.lock_transfer(self._current_transfer_id)
+            if ok:
+                self._lock_btn.setText("🔓  Unlock")
+                self._set_locked(True)
+            else:
+                QMessageBox.critical(self, "Error", msg)
+
+    def _set_locked(self, locked: bool):
+        """Enable/disable all input widgets based on lock state."""
+        self._save_btn.setEnabled(not locked)
+        self._from_combo.setEnabled(not locked)
+        self._to_combo.setEnabled(not locked)
+        self._date_edit.setEnabled(not locked)
+        self._bc_input.setEnabled(not locked)
+        self._notes_input.setEnabled(not locked)
+        self._price_type_combo.setEnabled(not locked)
+        self._cur_combo.setEnabled(not locked)
+
     def _clear_all(self):
+        self._current_transfer_id = None
+        self._lock_btn.setEnabled(False)
+        self._lock_btn.setText("🔒  Lock")
+        self._set_locked(False)
         self._lines.clear()
         self._refresh_table()
         self._refresh_totals()
@@ -1280,7 +1301,7 @@ class WarehouseTransferScreen(QWidget):
         # Action buttons
         btn_row = _HL()
         btn_row.setSpacing(8)
-        load_btn = QPushButton("✏  Load for Edit")
+        load_btn = QPushButton("✏  Open")
         load_btn.setStyleSheet(
             "QPushButton{background:#1565c0;color:#fff;font-size:12px;font-weight:700;"
             "border:none;border-radius:4px;padding:6px 16px;}"
@@ -1290,17 +1311,6 @@ class WarehouseTransferScreen(QWidget):
         load_btn.setEnabled(False)
         load_btn.setCursor(Qt.PointingHandCursor)
         btn_row.addWidget(load_btn)
-
-        unconfirm_btn = QPushButton("↩  Unconfirm")
-        unconfirm_btn.setStyleSheet(
-            "QPushButton{background:#e65100;color:#fff;font-size:12px;font-weight:700;"
-            "border:none;border-radius:4px;padding:6px 16px;}"
-            "QPushButton:hover{background:#bf360c;}"
-            "QPushButton:disabled{background:#aaa;}"
-        )
-        unconfirm_btn.setEnabled(False)
-        unconfirm_btn.setCursor(Qt.PointingHandCursor)
-        btn_row.addWidget(unconfirm_btn)
 
         notes_lbl = QLabel("")
         notes_lbl.setStyleSheet("color:#555;font-size:11px;font-style:italic;")
@@ -1325,8 +1335,8 @@ class WarehouseTransferScreen(QWidget):
                 it.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
                 if c == 5:
                     it.setForeground(
-                        QColor("#2e7d32") if d["status"] == "confirmed"
-                        else QColor("#e65100")
+                        QColor("#607d8b") if d["status"] == "locked"
+                        else QColor("#2e7d32")
                     )
                 list_tbl.setItem(r, c, it)
 
@@ -1364,11 +1374,8 @@ class WarehouseTransferScreen(QWidget):
                     )
                     detail_tbl.setItem(r2, c2, it2)
 
-            # Only allow load/edit for draft transfers; unconfirm for confirmed
-            load_btn.setEnabled(status == "draft")
-            unconfirm_btn.setEnabled(status == "confirmed")
+            load_btn.setEnabled(True)
             load_btn.setProperty("transfer_detail", detail)
-            unconfirm_btn.setProperty("transfer_id", detail["id"])
 
         list_tbl.itemSelectionChanged.connect(on_row_selected)
         list_tbl.doubleClicked.connect(lambda _: on_row_selected())
@@ -1383,25 +1390,6 @@ class WarehouseTransferScreen(QWidget):
 
         load_btn.clicked.connect(on_load)
 
-        def on_unconfirm():
-            tid = unconfirm_btn.property("transfer_id")
-            if not tid:
-                return
-            if QMessageBox.question(
-                self, "Unconfirm Transfer",
-                "This will reverse all stock movements for this transfer and set it back to draft.\n\nProceed?",
-                QMessageBox.Yes | QMessageBox.No,
-            ) != QMessageBox.Yes:
-                return
-            ok, msg = TransferService.unconfirm_transfer(tid)
-            if ok:
-                QMessageBox.information(self, "Done", "Transfer reverted to draft.")
-                dlg.accept()
-            else:
-                QMessageBox.critical(self, "Error", msg)
-
-        unconfirm_btn.clicked.connect(on_unconfirm)
-
         close_btn = QPushButton("Close")
         close_btn.setStyleSheet(
             "QPushButton{background:#607d8b;color:#fff;font-size:12px;font-weight:700;"
@@ -1414,8 +1402,13 @@ class WarehouseTransferScreen(QWidget):
         dlg.exec()
 
     def _load_transfer(self, detail: dict):
-        """Load a draft transfer back into the create screen for editing."""
+        """Load an existing transfer into the screen for viewing/editing."""
         self._clear_all()
+        self._current_transfer_id = detail["id"]
+        self._lock_btn.setEnabled(True)
+        locked = detail["status"] == "locked"
+        self._lock_btn.setText("🔓  Unlock" if locked else "🔒  Lock")
+        self._set_locked(locked)
 
         # Set warehouses
         for i in range(self._from_combo.count()):
