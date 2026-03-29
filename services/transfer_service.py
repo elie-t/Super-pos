@@ -232,12 +232,14 @@ class TransferService:
         finally:
             session.close()
 
-        # Push AFTER session is fully closed so lazy-load sees committed rows
+        # Push AFTER session is fully closed
         try:
             from sync.service import push_transfer
-            push_transfer(saved_id)
-        except Exception:
-            pass
+            ok, err = push_transfer(saved_id)
+            if not ok:
+                print(f"[transfer] push failed: {err}")
+        except Exception as e:
+            print(f"[transfer] push exception: {e}")
 
         return True, saved_id
 

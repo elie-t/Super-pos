@@ -1592,9 +1592,10 @@ def pull_categories() -> tuple[int, str]:
 # ── Warehouse transfer sync ───────────────────────────────────────────────────
 
 def push_transfer(transfer_id: str) -> tuple[bool, str]:
-    """Push a confirmed warehouse transfer to warehouse_transfers_central."""
+    """Push a warehouse transfer + its items to Supabase central tables."""
+    import sqlalchemy
     from database.engine import get_session, init_db
-    from database.models.stock import WarehouseTransfer
+    from database.models.stock import WarehouseTransfer, WarehouseTransferItem
 
     if not is_configured():
         return True, ""
@@ -1623,19 +1624,24 @@ def push_transfer(transfer_id: str) -> tuple[bool, str]:
         if not ok:
             return False, err
 
-        item_rows = [
-            {
-                "id":          ti.id,
-                "transfer_id": t.id,
-                "item_id":     ti.item_id,
-                "item_name":   ti.item_name or "",
-                "quantity":    ti.quantity,
-                "unit_cost":   ti.unit_cost or 0.0,
-                "synced_at":   now,
-            }
-            for ti in t.items
-        ]
-        if item_rows:
+        # Query items directly — avoids ORM lazy-load issues
+        items = session.query(WarehouseTransferItem).filter_by(
+            transfer_id=transfer_id
+        ).all()
+
+        if items:
+            item_rows = [
+                {
+                    "id":          ti.id,
+                    "transfer_id": transfer_id,
+                    "item_id":     ti.item_id,
+                    "item_name":   ti.item_name or "",
+                    "quantity":    ti.quantity,
+                    "unit_cost":   ti.unit_cost or 0.0,
+                    "synced_at":   now,
+                }
+                for ti in items
+            ]
             ok, err = upsert_rows("warehouse_transfer_items_central", item_rows)
             if not ok:
                 return False, err
