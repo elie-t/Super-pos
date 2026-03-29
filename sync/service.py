@@ -1716,9 +1716,15 @@ def pull_transfers() -> tuple[int, str]:
                     session.flush()
                     pulled += 1
 
-                # Always upsert items — fixes case where header synced but items didn't
-                for li in lines_by_transfer.get(rt["id"], []):
-                    if not session.get(WarehouseTransferItem, li["id"]):
+                remote_items = lines_by_transfer.get(rt["id"], [])
+                if remote_items:
+                    # Full replace: delete all local items then re-insert from remote
+                    # Prevents duplicates when a transfer is edited on another branch
+                    session.query(WarehouseTransferItem).filter_by(
+                        transfer_id=rt["id"]
+                    ).delete()
+                    session.flush()
+                    for li in remote_items:
                         session.add(WarehouseTransferItem(
                             id=li["id"],
                             transfer_id=rt["id"],
