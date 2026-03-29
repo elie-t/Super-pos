@@ -224,20 +224,22 @@ class TransferService:
             )
 
             session.commit()
-
-            try:
-                from sync.service import push_transfer
-                push_transfer(t.id)
-            except Exception:
-                pass
-
-            return True, t.id
+            saved_id = t.id
 
         except Exception as exc:
             session.rollback()
             return False, str(exc)
         finally:
             session.close()
+
+        # Push AFTER session is fully closed so lazy-load sees committed rows
+        try:
+            from sync.service import push_transfer
+            push_transfer(saved_id)
+        except Exception:
+            pass
+
+        return True, saved_id
 
     @staticmethod
     def lock_transfer(transfer_id: str) -> tuple[bool, str]:
