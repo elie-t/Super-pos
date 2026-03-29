@@ -29,7 +29,7 @@ class InventoryService:
     @staticmethod
     def get_lbp_rate() -> int:
         from database.engine import get_session, init_db
-        from database.models.base import Setting
+        from database.models.items import Setting
         init_db()
         session = get_session()
         try:
