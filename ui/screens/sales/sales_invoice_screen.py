@@ -555,72 +555,110 @@ class SalesInvoiceScreen(QWidget):
             lbl.setText("—")
 
     def _make_totals_bar(self):
+        # Placeholder — totals are rendered inside _make_footer
         frame = QFrame()
-        frame.setFixedHeight(44)
-        frame.setStyleSheet("background:#1a3a5c;")
-        lay = QHBoxLayout(frame)
-        lay.setContentsMargins(16, 0, 16, 0)
-
-        self._lines_lbl = QLabel("0 lines")
-        self._lines_lbl.setStyleSheet("color:#cfe0f5;font-size:12px;")
-        lay.addWidget(self._lines_lbl)
-        lay.addStretch()
-
-        self._grand_lbl = QLabel("Total:  0")
-        self._grand_lbl.setStyleSheet("color:#fff;font-size:16px;font-weight:700;")
-        lay.addWidget(self._grand_lbl)
+        frame.setFixedHeight(0)
         return frame
 
     def _make_footer(self):
         frame = QFrame()
-        frame.setFixedHeight(44)
-        frame.setStyleSheet("background:#f0f4f8;border-top:1px solid #cdd5e0;")
-        lay = QHBoxLayout(frame)
-        lay.setContentsMargins(12, 0, 12, 0)
-        lay.setSpacing(10)
+        frame.setStyleSheet("QFrame{background:#f0f4f8;border-top:2px solid #1a3a5c;} QLabel{color:#1a1a2e;}")
+        outer = QHBoxLayout(frame)
+        outer.setContentsMargins(12, 8, 12, 8)
+        outer.setSpacing(10)
 
-        lay.addWidget(QLabel("Notes:"))
+        # ── Left: note + buttons ──────────────────────────────────────────────
+        left = QVBoxLayout()
+        left.setSpacing(4)
+
+        note_row = QHBoxLayout()
+        note_row.setSpacing(6)
+        note_lbl = QLabel("Note:")
+        note_lbl.setStyleSheet("font-size:11px;")
+        note_row.addWidget(note_lbl)
         self._notes_input = QLineEdit()
         self._notes_input.setPlaceholderText("Optional notes…")
-        self._notes_input.setFixedHeight(30)
-        lay.addWidget(self._notes_input)
+        self._notes_input.setFixedHeight(24)
+        self._notes_input.setMinimumWidth(200)
+        self._notes_input.setStyleSheet("font-size:11px;")
+        note_row.addWidget(self._notes_input)
+        note_row.addStretch()
+        left.addLayout(note_row)
 
-        lay.addStretch()
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
 
         clear_btn = QPushButton("🗑  Delete All Items")
         clear_btn.setStyleSheet(
             "QPushButton{background:#757575;color:#fff;border:none;border-radius:4px;"
-            "font-size:12px;font-weight:700;padding:0 14px;}"
+            "font-size:11px;font-weight:700;padding:0 12px;}"
             "QPushButton:hover{background:#424242;}"
         )
-        clear_btn.setFixedHeight(32)
+        clear_btn.setFixedHeight(30)
         clear_btn.setCursor(Qt.PointingHandCursor)
         clear_btn.clicked.connect(self._clear_all)
-        lay.addWidget(clear_btn)
+        btn_row.addWidget(clear_btn)
 
         self._print_btn = QPushButton("🖨  Print")
         self._print_btn.setStyleSheet(
             "QPushButton{background:#00695c;color:#fff;border:none;border-radius:4px;"
-            "font-size:12px;font-weight:700;padding:0 14px;}"
+            "font-size:11px;font-weight:700;padding:0 12px;}"
             "QPushButton:hover{background:#004d40;}"
         )
-        self._print_btn.setFixedHeight(32)
+        self._print_btn.setFixedHeight(30)
         self._print_btn.setCursor(Qt.PointingHandCursor)
         self._print_btn.clicked.connect(self._print_current)
-        lay.addWidget(self._print_btn)
+        btn_row.addWidget(self._print_btn)
 
         self._save_btn = QPushButton("💾  Save Invoice")
         self._save_btn.setStyleSheet(
             "QPushButton{background:#2e7d32;color:#fff;border:none;border-radius:6px;"
-            "font-size:14px;font-weight:700;padding:0 20px;}"
+            "font-size:13px;font-weight:700;padding:0 18px;}"
             "QPushButton:hover{background:#1b5e20;}"
             "QPushButton:disabled{background:#aaa;}"
         )
-        self._save_btn.setFixedHeight(36)
+        self._save_btn.setFixedHeight(34)
         self._save_btn.setCursor(Qt.PointingHandCursor)
         self._save_btn.clicked.connect(self._save_invoice)
-        lay.addWidget(self._save_btn)
+        btn_row.addWidget(self._save_btn)
+        btn_row.addStretch()
+        left.addLayout(btn_row)
 
+        outer.addLayout(left, 1)
+        outer.addStretch()
+
+        # ── Right: stacked totals ─────────────────────────────────────────────
+        totals_frame = QFrame()
+        totals_frame.setStyleSheet(
+            "QFrame{background:#f8faff;border-left:3px solid #1a3a5c;border-radius:0;padding:0 8px;}"
+        )
+        tlay = QGridLayout(totals_frame)
+        tlay.setContentsMargins(12, 6, 12, 6)
+        tlay.setHorizontalSpacing(16)
+        tlay.setVerticalSpacing(3)
+
+        def stat_row(row_idx, label, big=False, color="#1a3a5c"):
+            lbl = QLabel(label)
+            lbl.setStyleSheet("color:#555;font-size:12px;font-weight:500;")
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            val = QLabel("0.00")
+            sz  = "16px" if big else "13px"
+            wt  = "800"  if big else "700"
+            val.setStyleSheet(f"font-weight:{wt};font-size:{sz};color:{color};min-width:110px;")
+            val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            tlay.addWidget(lbl, row_idx, 0)
+            tlay.addWidget(val, row_idx, 1)
+            return val
+
+        self._lines_lbl      = stat_row(0, "Lines:")
+        self._subtotal_lbl   = stat_row(1, "Sub-Total:")
+        self._discount_lbl   = stat_row(2, "Discount:")
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color:#bbd0ee;")
+        tlay.addWidget(sep, 3, 0, 1, 2)
+        self._grand_lbl      = stat_row(4, "Grand Total:", big=True, color="#1a3a5c")
+
+        outer.addWidget(totals_frame)
         return frame
 
     # ── Defaults ───────────────────────────────────────────────────────────────
@@ -921,12 +959,16 @@ class SalesInvoiceScreen(QWidget):
 
         self._table_updating = False
 
+        subtotal = sum(ln["qty"] * ln["price"] for ln in self._lines)
+        discount = subtotal - grand
         currency = self._cur_combo.currentText()
         if currency == "LBP":
-            grand_str = f"ل.ل {grand:,.0f}"
+            fmt = lambda v: f"ل.ل {v:,.0f}"
         else:
-            grand_str = f"${grand:,.2f}"
-        self._grand_lbl.setText(f"Total:  {grand_str}")
+            fmt = lambda v: f"${v:,.2f}"
+        self._grand_lbl.setText(fmt(grand))
+        self._subtotal_lbl.setText(fmt(subtotal))
+        self._discount_lbl.setText(fmt(discount))
         self._lines_lbl.setText(f"{len(self._lines)} line{'s' if len(self._lines) != 1 else ''}")
 
     def _on_row_double_clicked(self, index):

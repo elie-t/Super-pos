@@ -830,31 +830,12 @@ class PurchaseInvoiceScreen(QWidget):
         self._item_info_frame = frame
         return frame
 
-    # ─ totals bar ─────────────────────────────────────────────────────────────
+    # ─ totals bar — removed, totals now live in footer right panel ───────────
 
     def _make_totals_bar(self):
+        # Placeholder — totals are rendered inside _make_footer
         frame = QFrame()
-        frame.setStyleSheet("QFrame{background:#f0f4f8;border-top:1px solid #cdd5e0;} QLabel{color:#1a1a2e;}")
-        lay = QHBoxLayout(frame)
-        lay.setContentsMargins(16, 6, 16, 6)
-        lay.setSpacing(24)
-
-        def stat(label):
-            lbl = QLabel(label)
-            lbl.setStyleSheet("color:#555;font-size:12px;")
-            val = QLabel("0.00")
-            val.setStyleSheet("font-weight:700;font-size:13px;color:#1a3a5c;min-width:90px;")
-            lay.addWidget(lbl)
-            lay.addWidget(val)
-            return val
-
-        self._lines_count_lbl = stat("Lines:")
-        self._subtotal_lbl    = stat("Sub-Total:")
-        self._disc_lbl        = stat("Discount:")
-        self._vat_lbl         = stat("VAT:")
-        self._grand_total_lbl = stat("Grand Total:")
-
-        lay.addStretch()
+        frame.setFixedHeight(0)
         return frame
 
     # ─ footer ─────────────────────────────────────────────────────────────────
@@ -862,48 +843,96 @@ class PurchaseInvoiceScreen(QWidget):
     def _make_footer(self):
         frame = QFrame()
         frame.setStyleSheet("QFrame{background:#e8f0fb;border-top:2px solid #1a6cb5;} QLabel{color:#1a1a2e;}")
-        lay = QHBoxLayout(frame)
-        lay.setContentsMargins(12, 8, 12, 8)
-        lay.setSpacing(10)
+        outer = QHBoxLayout(frame)
+        outer.setContentsMargins(12, 8, 12, 8)
+        outer.setSpacing(10)
+
+        # ── Left: buttons + order + note ─────────────────────────────────────
+        left = QVBoxLayout()
+        left.setSpacing(4)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
 
         save_btn = QPushButton("💾  Save Invoice")
-        save_btn.setObjectName("primaryBtn")
-        save_btn.setFixedHeight(38)
-        save_btn.setMinimumWidth(160)
+        save_btn.setFixedHeight(36)
+        save_btn.setMinimumWidth(150)
         save_btn.setStyleSheet(
-            "QPushButton{background:#2e7d32;color:#fff;font-size:14px;font-weight:700;"
+            "QPushButton{background:#2e7d32;color:#fff;font-size:13px;font-weight:700;"
             "border-radius:4px;border:none;}"
             "QPushButton:hover{background:#1b5e20;}"
         )
         save_btn.setCursor(Qt.PointingHandCursor)
         save_btn.clicked.connect(self._save_invoice)
-        lay.addWidget(save_btn)
+        btn_row.addWidget(save_btn)
 
         clear_btn = QPushButton("🗑  Clear All")
         clear_btn.setObjectName("warningBtn")
-        clear_btn.setFixedHeight(38)
+        clear_btn.setFixedHeight(36)
         clear_btn.setCursor(Qt.PointingHandCursor)
         clear_btn.clicked.connect(self._clear_all)
-        lay.addWidget(clear_btn)
+        btn_row.addWidget(clear_btn)
+        btn_row.addStretch()
+        left.addLayout(btn_row)
 
-        lay.addStretch()
-
-        # Order number
-        lay.addWidget(QLabel("Order#:"))
+        meta_row = QHBoxLayout()
+        meta_row.setSpacing(6)
+        order_lbl = QLabel("Order#:")
+        order_lbl.setStyleSheet("font-size:11px;")
+        meta_row.addWidget(order_lbl)
         self._order_input = QLineEdit()
-        self._order_input.setFixedHeight(30)
-        self._order_input.setFixedWidth(120)
-        lay.addWidget(self._order_input)
-
-        lay.addSpacing(16)
-
-        # Notes
-        lay.addWidget(QLabel("Note:"))
+        self._order_input.setFixedHeight(24)
+        self._order_input.setFixedWidth(100)
+        self._order_input.setStyleSheet("font-size:11px;")
+        meta_row.addWidget(self._order_input)
+        meta_row.addSpacing(10)
+        note_lbl = QLabel("Note:")
+        note_lbl.setStyleSheet("font-size:11px;")
+        meta_row.addWidget(note_lbl)
         self._notes_input = QLineEdit()
-        self._notes_input.setFixedHeight(30)
-        self._notes_input.setMinimumWidth(200)
-        lay.addWidget(self._notes_input)
+        self._notes_input.setFixedHeight(24)
+        self._notes_input.setMinimumWidth(160)
+        self._notes_input.setStyleSheet("font-size:11px;")
+        meta_row.addWidget(self._notes_input)
+        meta_row.addStretch()
+        left.addLayout(meta_row)
 
+        outer.addLayout(left, 1)
+        outer.addStretch()
+
+        # ── Right: stacked totals ─────────────────────────────────────────────
+        totals_frame = QFrame()
+        totals_frame.setStyleSheet(
+            "QFrame{background:#f8faff;border-left:3px solid #1a6cb5;border-radius:0;padding:0 8px;}"
+        )
+        tlay = QGridLayout(totals_frame)
+        tlay.setContentsMargins(12, 6, 12, 6)
+        tlay.setHorizontalSpacing(16)
+        tlay.setVerticalSpacing(3)
+
+        def stat_row(row_idx, label, big=False, color="#1a3a5c"):
+            lbl = QLabel(label)
+            lbl.setStyleSheet("color:#555;font-size:12px;font-weight:500;")
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            val = QLabel("0.00")
+            sz  = "16px" if big else "13px"
+            wt  = "800"  if big else "700"
+            val.setStyleSheet(f"font-weight:{wt};font-size:{sz};color:{color};min-width:110px;")
+            val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            tlay.addWidget(lbl, row_idx, 0)
+            tlay.addWidget(val, row_idx, 1)
+            return val
+
+        self._lines_count_lbl = stat_row(0, "Lines:")
+        self._subtotal_lbl    = stat_row(1, "Sub-Total:")
+        self._disc_lbl        = stat_row(2, "Discount:")
+        self._vat_lbl         = stat_row(3, "VAT:")
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color:#bbd0ee;")
+        tlay.addWidget(sep, 4, 0, 1, 2)
+        self._grand_total_lbl = stat_row(5, "Grand Total:", big=True, color="#c62828")
+
+        outer.addWidget(totals_frame)
         return frame
 
     # ── Defaults ──────────────────────────────────────────────────────────────
