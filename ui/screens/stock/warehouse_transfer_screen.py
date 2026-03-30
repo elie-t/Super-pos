@@ -1170,7 +1170,9 @@ class WarehouseTransferScreen(QWidget):
             from PySide6.QtPrintSupport import QPrintPreviewDialog, QPrinter
             from PySide6.QtGui import QTextDocument
             printer = QPrinter(QPrinter.HighResolution)
-            printer.setPageMargins(15, 15, 15, 15, QPrinter.Millimeter)
+            from PySide6.QtCore import QMarginsF
+            from PySide6.QtGui import QPageLayout
+            printer.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout.Millimeter)
             dlg = QPrintPreviewDialog(printer, self)
 
             rows_html = "".join(
