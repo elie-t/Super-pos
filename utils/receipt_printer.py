@@ -224,3 +224,157 @@ def _try_set_thermal_printer(printer: QPrinter) -> None:
         if any(k in name_lower for k in keywords):
             printer.setPrinterName(info.printerName())
             return
+
+
+# ── ESC/POS direct thermal printing ──────────────────────────────────────────
+# 80 mm paper → 72 mm printable → 576 dots @ 203 dpi → 48 chars (Font A 12-dot)
+
+CHARS_PER_LINE = 48
+
+
+def get_escpos_printer():
+    """
+    Return a configured python-escpos printer instance, or None.
+    Reads connection type and parameters from the Settings table.
+    """
+    try:
+        from database.engine import get_session, init_db
+        from database.models.items import Setting
+        init_db()
+        session = get_session()
+        try:
+            def _get(key, default=""):
+                s = session.get(Setting, key)
+                return s.value if s else default
+
+            ptype = _get("escpos_type", "")
+            if not ptype:
+                return None
+
+            if ptype == "usb_auto":
+                import usb.core
+                from escpos.printer import Usb
+                dev = usb.core.find(find_all=False, bDeviceClass=7)  # USB printer class
+                if dev is None:
+                    # Fallback: first device with known POS vendor IDs
+                    POS_VENDORS = (0x04b8, 0x0519, 0x1504, 0x1d90, 0x0dd4, 0x0fe6)
+                    for vid in POS_VENDORS:
+                        dev = usb.core.find(idVendor=vid)
+                        if dev:
+                            break
+                if dev:
+                    return Usb(dev.idVendor, dev.idProduct)
+                return None
+
+            elif ptype == "usb_manual":
+                vid = int(_get("escpos_usb_vid", "0x0000"), 16)
+                pid = int(_get("escpos_usb_pid", "0x0000"), 16)
+                if vid and pid:
+                    from escpos.printer import Usb
+                    return Usb(vid, pid)
+
+            elif ptype == "network":
+                host = _get("escpos_host", "")
+                port = int(_get("escpos_port", "9100"))
+                if host:
+                    from escpos.printer import Network
+                    return Network(host, port=port)
+
+            elif ptype == "serial":
+                devfile = _get("escpos_serial", "/dev/ttyUSB0")
+                baud    = int(_get("escpos_baud", "9600"))
+                from escpos.printer import Serial
+                return Serial(devfile, baudrate=baud)
+
+            elif ptype == "win_raw":
+                name = _get("escpos_win_printer", "")
+                if name:
+                    from escpos.printer import Win32Raw
+                    return Win32Raw(name)
+
+            elif ptype == "file":
+                path = _get("escpos_file", "/dev/usb/lp0")
+                from escpos.printer import File
+                return File(path)
+
+        finally:
+            session.close()
+    except Exception:
+        pass
+    return None
+
+
+def print_transfer_escpos(
+    no: str,
+    from_wh: str,
+    to_wh: str,
+    date_str: str,
+    lines: list,
+    currency: str = "",
+) -> tuple[bool, str]:
+    """
+    Print a warehouse transfer on the configured ESC/POS printer.
+    lines: list of dicts with keys: name, qty, total
+    Returns (success, error_message).
+    """
+    p = get_escpos_printer()
+    if p is None:
+        return False, "No ESC/POS printer configured.\nGo to Settings → Receipt Printer."
+
+    W      = CHARS_PER_LINE
+    qty_w  = 8
+    name_w = W - qty_w - 1   # 1 space separator
+
+    try:
+        # ── Header ────────────────────────────────────────────────────────
+        p.set(align="center", bold=True, double_height=True, double_width=False)
+        p.text("Warehouse Transfer\n")
+        p.set(align="center", bold=True, double_height=False)
+        p.text(f"{no}\n")
+        p.set(align="center", bold=False)
+        p.text(f"{from_wh}  ->  {to_wh}\n")
+        p.text(f"Date: {date_str}\n")
+        p.text("-" * W + "\n")
+
+        # ── Column header ──────────────────────────────────────────────────
+        p.set(bold=True, align="left")
+        p.text(f"{'Name':<{name_w}} {'Qty':>{qty_w}}\n")
+        p.text("-" * W + "\n")
+        p.set(bold=False)
+
+        # ── Item rows ─────────────────────────────────────────────────────
+        for line in lines:
+            name = str(line.get("name", ""))
+            qty  = f"{float(line.get('qty', 0)):,.3f}"
+
+            if len(name) <= name_w:
+                p.text(f"{name:<{name_w}} {qty:>{qty_w}}\n")
+            else:
+                # First segment with qty, rest as continuation lines
+                p.text(f"{name[:name_w]:<{name_w}} {qty:>{qty_w}}\n")
+                rest = name[name_w:]
+                while rest:
+                    p.text(f"  {rest[:W - 2]}\n")
+                    rest = rest[W - 2:]
+
+        # ── Total ─────────────────────────────────────────────────────────
+        p.text("=" * W + "\n")
+        total      = sum(float(l.get("total", 0)) for l in lines)
+        total_str  = f"{total:,.2f}" + (f" {currency}" if currency else "")
+        total_line = f"Total: {total_str}"
+        p.set(bold=True, align="right")
+        p.text(f"{total_line}\n")
+
+        # ── Feed + cut ────────────────────────────────────────────────────
+        p.text("\n\n\n")
+        p.cut()
+
+        return True, ""
+
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        try:
+            p.close()
+        except Exception:
+            pass

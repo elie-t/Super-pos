@@ -1162,10 +1162,25 @@ class WarehouseTransferScreen(QWidget):
 
     def _print_transfer(self, no: str, lines: list, currency: str,
                         from_wh: str = "", to_wh: str = "", date_str: str = ""):
-        """Print a transfer using QPainter for precise 80mm receipt layout."""
+        """Try ESC/POS direct print; fall back to QPainter preview if not configured."""
         from_wh  = from_wh  or self._from_wh_name
         to_wh    = to_wh    or self._to_wh_name
         date_str = date_str or self._date_edit.date().toString("dd/MM/yyyy")
+
+        # ── Try ESC/POS direct print ──────────────────────────────────────
+        try:
+            from utils.receipt_printer import print_transfer_escpos, get_escpos_printer
+            if get_escpos_printer() is not None:
+                ok, err = print_transfer_escpos(
+                    no=no, from_wh=from_wh, to_wh=to_wh,
+                    date_str=date_str, lines=lines, currency=currency,
+                )
+                if not ok:
+                    QMessageBox.warning(self, "Printer Error", err)
+                return
+        except Exception as exc:
+            QMessageBox.warning(self, "Printer Error", str(exc))
+            return
         try:
             from PySide6.QtPrintSupport import QPrintPreviewDialog, QPrinter
             from PySide6.QtGui import (QPainter, QFont, QFontMetrics,
