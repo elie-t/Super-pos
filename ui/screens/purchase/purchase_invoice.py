@@ -1043,6 +1043,12 @@ class PurchaseInvoiceScreen(QWidget):
         self._item_desc_label.setText(item.description[:36])
         self._item_desc_label.setStyleSheet("color:#1a3a5c;font-weight:600;font-size:12px;")
 
+        # Update info bar immediately on item found
+        self._load_item_info(
+            item.item_id, item.description,
+            subgroup=getattr(item, "subgroup", ""),
+        )
+
         # reset entry fields
         self._block_total(True)
         self._box_spin.setValue(0)
@@ -1126,6 +1132,12 @@ class PurchaseInvoiceScreen(QWidget):
             self._item_desc_label.setText(row["name"][:36])
             self._item_desc_label.setStyleSheet(
                 "color:#1a3a5c;font-weight:600;font-size:12px;"
+            )
+
+            # Update info bar immediately
+            self._load_item_info(
+                item.item_id, item.description,
+                subgroup=getattr(item, "subgroup", ""),
             )
 
             self._block_total(True)
