@@ -1170,37 +1170,82 @@ class WarehouseTransferScreen(QWidget):
             from PySide6.QtPrintSupport import QPrintPreviewDialog, QPrinter
             from PySide6.QtGui import QTextDocument
             printer = QPrinter(QPrinter.HighResolution)
-            dlg     = QPrintPreviewDialog(printer, self)
+            printer.setPageMargins(15, 15, 15, 15, QPrinter.Millimeter)
+            dlg = QPrintPreviewDialog(printer, self)
 
             rows_html = "".join(
                 f"<tr>"
-                f"<td style='text-align:center'>{i+1}</td>"
-                f"<td>{l['code']}</td>"
-                f"<td>{l['name']}</td>"
-                f"<td style='text-align:right'>{l['qty']:.3f}</td>"
-                f"<td style='text-align:right'>{l['price']:.4f}</td>"
-                f"<td style='text-align:center'>{l['disc']:.2f}%</td>"
-                f"<td style='text-align:right'>{l['total']:.2f}</td>"
+                f"<td style='text-align:center;padding:6px 8px;'>{i+1}</td>"
+                f"<td style='padding:6px 8px;white-space:nowrap'>{l['code']}</td>"
+                f"<td style='padding:6px 8px;'>{l['name']}</td>"
+                f"<td style='text-align:right;padding:6px 8px;white-space:nowrap'>{l['qty']:,.3f}</td>"
                 f"</tr>"
                 for i, l in enumerate(lines)
             )
             total = sum(l["total"] for l in lines)
-            html = (
-                "<html><body style='font-family:Arial;font-size:12px;'>"
-                f"<h2 style='text-align:center'>Warehouse Transfer — {no}</h2>"
-                f"<p style='text-align:center'>{from_wh} → "
-                f"{to_wh} &nbsp;&nbsp; Date: {date_str}</p>"
-                "<table border='1' cellpadding='4' cellspacing='0' width='100%' "
-                "style='border-collapse:collapse'>"
-                "<tr style='background:#1a3a5c;color:#fff'>"
-                "<th>#</th><th>Code</th><th>Name</th>"
-                "<th>Qty</th><th>Price</th><th>Disc%</th><th>Total</th>"
-                "</tr>"
-                f"{rows_html}"
-                "</table>"
-                f"<p style='text-align:right;font-size:14px;font-weight:bold'>"
-                f"Grand Total: {total:,.2f} {currency}</p>"
-                "</body></html>"
+            html = """
+<html>
+<head>
+<style>
+  body {{ font-family: Arial, sans-serif; font-size: 13px; margin: 0; }}
+  h2   {{ text-align: center; font-size: 20px; margin-bottom: 4px; }}
+  .sub {{ text-align: center; font-size: 13px; color: #333; margin-bottom: 16px; }}
+  table {{
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }}
+  col.c-num  {{ width: 6%; }}
+  col.c-code {{ width: 20%; }}
+  col.c-name {{ width: 60%; }}
+  col.c-qty  {{ width: 14%; }}
+  th {{
+    background: #1a3a5c;
+    color: #fff;
+    padding: 8px;
+    font-size: 13px;
+    text-align: left;
+  }}
+  th.right {{ text-align: right; }}
+  td {{ border-bottom: 1px solid #ddd; word-break: break-word; }}
+  tr:nth-child(even) {{ background: #f5f8fc; }}
+  .grand-total {{
+    text-align: right;
+    font-size: 15px;
+    font-weight: bold;
+    margin-top: 16px;
+    border-top: 2px solid #1a3a5c;
+    padding-top: 8px;
+  }}
+</style>
+</head>
+<body>
+  <h2>Warehouse Transfer &mdash; {no}</h2>
+  <p class="sub">{from_wh} &rarr; {to_wh} &nbsp;&nbsp; Date: {date_str}</p>
+  <table>
+    <colgroup>
+      <col class="c-num"/><col class="c-code"/>
+      <col class="c-name"/><col class="c-qty"/>
+    </colgroup>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Code</th>
+        <th>Name</th>
+        <th class="right">Qty</th>
+      </tr>
+    </thead>
+    <tbody>
+      {rows}
+    </tbody>
+  </table>
+  <p class="grand-total">Grand Total: {total} {currency}</p>
+</body>
+</html>""".format(
+                no=no, from_wh=from_wh, to_wh=to_wh, date_str=date_str,
+                rows=rows_html,
+                total=f"{total:,.2f}",
+                currency=currency,
             )
 
             def render(p):
