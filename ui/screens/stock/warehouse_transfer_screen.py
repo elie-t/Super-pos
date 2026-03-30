@@ -1184,9 +1184,8 @@ class WarehouseTransferScreen(QWidget):
         try:
             from PySide6.QtPrintSupport import QPrintPreviewDialog, QPrinter
             from PySide6.QtGui import (QPainter, QFont, QFontMetrics,
-                                        QPageSize, QPageLayout, QMarginsF,
-                                        QPen, QColor)
-            from PySide6.QtCore import QSizeF, QRectF, Qt
+                                        QPageSize, QPageLayout, QPen, QColor)
+            from PySide6.QtCore import QSizeF, QRectF, Qt, QMarginsF
 
             printer = QPrinter(QPrinter.HighResolution)
             printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
