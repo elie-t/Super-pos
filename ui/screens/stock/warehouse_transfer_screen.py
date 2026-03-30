@@ -1162,50 +1162,119 @@ class WarehouseTransferScreen(QWidget):
 
     def _print_transfer(self, no: str, lines: list, currency: str,
                         from_wh: str = "", to_wh: str = "", date_str: str = ""):
-        """Print a transfer. Falls back to current screen values when overrides are empty."""
+        """Print a transfer using QPainter for precise 80mm receipt layout."""
         from_wh  = from_wh  or self._from_wh_name
         to_wh    = to_wh    or self._to_wh_name
         date_str = date_str or self._date_edit.date().toString("dd/MM/yyyy")
         try:
             from PySide6.QtPrintSupport import QPrintPreviewDialog, QPrinter
-            from PySide6.QtGui import QTextDocument
+            from PySide6.QtGui import (QPainter, QFont, QFontMetrics,
+                                        QPageSize, QPageLayout, QMarginsF,
+                                        QPen, QColor)
+            from PySide6.QtCore import QSizeF, QRectF, Qt
+
             printer = QPrinter(QPrinter.HighResolution)
-            from PySide6.QtCore import QMarginsF
-            from PySide6.QtGui import QPageLayout
-            printer.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout.Millimeter)
+            printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
+            printer.setPageMargins(QMarginsF(4, 5, 4, 5), QPageLayout.Unit.Millimeter)
+
             dlg = QPrintPreviewDialog(printer, self)
 
-            TD = "style='padding:5px 8px;border:1px solid #ccc;font-size:12px;'"
-            TDR = "style='padding:5px 8px;border:1px solid #ccc;font-size:12px;text-align:right;'"
-            rows_html = "".join(
-                f"<tr>"
-                f"<td {TD}>{l['name']}</td>"
-                f"<td {TDR}>{l['qty']:,.3f}</td>"
-                f"</tr>"
-                for l in lines
-            )
-            total = sum(l["total"] for l in lines)
-            TH  = "style='padding:6px 8px;background:#1a3a5c;color:#fff;font-size:12px;text-align:left;border:1px solid #1a3a5c;'"
-            THR = "style='padding:6px 8px;background:#1a3a5c;color:#fff;font-size:12px;text-align:right;border:1px solid #1a3a5c;'"
-            html = (
-                "<html><body style='font-family:Arial;font-size:12px;'>"
-                f"<h2 style='text-align:center;font-size:18px;margin-bottom:2px;'>"
-                f"Warehouse Transfer {no}</h2>"
-                f"<p style='text-align:center;font-size:12px;color:#333;margin-top:2px;margin-bottom:14px;'>"
-                f"{from_wh} &rarr; {to_wh} &nbsp;&nbsp; Date: {date_str}</p>"
-                f"<table border='0' cellspacing='0' cellpadding='0' width='100%'>"
-                f"<tr><th {TH} width='82%'>Name</th><th {THR} width='18%'>Qty</th></tr>"
-                f"{rows_html}"
-                f"</table>"
-                f"<p style='text-align:right;font-size:14px;font-weight:bold;margin-top:14px;'>"
-                f"Total: {total:,.2f} {currency}</p>"
-                "</body></html>"
-            )
-
             def render(p):
-                doc = QTextDocument()
-                doc.setHtml(html)
-                doc.print_(p)
+                painter = QPainter(p)
+                W = float(p.pageRect(QPrinter.Unit.DevicePixel).width())
+
+                f_title = QFont("Arial", 12, QFont.Weight.Bold)
+                f_sub   = QFont("Arial",  8)
+                f_hdr   = QFont("Arial",  8, QFont.Weight.Bold)
+                f_row   = QFont("Arial",  8)
+                f_total = QFont("Arial", 10, QFont.Weight.Bold)
+
+                def fh(font):
+                    return float(QFontMetrics(font).height())
+
+                y = 0.0
+
+                def rule(color=0x000000):
+                    nonlocal y
+                    painter.setPen(QPen(QColor(color), 1))
+                    painter.drawLine(0, int(y), int(W), int(y))
+                    painter.setPen(QPen(QColor(0x000000), 1))
+                    y += 4
+
+                # ── Title ────────────────────────────────────────────────
+                painter.setFont(f_title)
+                h = fh(f_title) * 1.4
+                painter.drawText(QRectF(0, y, W, h), Qt.AlignmentFlag.AlignCenter,
+                                 f"Transfer  {no}")
+                y += h + 4
+
+                # ── Subtitle ─────────────────────────────────────────────
+                painter.setFont(f_sub)
+                h = fh(f_sub) * 1.3
+                painter.drawText(QRectF(0, y, W, h),
+                                 Qt.AlignmentFlag.AlignCenter,
+                                 f"{from_wh}  \u2192  {to_wh}")
+                y += h + 2
+                painter.drawText(QRectF(0, y, W, h),
+                                 Qt.AlignmentFlag.AlignCenter, f"Date: {date_str}")
+                y += h + 6
+
+                rule()
+
+                # ── Column widths ─────────────────────────────────────────
+                qty_w  = W * 0.22
+                name_w = W - qty_w
+
+                # ── Header row ────────────────────────────────────────────
+                painter.setFont(f_hdr)
+                h = fh(f_hdr) * 1.4
+                painter.drawText(QRectF(0, y, name_w - 4, h),
+                                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                                 "Name")
+                painter.drawText(QRectF(name_w, y, qty_w, h),
+                                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                                 "Qty")
+                y += h + 2
+
+                rule()
+
+                # ── Item rows ─────────────────────────────────────────────
+                painter.setFont(f_row)
+                for line in lines:
+                    name = line["name"]
+                    qty  = f"{line['qty']:,.3f}"
+
+                    br = painter.boundingRect(
+                        QRectF(0, 0, name_w - 6, 9999),
+                        Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignLeft, name,
+                    )
+                    rh = br.height() + 8
+
+                    painter.drawText(
+                        QRectF(0, y, name_w - 6, rh),
+                        Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignLeft
+                        | Qt.AlignmentFlag.AlignVCenter, name,
+                    )
+                    painter.drawText(
+                        QRectF(name_w, y, qty_w, rh),
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, qty,
+                    )
+                    y += rh
+                    rule(0xcccccc)
+
+                y += 4
+                rule()
+
+                # ── Grand total ───────────────────────────────────────────
+                painter.setFont(f_total)
+                h = fh(f_total) * 1.6
+                total = sum(l["total"] for l in lines)
+                total_text = f"Total: {total:,.2f}" + (f"  {currency}" if currency else "")
+                painter.drawText(QRectF(0, y, W, h),
+                                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                                 total_text)
+
+                painter.end()
 
             dlg.paintRequested.connect(render)
             dlg.exec()
