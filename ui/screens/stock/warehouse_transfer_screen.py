@@ -530,6 +530,20 @@ class WarehouseTransferScreen(QWidget):
         history_btn.clicked.connect(self._open_history)
         lay.addWidget(history_btn)
 
+        self._print_btn = QPushButton("🖨  Print")
+        self._print_btn.setFixedHeight(38)
+        self._print_btn.setMinimumWidth(100)
+        self._print_btn.setStyleSheet(
+            "QPushButton{background:#1a6cb5;color:#fff;border:none;"
+            "border-radius:4px;font-size:13px;font-weight:600;padding:0 16px;}"
+            "QPushButton:hover{background:#1a3a5c;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._print_btn.setCursor(Qt.PointingHandCursor)
+        self._print_btn.setEnabled(False)
+        self._print_btn.clicked.connect(self._do_print_current)
+        lay.addWidget(self._print_btn)
+
         lay.addStretch()
 
         lay.addWidget(self._lbl("Notes:"))
@@ -1116,6 +1130,7 @@ class WarehouseTransferScreen(QWidget):
         self._current_transfer_id = result
         self._lock_btn.setEnabled(True)
         self._lock_btn.setText("🔒  Lock")
+        self._print_btn.setEnabled(True)
 
         total   = sum(l["total"] for l in self._lines)
         n_lines = len(self._lines)
@@ -1135,14 +1150,28 @@ class WarehouseTransferScreen(QWidget):
 
     # ── Print ─────────────────────────────────────────────────────────────────
 
-    def _print_transfer(self, no: str, lines: list, currency: str):
+    def _do_print_current(self):
+        """Print the currently loaded / active transfer."""
+        if not self._lines:
+            return
+        self._print_transfer(
+            no=self._no_input.text().strip() or self._transfer_no,
+            lines=self._lines,
+            currency=self._cur_combo.currentText(),
+        )
+
+    def _print_transfer(self, no: str, lines: list, currency: str,
+                        from_wh: str = "", to_wh: str = "", date_str: str = ""):
+        """Print a transfer. Falls back to current screen values when overrides are empty."""
+        from_wh  = from_wh  or self._from_wh_name
+        to_wh    = to_wh    or self._to_wh_name
+        date_str = date_str or self._date_edit.date().toString("dd/MM/yyyy")
         try:
             from PySide6.QtPrintSupport import QPrintPreviewDialog, QPrinter
             from PySide6.QtGui import QTextDocument
             printer = QPrinter(QPrinter.HighResolution)
             dlg     = QPrintPreviewDialog(printer, self)
 
-            date_str = self._date_edit.date().toString("dd/MM/yyyy")
             rows_html = "".join(
                 f"<tr>"
                 f"<td style='text-align:center'>{i+1}</td>"
@@ -1159,8 +1188,8 @@ class WarehouseTransferScreen(QWidget):
             html = (
                 "<html><body style='font-family:Arial;font-size:12px;'>"
                 f"<h2 style='text-align:center'>Warehouse Transfer — {no}</h2>"
-                f"<p style='text-align:center'>{self._from_wh_name} → "
-                f"{self._to_wh_name} &nbsp;&nbsp; Date: {date_str}</p>"
+                f"<p style='text-align:center'>{from_wh} → "
+                f"{to_wh} &nbsp;&nbsp; Date: {date_str}</p>"
                 "<table border='1' cellpadding='4' cellspacing='0' width='100%' "
                 "style='border-collapse:collapse'>"
                 "<tr style='background:#1a3a5c;color:#fff'>"
@@ -1222,6 +1251,7 @@ class WarehouseTransferScreen(QWidget):
         self._current_transfer_id = None
         self._lock_btn.setEnabled(False)
         self._lock_btn.setText("🔒  Lock")
+        self._print_btn.setEnabled(False)
         self._set_locked(False)
         self._lines.clear()
         self._refresh_table()
@@ -1312,6 +1342,17 @@ class WarehouseTransferScreen(QWidget):
         load_btn.setCursor(Qt.PointingHandCursor)
         btn_row.addWidget(load_btn)
 
+        hist_print_btn = QPushButton("🖨  Print")
+        hist_print_btn.setStyleSheet(
+            "QPushButton{background:#1a6cb5;color:#fff;font-size:12px;font-weight:700;"
+            "border:none;border-radius:4px;padding:6px 16px;}"
+            "QPushButton:hover{background:#1a3a5c;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        hist_print_btn.setEnabled(False)
+        hist_print_btn.setCursor(Qt.PointingHandCursor)
+        btn_row.addWidget(hist_print_btn)
+
         notes_lbl = QLabel("")
         notes_lbl.setStyleSheet("color:#555;font-size:11px;font-style:italic;")
         btn_row.addWidget(notes_lbl)
@@ -1375,7 +1416,9 @@ class WarehouseTransferScreen(QWidget):
                     detail_tbl.setItem(r2, c2, it2)
 
             load_btn.setEnabled(True)
+            hist_print_btn.setEnabled(True)
             load_btn.setProperty("transfer_detail", detail)
+            hist_print_btn.setProperty("transfer_detail", detail)
 
         list_tbl.itemSelectionChanged.connect(on_row_selected)
         list_tbl.doubleClicked.connect(lambda _: on_row_selected())
@@ -1388,7 +1431,32 @@ class WarehouseTransferScreen(QWidget):
             dlg.accept()
             self._load_transfer(detail)
 
+        def on_hist_print():
+            detail = hist_print_btn.property("transfer_detail")
+            if not detail:
+                return
+            lines = [
+                {
+                    "code":  li["code"],
+                    "name":  li["item_name"],
+                    "qty":   li["qty"],
+                    "price": li["unit_cost"],
+                    "disc":  0.0,
+                    "total": li["qty"] * li["unit_cost"],
+                }
+                for li in detail["lines"]
+            ]
+            self._print_transfer(
+                no=detail["number"],
+                lines=lines,
+                currency="",
+                from_wh=detail["from_wh"],
+                to_wh=detail["to_wh"],
+                date_str=detail["date"],
+            )
+
         load_btn.clicked.connect(on_load)
+        hist_print_btn.clicked.connect(on_hist_print)
 
         close_btn = QPushButton("Close")
         close_btn.setStyleSheet(
@@ -1445,3 +1513,4 @@ class WarehouseTransferScreen(QWidget):
 
         self._refresh_table()
         self._refresh_totals()
+        self._print_btn.setEnabled(True)
