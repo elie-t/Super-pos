@@ -817,6 +817,11 @@ class PurchaseInvoiceScreen(QWidget):
         self._info_stock.setStyleSheet("color:#1565c0; font-size:13px; font-weight:700; min-width:70px;")
         lay.addWidget(self._info_stock)
 
+        lay.addWidget(lbl("   │  Box: ", bold=True))
+        self._info_box = lbl("—", color="#ffd54f")
+        self._info_box.setStyleSheet("color:#ffd54f; font-size:12px; font-weight:700; min-width:50px;")
+        lay.addWidget(self._info_box)
+
         lay.addWidget(lbl("   │  ", bold=False))
 
         # Selling prices — up to 4 price types
@@ -1462,7 +1467,7 @@ class PurchaseInvoiceScreen(QWidget):
 
     def _load_item_info(self, item_id: str, name: str, subgroup: str = ""):
         from database.engine import get_session, init_db
-        from database.models.items import ItemPrice, ItemStock
+        from database.models.items import ItemPrice, ItemStock, Item
         init_db()
         session = get_session()
         try:
@@ -1475,12 +1480,16 @@ class PurchaseInvoiceScreen(QWidget):
             prices = session.query(ItemPrice).filter_by(item_id=item_id).order_by(
                 ItemPrice.is_default.desc(), ItemPrice.price_type
             ).all()
+
+            item_row = session.query(Item).filter_by(id=item_id).first()
+            pack_qty = item_row.pack_qty if item_row else 1
         finally:
             session.close()
 
         self._info_name.setText(name[:40])
         self._info_sub.setText(subgroup or "—")
         self._info_stock.setText(f"{stock_qty:,.3f} u")
+        self._info_box.setText(f"{pack_qty} pcs/box" if pack_qty > 1 else "unit")
 
         # Fill price labels
         for lbl in self._info_price_labels:
@@ -1500,6 +1509,7 @@ class PurchaseInvoiceScreen(QWidget):
         self._info_name.setText("—")
         self._info_sub.setText("—")
         self._info_stock.setText("—")
+        self._info_box.setText("—")
         for lbl in self._info_price_labels:
             lbl.setText("")
 
