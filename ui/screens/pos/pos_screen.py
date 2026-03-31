@@ -1457,28 +1457,48 @@ class POSScreen(QWidget):
         from utils.scale_barcode import decode_scale_barcode
         scale_result = decode_scale_barcode(query)
         if scale_result is not None:
-            # Look up the item by the extracted code
             scale_item = PosService.lookup_item(
                 scale_result.item_code, "barcode", currency="LBP", price_type=POS_PRICE_TYPE
             )
-            if scale_item and scale_result.price is not None:
-                # Override price with the value embedded in the barcode
-                scale_item.unit_price = scale_result.price
-                scale_item.total      = scale_result.price
-                scale_item.currency   = "LBP"
-                scale_item.qty        = 1.0
-                if negative_qty:
-                    self._add_item(scale_item, force_qty=-1.0)
+            if scale_item is not None:
+                # Resolve unit price in LBP
+                lbp_unit = (scale_item.unit_price if scale_item.currency == "LBP"
+                            else round(scale_item.unit_price * LBP_RATE))
+
+                if scale_result.price is not None:
+                    # Price-embedded barcode: derive weight = total ÷ unit_price
+                    embedded_total = scale_result.price
+                    weight = round(embedded_total / lbp_unit, 3) if lbp_unit > 0 else 1.0
+                    if lbp_unit == 0:
+                        lbp_unit = embedded_total   # fallback: qty=1, price=total
                 else:
-                    self._add_item(scale_item)
-                self._scan_input.clear()
-                return
-            elif scale_item and scale_result.weight is not None:
-                # Weight barcode: set qty = weight, keep item's stored unit price
-                if negative_qty:
-                    self._add_item(scale_item, force_qty=-scale_result.weight)
-                else:
-                    self._add_item(scale_item, force_qty=scale_result.weight)
+                    # Weight-embedded barcode: weight from barcode, total = weight × price
+                    weight         = scale_result.weight or 1.0
+                    embedded_total = round(lbp_unit * weight)
+
+                sign = -1 if negative_qty else 1
+                self._lines.append({
+                    "item": PosLineItem(
+                        item_id    = scale_item.item_id,
+                        code       = scale_item.code,
+                        barcode    = scale_item.barcode,
+                        description= scale_item.description,
+                        qty        = sign * weight,
+                        unit_price = lbp_unit,
+                        disc_pct   = 0.0,
+                        vat_pct    = scale_item.vat_pct,
+                        total      = sign * embedded_total,
+                        currency   = "LBP",
+                        price_type = scale_item.price_type,
+                        stock_qty  = scale_item.stock_qty,
+                    ),
+                    "qty":   sign * weight,
+                    "price": lbp_unit,
+                    "disc":  0.0,
+                    "total": sign * embedded_total,
+                })
+                self._refresh_table()
+                self._table.selectRow(len(self._lines) - 1)
                 self._scan_input.clear()
                 return
 
