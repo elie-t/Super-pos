@@ -1459,7 +1459,7 @@ class POSScreen(QWidget):
         if scale_result is not None:
             # Look up the item by the extracted code
             scale_item = PosService.lookup_item(
-                scale_result.item_code, "code", currency="LBP", price_type=POS_PRICE_TYPE
+                scale_result.item_code, "barcode", currency="LBP", price_type=POS_PRICE_TYPE
             )
             if scale_item and scale_result.price is not None:
                 # Override price with the value embedded in the barcode
