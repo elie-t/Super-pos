@@ -238,10 +238,11 @@ class WarehouseTransferScreen(QWidget):
         bc_lbl.setStyleSheet("font-weight:600;")
         lay.addWidget(bc_lbl)
         self._bc_input = QLineEdit()
-        self._bc_input.setPlaceholderText("Scan or type…")
+        self._bc_input.setPlaceholderText("Scan or type…  Ctrl+Enter to search")
         self._bc_input.setFixedHeight(32)
         self._bc_input.setMinimumWidth(160)
         self._bc_input.setStyleSheet("font-size:13px;font-weight:600;")
+        self._bc_input.installEventFilter(self)
         self._bc_input.returnPressed.connect(self._on_barcode_entered)
         lay.addWidget(self._bc_input)
 
@@ -1049,11 +1050,53 @@ class WarehouseTransferScreen(QWidget):
 
     # ── eventFilter — Enter key navigation ────────────────────────────────────
 
+    def _open_item_picker(self):
+        from ui.screens.purchase.purchase_invoice import ItemPickerDialog
+        from services.purchase_service import PurchaseService
+        query = self._bc_input.text().strip()
+        dlg = ItemPickerDialog(query, self)
+        if dlg.exec() and dlg.chosen:
+            row = dlg.chosen
+            item = (
+                PurchaseService.lookup_item(row["barcode"], "barcode")
+                or PurchaseService.lookup_item(row["code"], "code")
+            )
+            if not item:
+                return
+            self._current_item     = item
+            self._current_pack_qty = item.pack_qty
+            self._bc_input.setText(row["barcode"] or row["code"])
+            self._item_desc_label.setText(item.description[:36])
+            self._item_desc_label.setStyleSheet(
+                "color:#1a3a5c;font-weight:600;font-size:12px;"
+            )
+            price = self._price_for_item(item)
+            self._block_total(True)
+            self._box_spin.blockSignals(True)
+            self._box_spin.setValue(0)
+            self._box_spin.blockSignals(False)
+            self._qty_spin.setValue(0.0 if item.pack_qty > 1 else 1.0)
+            self._price_spin.setValue(price)
+            self._disc_spin.setValue(0.0)
+            self._total_spin.setValue(0.0)
+            self._block_total(False)
+            self._set_box_enabled(item.pack_qty)
+            if item.pack_qty > 1:
+                QTimer.singleShot(0, lambda: (self._box_spin.setFocus(), self._box_spin.selectAll()))
+            else:
+                QTimer.singleShot(0, lambda: (self._qty_spin.setFocus(), self._qty_spin.selectAll()))
+
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
         if event.type() == QEvent.KeyPress:
             key = event.key()
             if key in (Qt.Key_Return, Qt.Key_Enter):
+                if obj is self._bc_input:
+                    if event.modifiers() & Qt.ControlModifier:
+                        self._open_item_picker()
+                    else:
+                        self._on_barcode_entered()
+                    return True
                 if obj is self._box_spin:
                     self._qty_spin.setFocus()
                     self._qty_spin.selectAll()
