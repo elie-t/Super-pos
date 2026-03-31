@@ -115,8 +115,10 @@ def decode_scale_barcode(barcode: str) -> Optional[ScaleDecodeResult]:
         code_pfx  = str(cfg.get("code_prefix", flag_val))
 
         # Expected total length: flag + PLU + payload + [internal_chk] + EAN_check(1)
-        expected = flag_len + code_len + pay_len + (1 if has_chk else 0) + 1
-        if len(bc) != expected:
+        # Some scanners strip the EAN-13 check digit → accept both lengths
+        base     = flag_len + code_len + pay_len + (1 if has_chk else 0)
+        expected = base + 1   # with EAN check digit
+        if len(bc) not in (expected, base):
             continue
 
         # Flag must match
