@@ -240,7 +240,7 @@ def _try_set_thermal_printer(printer: QPrinter) -> None:
 # ── ESC/POS direct thermal printing ──────────────────────────────────────────
 # 80 mm paper → 72 mm printable → 576 dots @ 203 dpi → 48 chars (Font A 12-dot)
 
-CHARS_PER_LINE = 48
+CHARS_PER_LINE = 42   # conservative safe width for 80mm / 203dpi printers
 
 
 def get_escpos_printer():
@@ -348,8 +348,8 @@ def print_transfer_escpos(
         return False, "No ESC/POS printer configured.\nGo to Settings → Receipt Printer."
 
     W      = CHARS_PER_LINE
-    qty_w  = 6          # narrower → qty sits closer to the name
-    name_w = W - qty_w  # 42 chars for name
+    qty_w  = 5
+    name_w = W - qty_w  # 37 chars for name
 
     try:
         # ── Top margin (avoid printing on the very edge) ───────────────────
