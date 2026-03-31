@@ -1467,7 +1467,7 @@ class PurchaseInvoiceScreen(QWidget):
 
     def _load_item_info(self, item_id: str, name: str, subgroup: str = ""):
         from database.engine import get_session, init_db
-        from database.models.items import ItemPrice, ItemStock, Item
+        from database.models.items import ItemPrice, ItemStock
         init_db()
         session = get_session()
         try:
@@ -1481,10 +1481,11 @@ class PurchaseInvoiceScreen(QWidget):
                 ItemPrice.is_default.desc(), ItemPrice.price_type
             ).all()
 
-            item_row = session.query(Item).filter_by(id=item_id).first()
-            pack_qty = item_row.pack_qty if item_row else 1
         finally:
             session.close()
+
+        # pack_qty comes from the lookup result stored on _current_item
+        pack_qty = getattr(self._current_item, "pack_qty", 1) or 1
 
         self._info_name.setText(name[:40])
         self._info_sub.setText(subgroup or "—")
