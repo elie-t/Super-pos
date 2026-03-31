@@ -1466,15 +1466,15 @@ class POSScreen(QWidget):
                             else round(scale_item.unit_price * LBP_RATE))
 
                 if scale_result.price is not None:
-                    # Price-embedded barcode: derive weight = total ÷ unit_price
-                    embedded_total = scale_result.price
-                    weight = round(embedded_total / lbp_unit, 3) if lbp_unit > 0 else 1.0
-                    if lbp_unit == 0:
-                        lbp_unit = embedded_total   # fallback: qty=1, price=total
+                    # Price-embedded barcode: barcode total IS the price, qty=1
+                    qty   = 1.0
+                    price = scale_result.price   # total from barcode (e.g. 598,500 LBP)
+                    total = scale_result.price
                 else:
-                    # Weight-embedded barcode: weight from barcode, total = weight × price
-                    weight         = scale_result.weight or 1.0
-                    embedded_total = round(lbp_unit * weight)
+                    # Weight-embedded barcode: qty=weight, price from DB, total=qty×price
+                    qty   = scale_result.weight or 1.0
+                    price = lbp_unit
+                    total = round(lbp_unit * qty)
 
                 sign = -1 if negative_qty else 1
                 self._lines.append({
@@ -1483,19 +1483,19 @@ class POSScreen(QWidget):
                         code       = scale_item.code,
                         barcode    = scale_item.barcode,
                         description= scale_item.description,
-                        qty        = sign * weight,
-                        unit_price = lbp_unit,
+                        qty        = sign * qty,
+                        unit_price = price,
                         disc_pct   = 0.0,
                         vat_pct    = scale_item.vat_pct,
-                        total      = sign * embedded_total,
+                        total      = sign * total,
                         currency   = "LBP",
                         price_type = scale_item.price_type,
                         stock_qty  = scale_item.stock_qty,
                     ),
-                    "qty":   sign * weight,
-                    "price": lbp_unit,
+                    "qty":   sign * qty,
+                    "price": price,
                     "disc":  0.0,
-                    "total": sign * embedded_total,
+                    "total": sign * total,
                 })
                 self._refresh_table()
                 self._table.selectRow(len(self._lines) - 1)
