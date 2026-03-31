@@ -1453,6 +1453,35 @@ class POSScreen(QWidget):
             self._open_item_picker()
             return
 
+        # ── Scale barcode: try to decode before normal lookup ─────────────────
+        from utils.scale_barcode import decode_scale_barcode
+        scale_result = decode_scale_barcode(query)
+        if scale_result is not None:
+            # Look up the item by the extracted code
+            scale_item = PosService.lookup_item(
+                scale_result.item_code, "code", currency="LBP", price_type=POS_PRICE_TYPE
+            )
+            if scale_item and scale_result.price is not None:
+                # Override price with the value embedded in the barcode
+                scale_item.unit_price = scale_result.price
+                scale_item.total      = scale_result.price
+                scale_item.currency   = "LBP"
+                scale_item.qty        = 1.0
+                if negative_qty:
+                    self._add_item(scale_item, force_qty=-1.0)
+                else:
+                    self._add_item(scale_item)
+                self._scan_input.clear()
+                return
+            elif scale_item and scale_result.weight is not None:
+                # Weight barcode: set qty = weight, keep item's stored unit price
+                if negative_qty:
+                    self._add_item(scale_item, force_qty=-scale_result.weight)
+                else:
+                    self._add_item(scale_item, force_qty=scale_result.weight)
+                self._scan_input.clear()
+                return
+
         # Cascade: barcode → code → name (exact then partial)
         item = (
             PosService.lookup_item(query, "barcode", currency="USD", price_type=POS_PRICE_TYPE)
