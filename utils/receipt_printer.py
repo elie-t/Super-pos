@@ -111,8 +111,8 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         return _h.escape(str(s))
 
     # Left col 62%, right col 38% — fixed layout prevents Qt squeezing labels
-    L = "width:62%;padding:1px 0;word-break:break-word;"
-    R = "width:38%;text-align:right;padding:1px 0;word-break:break-word;"
+    L = "width:62%;padding:3px 4px 3px 0;word-break:break-word;"
+    R = "width:38%;text-align:right;padding:3px 0 3px 4px;word-break:break-word;"
 
     def row2(left, right, bold=False) -> str:
         b0, b1 = ("<b>", "</b>") if bold else ("", "")
@@ -204,7 +204,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     footer = e(data.get("receipt_footer", "Thank you!"))
 
     return f"""<html><head><meta charset='utf-8'></head>
-<body style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:12pt;color:#000000;'>
+<body style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:8pt;color:#000000;'>
 {header}
 <table style='width:90%;margin-left:auto;margin-right:auto;table-layout:fixed;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
   {sep()}{meta}
