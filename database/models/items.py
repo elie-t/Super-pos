@@ -17,6 +17,7 @@ class Category(Base, TimestampMixin, SyncMixin):
     sort_order:     Mapped[int]        = mapped_column(Integer, default=0)
     is_active:      Mapped[bool]       = mapped_column(Boolean, default=True)
     show_in_daily:  Mapped[bool]       = mapped_column(Boolean, default=False)
+    show_on_touch:  Mapped[bool]       = mapped_column(Boolean, default=False)
 
     parent:   Mapped["Category | None"]     = relationship("Category", remote_side="Category.id", back_populates="children")
     children: Mapped[list["Category"]]      = relationship("Category", back_populates="parent")

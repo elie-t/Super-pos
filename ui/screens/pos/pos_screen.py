@@ -1287,14 +1287,26 @@ class POSScreen(QWidget):
         fn_btn("▶  Recall  [F3]",   "#1a6cb5", "#1a3a5c", self._recall_sale,    0, 1)
         fn_btn("📋  Invoices",       "#37474f", "#263238", self._open_invoices,  1, 0)
         fn_btn("↩  Refund",          "#c62828", "#a01010", self._placeholder,    1, 1)
-        fn_btn("👤  Customer",     "#00838f", "#006064", self._change_customer, 2, 0)
-        fn_btn("💬  Note",         "#5c6bc0", "#3949ab", self._placeholder,     2, 1)
+        self._touch_mode_btn = fn_btn(
+            "⊞  Touch Mode", "#00838f", "#006064", self._toggle_touch_mode, 2, 0)
+        fn_btn("👤  Customer",     "#5c6bc0", "#3949ab", self._change_customer, 2, 1)
         fn_btn("🔍  Price  [F10]", "#455a64", "#263238", self._price_check,       3, 0)
         fn_btn("🖨  Print  [F9]",  "#2e7d32", "#1b5e20", self._print_last,        3, 1)
         fn_btn("📊  Daily Sales",  "#4a148c", "#311b92", self._open_daily_sales,  4, 0)
         fn_btn("🔴  End of Shift", "#b71c1c", "#7f0000", self._open_end_of_shift, 4, 1)
 
-        lay.addWidget(fn_frame)
+        # ── Touch panel (hidden until touch mode activated) ───────────────
+        from ui.screens.pos.touch_panel import TouchPanel
+        self._touch_panel = TouchPanel()
+        self._touch_panel.item_selected.connect(self._on_touch_item)
+        self._touch_panel.exit_requested.connect(self._exit_touch_mode)
+
+        from PySide6.QtWidgets import QStackedWidget as _SW
+        self._fn_stack = _SW()
+        self._fn_stack.addWidget(fn_frame)        # index 0 — normal buttons
+        self._fn_stack.addWidget(self._touch_panel)  # index 1 — touch mode
+
+        lay.addWidget(self._fn_stack)
 
         # ── Held invoices panel ────────────────────────────────────────────
         held_frame = QFrame()
@@ -2226,6 +2238,51 @@ class POSScreen(QWidget):
             self._recalc_line(row)
             self._refresh_table()
             self._table.selectRow(row)
+
+    # ── Touch Mode ─────────────────────────────────────────────────────────────
+
+    def _toggle_touch_mode(self):
+        if self._fn_stack.currentIndex() == 0:
+            self._touch_panel.refresh()
+            self._fn_stack.setCurrentIndex(1)
+            self._touch_mode_btn.setStyleSheet(
+                "QPushButton{background:#ff6f00;color:#fff;font-size:12px;font-weight:700;"
+                "border:none;border-radius:5px;}"
+                "QPushButton:hover{background:#e65100;}"
+            )
+            self._touch_mode_btn.setText("✕  Exit Touch")
+        else:
+            self._exit_touch_mode()
+
+    def _exit_touch_mode(self):
+        self._fn_stack.setCurrentIndex(0)
+        self._touch_mode_btn.setStyleSheet(
+            "QPushButton{background:#00838f;color:#fff;font-size:12px;font-weight:700;"
+            "border:none;border-radius:5px;}"
+            "QPushButton:hover{background:#006064;}"
+        )
+        self._touch_mode_btn.setText("⊞  Touch Mode")
+
+    def _on_touch_item(self, item_dict: dict):
+        """Item tile pressed in touch mode — add to cart."""
+        from services.pos_service import PosLineItem
+        lbp_price = item_dict["price"]
+        if item_dict["currency"] != "LBP":
+            lbp_price = round(item_dict["price"] * LBP_RATE)
+        line = PosLineItem(
+            item_id    = item_dict["item_id"],
+            code       = item_dict["code"],
+            barcode    = "",
+            description= item_dict["name"],
+            qty        = 1.0,
+            unit_price = lbp_price,
+            disc_pct   = 0.0,
+            vat_pct    = 0.0,
+            total      = lbp_price,
+            currency   = "LBP",
+            price_type = "retail",
+        )
+        self._add_item(line)
 
     # ── Customer ───────────────────────────────────────────────────────────────
 

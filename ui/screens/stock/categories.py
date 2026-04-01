@@ -73,9 +73,13 @@ class CategoriesScreen(QWidget):
         self._show_daily_chk = QCheckBox("Show total in Daily Sales summary")
         self._show_daily_chk.setStyleSheet("font-size:12px;color:#1a3a5c;font-weight:600;")
 
+        self._show_touch_chk = QCheckBox("Show on Touch Screen (POS touch mode)")
+        self._show_touch_chk.setStyleSheet("font-size:12px;color:#00695c;font-weight:600;")
+
         form.addRow("Name *", self._name_edit)
         form.addRow("Parent (Sub only)", self._parent_combo)
         form.addRow("", self._show_daily_chk)
+        form.addRow("", self._show_touch_chk)
 
         rl.addWidget(grp)
 
@@ -112,30 +116,30 @@ class CategoriesScreen(QWidget):
     def _load_tree(self):
         self._tree.clear()
         cats = ItemService.get_categories()
-        # roots first, then children
-        roots = {cid: (cname, sid) for cid, cname, pid, sid in cats if not pid}
-        children = [(cid, cname, pid, sid) for cid, cname, pid, sid in cats if pid]
+        # roots first, then children — tuple: (id, name, parent_id, show_in_daily, show_on_touch)
+        roots = {cid: (cname, sid, sot) for cid, cname, pid, sid, sot in cats if not pid}
+        children = [(cid, cname, pid, sid, sot) for cid, cname, pid, sid, sot in cats if pid]
 
         # Populate parent combo
         self._parent_combo.clear()
         self._parent_combo.addItem("— None (top level) —", "")
-        for cid, (cname, _) in sorted(roots.items(), key=lambda x: x[1][0]):
+        for cid, (cname, _, _sot) in sorted(roots.items(), key=lambda x: x[1][0]):
             self._parent_combo.addItem(cname, cid)
 
         # Tree
         node_map = {}
-        for cid, (cname, sid) in sorted(roots.items(), key=lambda x: x[1][0]):
+        for cid, (cname, sid, sot) in sorted(roots.items(), key=lambda x: x[1][0]):
             label = f"★ {cname}" if sid else cname
             item  = QTreeWidgetItem([label])
-            item.setData(0, Qt.UserRole, (cid, sid))
+            item.setData(0, Qt.UserRole, (cid, sid, sot))
             self._tree.addTopLevelItem(item)
             node_map[cid] = item
 
-        for cid, cname, pid, sid in sorted(children, key=lambda x: x[1]):
+        for cid, cname, pid, sid, sot in sorted(children, key=lambda x: x[1]):
             parent_node = node_map.get(pid)
             label = f"★ {cname}" if sid else cname
             item  = QTreeWidgetItem([label])
-            item.setData(0, Qt.UserRole, (cid, sid))
+            item.setData(0, Qt.UserRole, (cid, sid, sot))
             if parent_node:
                 parent_node.addChild(item)
             else:
@@ -144,16 +148,15 @@ class CategoriesScreen(QWidget):
         self._tree.expandAll()
 
     def _on_select(self, item: QTreeWidgetItem, _col):
-        cid, sid = item.data(0, Qt.UserRole)
+        cid, sid, sot = item.data(0, Qt.UserRole)
         self._selected_id = cid
-        # Strip the ★ prefix if present
         raw_name = item.text(0).lstrip("★ ")
         self._name_edit.setText(raw_name)
         self._show_daily_chk.setChecked(bool(sid))
-        # Find parent
+        self._show_touch_chk.setChecked(bool(sot))
         parent = item.parent()
         if parent:
-            pid, _ = parent.data(0, Qt.UserRole)
+            pid, _, _sot = parent.data(0, Qt.UserRole)
             for i in range(self._parent_combo.count()):
                 if self._parent_combo.itemData(i) == pid:
                     self._parent_combo.setCurrentIndex(i)
@@ -166,6 +169,7 @@ class CategoriesScreen(QWidget):
         self._name_edit.clear()
         self._parent_combo.setCurrentIndex(0)
         self._show_daily_chk.setChecked(False)
+        self._show_touch_chk.setChecked(False)
         self._status_lbl.setText("")
         self._name_edit.setFocus()
 
@@ -182,6 +186,7 @@ class CategoriesScreen(QWidget):
         ok, err = ItemService.save_category(
             self._selected_id, name, parent_id,
             show_in_daily=self._show_daily_chk.isChecked(),
+            show_on_touch=self._show_touch_chk.isChecked(),
         )
         if ok:
             self._status_lbl.setStyleSheet("color: #2e7d32;")

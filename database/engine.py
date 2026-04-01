@@ -69,6 +69,13 @@ def init_db() -> None:
             pass
         try:
             conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE categories ADD COLUMN show_on_touch INTEGER NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(__import__("sqlalchemy").text(
                 "ALTER TABLE warehouses ADD COLUMN default_customer_id TEXT REFERENCES customers(id)"
             ))
             conn.commit()

@@ -166,12 +166,12 @@ class ItemService:
             session.close()
 
     @staticmethod
-    def get_categories() -> list[tuple[str, str, str | None, bool]]:
-        """Returns list of (id, name, parent_id, show_in_daily)."""
+    def get_categories() -> list[tuple[str, str, str | None, bool, bool]]:
+        """Returns list of (id, name, parent_id, show_in_daily, show_on_touch)."""
         init_db()
         session = get_session()
         try:
-            return [(c.id, c.name, c.parent_id, c.show_in_daily)
+            return [(c.id, c.name, c.parent_id, c.show_in_daily, getattr(c, "show_on_touch", False))
                     for c in session.query(Category).order_by(Category.name).all()]
         finally:
             session.close()
@@ -320,8 +320,69 @@ class ItemService:
             session.close()
 
     @staticmethod
+    def get_touch_categories() -> list[dict]:
+        """Return active categories flagged show_on_touch, ordered by sort_order then name."""
+        init_db()
+        session = get_session()
+        try:
+            rows = (
+                session.query(Category)
+                .filter_by(is_active=True, show_on_touch=True)
+                .order_by(Category.sort_order, Category.name)
+                .all()
+            )
+            return [{"id": c.id, "name": c.name} for c in rows]
+        finally:
+            session.close()
+
+    @staticmethod
+    def get_touch_items(category_id: str) -> list[dict]:
+        """Return active items in a category with their default LBP selling price."""
+        from database.models.items import Item, ItemPrice
+        init_db()
+        session = get_session()
+        try:
+            items = (
+                session.query(Item)
+                .filter_by(category_id=category_id, is_active=True)
+                .order_by(Item.name)
+                .all()
+            )
+            item_ids = [i.id for i in items]
+            # Fetch default prices (prefer LBP retail, fallback to any retail)
+            prices: dict[str, dict] = {}
+            if item_ids:
+                for p in (
+                    session.query(ItemPrice)
+                    .filter(
+                        ItemPrice.item_id.in_(item_ids),
+                        ItemPrice.is_active == True,
+                        ItemPrice.price_type == "retail",
+                    )
+                    .all()
+                ):
+                    existing = prices.get(p.item_id)
+                    if existing is None or p.is_default:
+                        prices[p.item_id] = {"amount": p.amount, "currency": p.currency}
+            result = []
+            for item in items:
+                p = prices.get(item.id, {"amount": 0.0, "currency": "USD"})
+                result.append({
+                    "item_id":  item.id,
+                    "code":     item.code,
+                    "name":     item.name,
+                    "name_ar":  item.name_ar or "",
+                    "price":    p["amount"],
+                    "currency": p["currency"],
+                })
+            return result
+        finally:
+            session.close()
+
+    @staticmethod
     def save_category(cat_id: str, name: str, parent_id: str = "",
-                      show_in_daily: bool = False) -> tuple[bool, str]:
+                      show_in_daily: bool = False,
+                      show_on_touch: bool = False) -> tuple[bool, str]:
         init_db()
         session = get_session()
         try:
@@ -333,6 +394,7 @@ class ItemService:
             cat.name          = name.strip()
             cat.parent_id     = parent_id or None
             cat.show_in_daily = show_in_daily
+            cat.show_on_touch = show_on_touch
             session.commit()
 
             try:
