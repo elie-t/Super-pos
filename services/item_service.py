@@ -43,6 +43,7 @@ class ItemDetail:
     is_pos_featured: bool
     is_online: bool
     is_visible: bool
+    show_on_touch: bool = False
     notes: str
     barcodes: list = field(default_factory=list)   # list of (id, barcode, is_primary, pack_qty)
     prices: list   = field(default_factory=list)   # list of (id, type, amount, currency, is_default)
@@ -159,6 +160,7 @@ class ItemService:
                 vat_rate=item.vat_rate, min_stock=item.min_stock,
                 is_active=item.is_active, is_pos_featured=item.is_pos_featured,
                 is_online=item.is_online, is_visible=item.is_visible,
+                show_on_touch=getattr(item, "show_on_touch", False),
                 notes=item.notes or "",
                 barcodes=barcodes, prices=prices, stock_entries=stock_entries,
             )
@@ -223,6 +225,7 @@ class ItemService:
             item.is_pos_featured = detail.is_pos_featured
             item.is_online    = detail.is_online
             item.is_visible   = detail.is_visible
+            item.show_on_touch = detail.show_on_touch
             item.notes        = detail.notes or None
 
             session.flush()
@@ -344,7 +347,7 @@ class ItemService:
         try:
             items = (
                 session.query(Item)
-                .filter_by(category_id=category_id, is_active=True)
+                .filter_by(category_id=category_id, is_active=True, show_on_touch=True)
                 .order_by(Item.name)
                 .all()
             )

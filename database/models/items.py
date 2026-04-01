@@ -85,6 +85,7 @@ class Item(Base, TimestampMixin, SyncMixin):
     is_online:       Mapped[bool] = mapped_column(Boolean, default=False)  # sync to mobile app
     is_visible:      Mapped[bool] = mapped_column(Boolean, default=True)   # visible in lists
     is_featured:     Mapped[bool] = mapped_column(Boolean, default=False)  # promoted/featured item
+    show_on_touch:   Mapped[bool] = mapped_column(Boolean, default=False)  # show in POS touch mode
     photo_url:       Mapped[str | None] = mapped_column(Text, nullable=True)  # Supabase Storage public URL
     notes:           Mapped[str | None] = mapped_column(Text, nullable=True)
 

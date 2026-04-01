@@ -468,6 +468,10 @@ class ItemMaintenanceScreen(QWidget):
         self._chk_featured.setStyleSheet("font-size:11px;")
         layout.addWidget(self._chk_featured)
 
+        self._chk_touch = QCheckBox("Show on Touch Screen")
+        self._chk_touch.setStyleSheet("font-size:11px;color:#00695c;font-weight:600;")
+        layout.addWidget(self._chk_touch)
+
         layout.addSpacing(6)
 
         # Action buttons — styled like reference software
@@ -734,6 +738,7 @@ class ItemMaintenanceScreen(QWidget):
         # Online flags
         self._chk_online.setChecked(bool(detail.is_online))
         self._chk_featured.setChecked(bool(detail.is_pos_featured))
+        self._chk_touch.setChecked(bool(getattr(detail, "show_on_touch", False)))
 
         # Dates
         if detail.id:
@@ -1282,6 +1287,7 @@ class ItemMaintenanceScreen(QWidget):
             is_active=True,
             is_pos_featured=self._chk_featured.isChecked(),
             is_online=self._chk_online.isChecked(),
+            show_on_touch=self._chk_touch.isChecked(),
             is_visible=True,
             notes=self._notes_edit.toPlainText(),
             barcodes=barcodes,
