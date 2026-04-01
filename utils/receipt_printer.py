@@ -125,14 +125,14 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         return f"<tr><td colspan='2' style='border-top:1px {'solid' if dbl else 'dashed'} #000;padding:0;margin:0;height:2px;line-height:2px;font-size:1pt;'></td></tr>"
     # ── Header ────────────────────────────────────────────────────────────────
     header = (
-        f"<div style='text-align:center;font-size:15pt;font-weight:700;'>{e(data.get('shop_name',''))}</div>"
+        f"<div style='text-align:center;font-size:13pt;font-weight:700;'>{e(data.get('shop_name',''))}</div>"
     )
     if data.get("shop_address"):
-        header += f"<div style='text-align:center;font-size:11pt;line-height:1.0;margin:0;'>{e(data['shop_address'])}</div>"
+        header += f"<div style='text-align:center;font-size:10pt;line-height:1.0;margin:0;'>{e(data['shop_address'])}</div>"
     if data.get("shop_phone"):
-        header += f"<div style='text-align:center;font-size:11pt;line-height:1.0;margin:0;'>Tel: {e(data['shop_phone'])}</div>"
+        header += f"<div style='text-align:center;font-size:9pt;line-height:1.0;margin:0;'>Tel: {e(data['shop_phone'])}</div>"
     if data.get("warehouse"):
-        header += f"<div style='text-align:center;font-size:11pt;line-height:1.0;margin:0;'>{e(data['warehouse'])}</div>"
+        header += f"<div style='text-align:center;font-size:9pt;line-height:1.0;margin:0;'>{e(data['warehouse'])}</div>"
 
     # ── Meta rows ─────────────────────────────────────────────────────────────
     meta = (
@@ -155,7 +155,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         disc_tag = f" (-{disc:.0f}%)" if disc else ""
         detail   = f"  {qty_str} x {fmt(price)}{disc_tag}"
         items_html += (
-            f"<tr><td colspan='2' style='padding:1px 0 0 0;font-size:9pt;line-height:1.05;'>{e(desc)}</td></tr>"
+            f"<tr><td colspan='2' style='padding:1px 0 0 0;font-size:7pt;line-height:1.05;'>{e(desc)}</td></tr>"
             + row2(detail, fmt(total))
         )
 
@@ -196,14 +196,14 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     footer = e(data.get("receipt_footer", "Thank you!"))
 
     return f"""<html dir='ltr'><head><meta charset='utf-8'></head>
-<body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:9pt;line-height:1.2;color:#000000;'>{header}
+<body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:7pt;line-height:1.2;color:#000000;'>{header}
 <table style='width:100%;table-layout:fixed;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
   {sep()}{meta}
   {sep()}{items_html}
   {sep()}{totals}
   {sep()}
 </table>
-<div style='text-align:center;margin-top:6px;font-size:11pt;line-height:1.0;'>{footer}</div>
+<div style='text-align:center;margin-top:6px;font-size:9pt;line-height:1.0;'>{footer}</div>
 </body></html>"""
 
 
@@ -288,7 +288,7 @@ def _render_to_printer(html: str, printer: QPrinter) -> None:
     from PySide6.QtCore import Qt as _Qt, QRectF
 
     doc = QTextDocument()
-    doc.setDocumentMargin(30)
+    doc.setDocumentMargin(20)
     doc.setDefaultStyleSheet("html, body, table { margin:0; padding:0; border:0; }")
     # Force LTR so Arabic item names don't flip the whole document to RTL
     opt = QTextOption()
