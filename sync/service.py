@@ -617,11 +617,6 @@ def pull_master_items() -> tuple[int, str]:
 
                 item = session.get(Item, ri["id"])
                 if not item:
-                    # Try matching by code — handles case where Mac imported
-                    # from Excel separately (different UUIDs, same codes)
-                    code_str = ri.get("code") or ri["id"][:12]
-                    item = session.query(Item).filter_by(code=code_str).first()
-                if not item:
                     item = Item(id=ri["id"])
                     session.add(item)
 
