@@ -463,6 +463,132 @@ class VegeDialog(QDialog):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Free Amount dialog
+# ──────────────────────────────────────────────────────────────────────────────
+
+class FreeAmountDialog(QDialog):
+    """
+    Quickly add a free-form line (custom description + amount) to the cart.
+    Trigger: type  A  in the scan box and press Enter.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Free Amount Entry")
+        self.setFixedSize(380, 230)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        self.result_desc  = ""
+        self.result_qty   = 1.0
+        self.result_price = 0.0
+        self.result_total = 0.0
+        self._build()
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(8)
+
+        title = QLabel("💰  Free Amount Entry")
+        title.setStyleSheet("font-size:14px;font-weight:700;color:#1a3a5c;")
+        lay.addWidget(title)
+
+        self._desc = QLineEdit()
+        self._desc.setPlaceholderText("Description (optional)")
+        self._desc.setFixedHeight(34)
+        self._desc.setStyleSheet(
+            "font-size:13px;border:1px solid #4a7aac;border-radius:4px;padding:0 8px;"
+        )
+        lay.addWidget(self._desc)
+
+        self._inp = QLineEdit()
+        self._inp.setPlaceholderText("Amount  —  or  qty * price  (e.g.  2 * 50000)")
+        self._inp.setFixedHeight(46)
+        self._inp.setStyleSheet(
+            "font-size:22px;font-weight:700;"
+            "border:2px solid #1a3a5c;border-radius:6px;padding:0 10px;"
+        )
+        self._inp.textChanged.connect(self._update_preview)
+        self._inp.returnPressed.connect(self._try_accept)
+        lay.addWidget(self._inp)
+
+        self._preview = QLabel("")
+        self._preview.setAlignment(Qt.AlignCenter)
+        self._preview.setFixedHeight(24)
+        self._preview.setStyleSheet("color:#1a3a5c;font-size:14px;font-weight:700;")
+        lay.addWidget(self._preview)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        cancel = QPushButton("Cancel")
+        cancel.setFixedHeight(32)
+        cancel.clicked.connect(self.reject)
+        add = QPushButton("✓  Add to Cart")
+        add.setFixedHeight(32)
+        add.setStyleSheet(
+            "QPushButton{background:#1a3a5c;color:#fff;font-weight:700;"
+            "border:none;border-radius:4px;font-size:13px;padding:0 16px;}"
+            "QPushButton:hover{background:#1565c0;}"
+        )
+        add.clicked.connect(self._try_accept)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(add)
+        lay.addLayout(btn_row)
+
+        self._desc.setFocus()
+        # Tab from desc goes to amount
+        self._desc.returnPressed.connect(self._inp.setFocus)
+
+    def _parse(self):
+        text = self._inp.text().strip()
+        if not text:
+            return None, None, None
+        if "*" in text:
+            parts = text.split("*", 1)
+            try:
+                a = float(parts[0].strip())
+                b = float(parts[1].strip().replace(",", ""))
+                return a, b, a * b
+            except ValueError:
+                return None, None, None
+        try:
+            val = float(text.replace(",", ""))
+            return 1.0, val, val
+        except ValueError:
+            return None, None, None
+
+    def _update_preview(self):
+        qty, price, total = self._parse()
+        if total is not None and total > 0:
+            if qty != 1.0:
+                self._preview.setText(f"{qty:g} × ل.ل {price:,.0f}  =  ل.ل {total:,.0f}")
+            else:
+                self._preview.setText(f"ل.ل {total:,.0f}")
+            self._preview.setStyleSheet("color:#1a3a5c;font-size:14px;font-weight:700;")
+            self._inp.setStyleSheet(
+                "font-size:22px;font-weight:700;"
+                "border:2px solid #1a3a5c;border-radius:6px;padding:0 10px;"
+            )
+        elif self._inp.text().strip():
+            self._preview.setText("—")
+            self._preview.setStyleSheet("color:#aaa;font-size:13px;")
+
+    def _try_accept(self):
+        qty, price, total = self._parse()
+        if total is None or total <= 0:
+            self._inp.setStyleSheet(
+                "font-size:22px;font-weight:700;"
+                "border:2px solid #c62828;border-radius:6px;padding:0 10px;"
+            )
+            self._inp.setFocus()
+            return
+        self.result_desc  = self._desc.text().strip() or "Misc"
+        self.result_qty   = qty
+        self.result_price = price
+        self.result_total = total
+        self.accept()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Sales invoices list dialog
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -1459,6 +1585,12 @@ class POSScreen(QWidget):
             self._open_vege_dialog()
             return
 
+        # "A" or "a" — free amount entry (custom description + amount)
+        if query.upper() == "A":
+            self._scan_input.clear()
+            self._open_free_amount_dialog()
+            return
+
         # "-code" prefix — deduct (negative qty) from invoice
         negative_qty = False
         if query.startswith("-") and len(query) > 1:
@@ -1725,6 +1857,38 @@ class POSScreen(QWidget):
             code       = "VEGE",
             barcode    = "V",
             description= "Vegetables",
+            qty        = dlg.result_qty,
+            unit_price = dlg.result_price,
+            disc_pct   = 0.0,
+            vat_pct    = 0.0,
+            total      = dlg.result_total,
+            currency   = "LBP",
+            price_type = "retail",
+            stock_qty  = 0.0,
+        )
+        self._lines.append({
+            "item":  item,
+            "qty":   dlg.result_qty,
+            "price": dlg.result_price,
+            "disc":  0.0,
+            "total": dlg.result_total,
+        })
+        self._refresh_table()
+        self._table.selectRow(len(self._lines) - 1)
+        self._scan_input.setFocus()
+
+    def _open_free_amount_dialog(self):
+        """Open free amount entry dialog and add a custom line to the cart."""
+        dlg = FreeAmountDialog(self)
+        if not dlg.exec():
+            self._scan_input.setFocus()
+            return
+        free_id = PosService.get_or_create_free_item()
+        item = PosLineItem(
+            item_id    = free_id,
+            code       = "FREE",
+            barcode    = "",
+            description= dlg.result_desc,
             qty        = dlg.result_qty,
             unit_price = dlg.result_price,
             disc_pct   = 0.0,

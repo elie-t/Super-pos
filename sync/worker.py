@@ -42,6 +42,7 @@ class SyncWorker(QThread):
             pull_purchase_invoices, pull_suppliers,
             pull_sales_invoices, pull_warehouses, push_warehouses,
             pull_categories, pull_transfers, pull_inventory_sessions,
+            pull_invoice_deletes,
             is_configured,
         )
         if not is_configured():
@@ -82,8 +83,9 @@ class SyncWorker(QThread):
             # Pull suppliers
             pull_suppliers()
 
-            # Pull sales invoices from other branches
+            # Pull sales invoices from other branches; remove any deleted ones
             pull_sales_invoices()
+            pull_invoice_deletes()
 
             # Pull purchase invoices from other branches
             pinv_pulled, err = pull_purchase_invoices()

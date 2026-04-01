@@ -638,15 +638,31 @@ def pull_master_items() -> tuple[int, str]:
                 item.category_id = cats.get(cat_name)
                 item.brand_id    = brands.get(brand_name)
 
-                # Upsert prices
+                # Upsert prices — match by ID first, then by (item_id, price_type, currency)
+                # to avoid duplicates when each machine imported from Excel independently
+                seen_price_keys: set[tuple] = set()
                 for rp_row in prices_by_item.get(ri["id"], []):
                     price = session.get(ItemPrice, rp_row["id"])
+                    if not price:
+                        # Try matching by type+currency in case local UUID differs
+                        price = session.query(ItemPrice).filter_by(
+                            item_id=ri["id"],
+                            price_type=rp_row["price_type"],
+                            currency=rp_row["currency"],
+                        ).first()
                     if not price:
                         price = ItemPrice(id=rp_row["id"], item_id=ri["id"])
                         session.add(price)
                     price.price_type = rp_row["price_type"]
                     price.amount     = rp_row["amount"]
                     price.currency   = rp_row["currency"]
+                    seen_price_keys.add((rp_row["price_type"], rp_row["currency"]))
+
+                # Remove duplicate prices not present in central (stale local-only records)
+                if seen_price_keys:
+                    for dup in session.query(ItemPrice).filter_by(item_id=ri["id"]).all():
+                        if (dup.price_type, dup.currency) not in seen_price_keys:
+                            session.delete(dup)
 
                 # Upsert barcodes
                 from sqlalchemy import func as sa_func
@@ -1303,6 +1319,7 @@ def pull_sales_invoices() -> tuple[int, str]:
                         notes=ri.get("notes") or None,
                         source=src,
                         invoice_type=ri.get("invoice_type") or "sale",
+                        branch_id=ri.get("branch_id") or "",
                     )
                     session.add(inv)
                     session.flush()
@@ -2113,6 +2130,116 @@ def pull_inventory_sessions() -> tuple[int, str]:
     except Exception as e:
         return 0, str(e)
 
+
+# ── Branch reset sync ─────────────────────────────────────────────────────────
+
+def push_branch_reset() -> tuple[bool, str]:
+    """
+    Called after reset_transactions.py clears the local DB.
+    Deletes this branch's transaction data from all Supabase central tables
+    so other machines will remove their local copies on next sync.
+    """
+    if not is_configured():
+        return True, ""
+    try:
+        hdrs = _headers()
+
+        # Collect invoice IDs first (needed to delete line items — no cascade in REST)
+        r = requests.get(
+            f"{_url('sales_invoices_central')}?branch_id=eq.{BRANCH_ID}&select=id",
+            headers={**hdrs, "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code == 200:
+            ids = [row["id"] for row in r.json()]
+            if ids:
+                ids_filter = ",".join(f'"{i}"' for i in ids)
+                requests.delete(
+                    f"{_url('sales_invoice_items_central')}?invoice_id=in.({ids_filter})",
+                    headers=hdrs,
+                    timeout=20,
+                )
+
+        requests.delete(
+            f"{_url('sales_invoices_central')}?branch_id=eq.{BRANCH_ID}",
+            headers=hdrs,
+            timeout=20,
+        )
+        requests.delete(
+            f"{_url('stock_movements_central')}?branch_id=eq.{BRANCH_ID}",
+            headers=hdrs,
+            timeout=20,
+        )
+
+        # Reset the state timestamps so a full re-pull doesn't re-create deleted records
+        _state_set("sales_invoices_pull", "2000-01-01T00:00:00Z")
+        _state_set("movements_pull",      "2000-01-01T00:00:00Z")
+
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+def pull_invoice_deletes() -> tuple[int, str]:
+    """
+    Reconcile: find local sales invoices that came from other branches but no
+    longer exist in central (e.g. the source branch ran a reset), and delete them.
+    Runs once per sync cycle; processes up to 500 IDs per call.
+    """
+    import sqlalchemy as _sa
+    from database.engine import get_session, init_db
+    from database.models.invoices import SalesInvoice, SalesInvoiceItem
+    from database.models.stock import StockMovement
+
+    if not is_configured():
+        return 0, ""
+
+    init_db()
+    session = get_session()
+    try:
+        # Find local invoices that were pulled from other branches
+        rows = session.execute(
+            _sa.text(
+                "SELECT id FROM sales_invoices "
+                "WHERE branch_id != '' AND branch_id != :bid "
+                "LIMIT 500"
+            ),
+            {"bid": BRANCH_ID},
+        ).fetchall()
+
+        if not rows:
+            return 0, ""
+
+        local_ids = [r[0] for r in rows]
+        ids_filter = ",".join(f'"{i}"' for i in local_ids)
+
+        r = requests.get(
+            f"{_url('sales_invoices_central')}?id=in.({ids_filter})&select=id",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}"
+
+        central_ids = {row["id"] for row in r.json()}
+        deleted_ids = [i for i in local_ids if i not in central_ids]
+
+        if not deleted_ids:
+            return 0, ""
+
+        for inv_id in deleted_ids:
+            session.query(StockMovement).filter_by(reference_id=inv_id).delete()
+            session.query(SalesInvoiceItem).filter_by(invoice_id=inv_id).delete()
+            session.query(SalesInvoice).filter_by(id=inv_id).delete()
+
+        session.commit()
+        return len(deleted_ids), ""
+
+    except Exception as e:
+        session.rollback()
+        return 0, str(e)
+    finally:
+        session.close()
 
 # ── Enqueue helper (called from services) ────────────────────────────────────
 

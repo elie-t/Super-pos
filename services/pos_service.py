@@ -72,6 +72,36 @@ class PosService:
         finally:
             session.close()
 
+    @staticmethod
+    def get_or_create_free_item() -> str:
+        """Return the item_id of the Free Amount placeholder, creating it if needed."""
+        init_db()
+        session = get_session()
+        try:
+            from database.models.items import Item
+            from database.models.base import new_uuid
+
+            item = session.query(Item).filter_by(code="FREE").first()
+            if item:
+                return item.id
+
+            item_id = new_uuid()
+            session.add(Item(
+                id=item_id,
+                code="FREE",
+                name="Free Amount",
+                unit="PCS",
+                vat_rate=0.0,
+                is_active=True,
+            ))
+            session.commit()
+            return item_id
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     # ── Item lookup ───────────────────────────────────────────────────────────
 
     @staticmethod
@@ -342,8 +372,8 @@ class PosService:
                 )
                 session.add(li)
 
-                # Vege/bulk placeholder — no stock tracking
-                if line.code == "VEGE":
+                # Placeholder items — no stock tracking
+                if line.code in ("VEGE", "FREE"):
                     continue
 
                 # Stock movement (deduct)

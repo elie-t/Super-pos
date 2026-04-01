@@ -856,7 +856,7 @@ class DailySalesDialog(QDialog):
 <div style='text-align:center;font-size:7pt;margin-top:4px;'>*** Shift Closed ***</div>
 </body></html>"""
 
-            from PySide6.QtPrintSupport import QPrinter
+            from PySide6.QtPrintSupport import QPrinter, QPrintPreviewDialog
             from utils.receipt_printer import _render_to_printer, _get_qt_printer_name
 
             qt_name = _get_qt_printer_name()
@@ -864,7 +864,11 @@ class DailySalesDialog(QDialog):
             if qt_name:
                 printer.setPrinterName(qt_name)
             printer.setFullPage(False)
-            _render_to_printer(html, printer)
+
+            preview = QPrintPreviewDialog(printer, self)
+            preview.setWindowTitle("End of Shift Report — Print Preview")
+            preview.paintRequested.connect(lambda p: _render_to_printer(html, p))
+            preview.exec()
         except Exception:
             pass  # never block the shift close on a print failure
 

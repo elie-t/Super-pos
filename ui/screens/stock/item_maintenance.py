@@ -127,6 +127,7 @@ class ItemMaintenanceScreen(QWidget):
             "padding:4px 10px; font-size:13px;"
         )
         self._lookup_input.returnPressed.connect(self._lookup_item)
+        self._lookup_input.installEventFilter(self)
         layout.addWidget(self._lookup_input, 2)
 
         load_btn = QPushButton("Load Item")
@@ -167,45 +168,80 @@ class ItemMaintenanceScreen(QWidget):
 
         return bar
 
-    def _lookup_item(self):
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QKeyEvent
+        if obj is self._lookup_input and event.type() == QEvent.Type.KeyPress:
+            if (event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                self._lookup_item(force_list=True)
+                return True
+        return super().eventFilter(obj, event)
+
+    def _lookup_item(self, force_list: bool = False):
         """Search by barcode, code, or name and load if found."""
         query = self._lookup_input.text().strip()
         if not query:
             self._lookup_input.setFocus()
             return
 
-        results = ItemService.search_items(query=query, limit=5)
+        limit = 100 if force_list else 5
+        results = ItemService.search_items(query=query, limit=limit)
         if not results:
             self._lookup_status("✘  No item found for: " + query, error=True)
             return
 
-        if len(results) == 1:
+        if len(results) == 1 and not force_list:
             self._load_item(results[0].id)
             self._lookup_status(f"✔  Loaded: [{results[0].code}]  {results[0].name}", error=False)
         else:
-            # Multiple matches — show picker
+            # Multiple matches or forced list — show picker
             self._show_picker(results)
 
     def _show_picker(self, results):
-        """Simple dialog to pick from multiple matches."""
+        """Dialog to pick from multiple matches, with inline filter."""
         from PySide6.QtWidgets import QDialog, QListWidget, QListWidgetItem, QDialogButtonBox
         dlg = QDialog(self)
         dlg.setWindowTitle("Select Item")
-        dlg.resize(500, 300)
+        dlg.resize(560, 400)
         layout = QVBoxLayout(dlg)
         layout.addWidget(QLabel(f"Found {len(results)} matches — select one:"))
+
+        filter_box = QLineEdit()
+        filter_box.setPlaceholderText("Filter list…")
+        filter_box.setFixedHeight(30)
+        layout.addWidget(filter_box)
+
         lst = QListWidget()
+        all_items = []
         for item in results:
-            li = QListWidgetItem(f"[{item.code}]  {item.name}  —  {item.barcode}")
+            text = f"[{item.code}]  {item.name}  —  {item.barcode}"
+            li = QListWidgetItem(text)
             li.setData(Qt.UserRole, item.id)
             lst.addItem(li)
+            all_items.append((text.lower(), item.id, text))
         lst.setCurrentRow(0)
-        layout.addWidget(lst)
+        layout.addWidget(lst, 1)
+
+        def _filter(text):
+            lst.clear()
+            for low, iid, display in all_items:
+                if text.lower() in low:
+                    li = QListWidgetItem(display)
+                    li.setData(Qt.UserRole, iid)
+                    lst.addItem(li)
+            if lst.count():
+                lst.setCurrentRow(0)
+
+        filter_box.textChanged.connect(_filter)
+
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
         btns.rejected.connect(dlg.reject)
         layout.addWidget(btns)
         lst.doubleClicked.connect(lambda: dlg.accept())
+        filter_box.returnPressed.connect(lambda: dlg.accept())
+
         if dlg.exec() == QDialog.Accepted and lst.currentItem():
             item_id = lst.currentItem().data(Qt.UserRole)
             self._load_item(item_id)

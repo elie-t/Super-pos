@@ -43,6 +43,9 @@ class SalesInvoice(Base, TimestampMixin, SyncMixin):
     # Set True after End-of-Shift export so the POS list shows a clean new shift
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Branch that created this invoice (empty = local branch, populated when pulled from central)
+    branch_id: Mapped[str] = mapped_column(String(100), default="")
+
     customer:  Mapped["Customer"]          = relationship()  # type: ignore[name-defined]
     operator:  Mapped["User"]              = relationship()  # type: ignore[name-defined]
     warehouse: Mapped["Warehouse"]         = relationship()  # type: ignore[name-defined]

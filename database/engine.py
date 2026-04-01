@@ -154,3 +154,10 @@ def init_db() -> None:
             conn.commit()
         except Exception:
             pass
+        try:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE sales_invoices ADD COLUMN branch_id TEXT NOT NULL DEFAULT ''"
+            ))
+            conn.commit()
+        except Exception:
+            pass
