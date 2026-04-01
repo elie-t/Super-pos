@@ -179,25 +179,14 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
 
     # ── USD equivalent (only when invoice is in LBP) ──────────────────────
     usd_line = ""
-    if is_lbp and inv_total:
-        try:
-            from database.engine import get_session, init_db
-            from database.models.items import Setting
-            init_db()
-            _s = get_session()
-            try:
-                _r = _s.get(Setting, "lbp_rate")
-                lbp_rate = int(_r.value) if _r and _r.value else 0
-            finally:
-                _s.close()
-            if lbp_rate:
-                usd_equiv = inv_total / lbp_rate
-                usd_line = (
-                    f"<div style='text-align:center;font-size:8pt;margin-top:2px;'>"
-                    f"≈ $ {usd_equiv:,.2f} USD</div>"
-                )
-        except Exception:
-            pass
+    lbp_rate = int(data.get("lbp_rate", 0) or 0)
+    if is_lbp and inv_total and lbp_rate:
+        usd_equiv = inv_total / lbp_rate
+        usd_line = (
+            f"<div style='text-align:center;font-size:8pt;margin-top:3px;"
+            f"border-top:1px dashed #000;padding-top:3px;'>"
+            f"&#8776; $ {usd_equiv:,.2f} USD</div>"
+        )
 
     footer = e(data.get("receipt_footer", "Thank you!"))
 
@@ -288,13 +277,18 @@ def print_receipt(
 
 
 def _render_to_printer(html: str, printer: QPrinter) -> None:
+    from PySide6.QtGui import QPainter
     doc = QTextDocument()
-    doc.setDocumentMargin(0)          # kill QTextDocument's default 4pt internal indent
+    doc.setDocumentMargin(0)
     doc.setDefaultStyleSheet("body { margin:0; padding:0; }")
-    page_rect = printer.pageRect(QPrinter.Unit.Point)
-    doc.setTextWidth(page_rect.width())
+    # paperRect = physical paper (not printable area), so we fill the full 80mm
+    paper_w = printer.paperRect(QPrinter.Unit.Point).width()
+    doc.setTextWidth(paper_w)
     doc.setHtml(html)
-    doc.print_(printer)
+    painter = QPainter()
+    painter.begin(printer)
+    doc.drawContents(painter)   # render at (0,0) — no driver-offset applied
+    painter.end()
 
 
 def _try_set_thermal_printer(printer: QPrinter) -> None:

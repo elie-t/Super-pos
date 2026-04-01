@@ -676,6 +676,7 @@ class PosService:
                 "shop_address":   setting("shop_address", ""),
                 "shop_phone":     setting("shop_phone", ""),
                 "receipt_footer": setting("receipt_footer", "Thank you!"),
+                "lbp_rate":       int(setting("lbp_rate", "0") or "0"),
                 "lines": [
                     {
                         "description": li.item_name,
