@@ -167,15 +167,17 @@ def print_receipt(
         html = _build_html(data, payment_method, tendered)
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setPrinterName(qt_name)
-        printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
-        printer.setFullPage(True)   # bypass driver margins — render from paper edge
+        # Do NOT force 80mm — use whatever paper the driver has configured.
+        # Forcing a custom size that the driver doesn't know causes it to fall
+        # back to A4 and offset content by ~15 mm from the left.
+        printer.setFullPage(True)
         _render_to_printer(html, printer)
         return
 
     # ── 3. No printer configured — show Qt preview dialog ──────────────────
     html = _build_html(data, payment_method, tendered)
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-    printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
+    # Same — don't force page size; use printer's native paper
     printer.setFullPage(True)
     _try_set_thermal_printer(printer)
 
