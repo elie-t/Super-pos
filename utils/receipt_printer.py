@@ -179,7 +179,20 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
 
     # ── USD equivalent (only when invoice is in LBP) ──────────────────────
     usd_line = ""
-    lbp_rate = int(data.get("lbp_rate", 0) or 0)
+    lbp_rate = int(data.get("lbp_rate") or 0)
+    if not lbp_rate:
+        try:
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            _sess = get_session()
+            try:
+                _r = _sess.get(Setting, "lbp_rate")
+                lbp_rate = int(_r.value) if _r and _r.value else 0
+            finally:
+                _sess.close()
+        except Exception:
+            pass
     if is_lbp and inv_total and lbp_rate:
         usd_equiv = inv_total / lbp_rate
         usd_line = (
@@ -277,18 +290,13 @@ def print_receipt(
 
 
 def _render_to_printer(html: str, printer: QPrinter) -> None:
-    from PySide6.QtGui import QPainter
     doc = QTextDocument()
     doc.setDocumentMargin(0)
     doc.setDefaultStyleSheet("body { margin:0; padding:0; }")
-    # paperRect = physical paper (not printable area), so we fill the full 80mm
     paper_w = printer.paperRect(QPrinter.Unit.Point).width()
     doc.setTextWidth(paper_w)
     doc.setHtml(html)
-    painter = QPainter()
-    painter.begin(printer)
-    doc.drawContents(painter)   # render at (0,0) — no driver-offset applied
-    painter.end()
+    doc.print_(printer)
 
 
 def _try_set_thermal_printer(printer: QPrinter) -> None:
