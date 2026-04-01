@@ -743,56 +743,120 @@ class DailySalesDialog(QDialog):
             QMessageBox.critical(self, "Export Failed", str(exc))
 
     def _auto_print_shift_report(self):
-        """Auto-print the shift summary on the configured POS printer after closing."""
+        """Auto-print detailed shift report after closing."""
         try:
+            import html as _h
             report = self._report or {}
             s      = report.get("summary", {})
-            rows   = report.get("by_cashier_date", [])
+            cats   = report.get("by_category", [])
+            by_cd  = report.get("by_cashier_date", [])
+            by_pay = report.get("by_payment", [])
+            tbc    = s.get("totals_by_currency", {})
+            primary_cur = s.get("primary_currency", "LBP")
 
-            rows_html = ""
-            prev_date = None
-            for row in rows:
-                lbp = row["totals"].get("LBP", 0)
-                total_str = f"LL {lbp:,.0f}" if lbp else "—"
-                date_cell = row["date"] if row["date"] != prev_date else ""
-                prev_date = row["date"]
-                rows_html += (
+            def fe(v): return _h.escape(str(v))
+            def famt(amt, cur):
+                return f"{amt:,.0f} L" if cur == "LBP" else f"$ {amt:,.2f}"
+
+            TD  = "padding:1px 3px;font-size:7pt;"
+            TDR = TD + "text-align:right;"
+            TDB = TD + "font-weight:700;"
+            TDBR = TDB + "text-align:right;"
+
+            # ── Categories section ────────────────────────────────────────────
+            cat_rows = ""
+            for c in cats:
+                cat_rows += (
                     f"<tr>"
-                    f"<td style='padding:1px 2px;font-size:7pt;font-weight:{'700' if date_cell else '400'};'>{date_cell}</td>"
-                    f"<td style='padding:1px 2px;font-size:7pt;'>{row['cashier']}</td>"
-                    f"<td style='padding:1px 2px;font-size:7pt;text-align:right;font-weight:700;'>{total_str}</td>"
+                    f"<td style='{TD}'>{fe(c['category'])}</td>"
+                    f"<td style='{TDR}'>{famt(c['total'], c['currency'])}</td>"
+                    f"<td style='{TDR}'>{c['pct']}%</td>"
                     f"</tr>"
                 )
 
-            tbc   = s.get("totals_by_currency", {})
-            total_line = "  ·  ".join(
-                _fmt(amt, cur) for cur, amt in sorted(tbc.items()) if amt
+            # ── Payment methods section ───────────────────────────────────────
+            pay_rows = ""
+            for p in by_pay:
+                method = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
+                    p["method"], p["method"].capitalize()
+                )
+                pay_rows += (
+                    f"<tr>"
+                    f"<td style='{TD}'>{fe(method)}</td>"
+                    f"<td style='{TDBR}'>{famt(p['total'], p['currency'])}</td>"
+                    f"</tr>"
+                )
+
+            # ── Grand total line ──────────────────────────────────────────────
+            grand_total = "  |  ".join(
+                famt(amt, cur) for cur, amt in sorted(tbc.items()) if amt
             ) or "0"
 
+            # ── Cashier × date section ────────────────────────────────────────
+            cashier_rows = ""
+            prev_date = None
+            for row in by_cd:
+                lbp = row["totals"].get("LBP", 0)
+                usd = row["totals"].get("USD", 0)
+                amt_str = famt(lbp, "LBP") if lbp else famt(usd, "USD")
+                date_cell = row["date"] if row["date"] != prev_date else ""
+                prev_date = row["date"]
+                cashier_rows += (
+                    f"<tr>"
+                    f"<td style='{TDB if date_cell else TD}'>{fe(date_cell)}</td>"
+                    f"<td style='{TD}'>{fe(row['cashier'])}</td>"
+                    f"<td style='{TDBR}'>{amt_str}</td>"
+                    f"</tr>"
+                )
+
             from datetime import date as _date
+            today = _date.today().strftime("%Y-%m-%d")
+
             html = f"""<html dir='ltr'><head><meta charset='utf-8'></head>
-<body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:7pt;line-height:1.2;color:#000;'>
-<div style='text-align:center;font-size:11pt;font-weight:700;'>End of Shift</div>
-<div style='text-align:center;font-size:8pt;'>{_date.today().strftime('%Y-%m-%d')}</div>
-<hr style='border:1px dashed #000;margin:2px 0;'>
+<body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:7pt;line-height:1.3;color:#000;'>
+<div style='text-align:center;font-size:12pt;font-weight:700;'>End of Shift</div>
+<div style='text-align:center;font-size:8pt;'>{today} &nbsp;|&nbsp; {s.get('invoice_count',0)} invoices</div>
+
+<hr style='border:none;border-top:1px dashed #000;margin:3px 0;'>
+<div style='font-size:8pt;font-weight:700;margin-bottom:1px;'>CATEGORIES</div>
 <table style='width:100%;border-collapse:collapse;table-layout:fixed;'>
-  <colgroup><col width='34%'><col width='33%'><col width='33%'></colgroup>
-  <tr style='font-weight:700;font-size:7pt;'>
-    <td style='padding:1px 2px;'>Date</td>
-    <td style='padding:1px 2px;'>Cashier</td>
-    <td style='padding:1px 2px;text-align:right;'>Total</td>
+  <colgroup><col width='50%'><col width='30%'><col width='20%'></colgroup>
+  <tr style='font-weight:700;font-size:7pt;border-bottom:1px solid #000;'>
+    <td style='{TD}'>Category</td><td style='{TDR}'>Total</td><td style='{TDR}'>%</td>
   </tr>
-  {rows_html}
+  {cat_rows}
 </table>
-<hr style='border:1px solid #000;margin:2px 0;'>
-<div style='text-align:right;font-size:8pt;font-weight:700;'>TOTAL: {total_line}</div>
-<div style='text-align:right;font-size:7pt;'>Invoices: {s.get("invoice_count", 0)}</div>
-<div style='text-align:center;margin-top:4px;font-size:7pt;'>*** Shift Closed ***</div>
+
+<hr style='border:none;border-top:1px dashed #000;margin:3px 0;'>
+<div style='font-size:8pt;font-weight:700;margin-bottom:1px;'>PAYMENT METHODS</div>
+<table style='width:100%;border-collapse:collapse;table-layout:fixed;'>
+  <colgroup><col width='50%'><col width='50%'></colgroup>
+  {pay_rows}
+</table>
+
+<hr style='border:none;border-top:1px solid #000;margin:3px 0;'>
+<table style='width:100%;border-collapse:collapse;table-layout:fixed;'>
+  <tr>
+    <td style='{TDB}'>GRAND TOTAL</td>
+    <td style='{TDBR}'>{fe(grand_total)}</td>
+  </tr>
+</table>
+
+<hr style='border:none;border-top:1px dashed #000;margin:3px 0;'>
+<div style='font-size:8pt;font-weight:700;margin-bottom:1px;'>CASHIERS</div>
+<table style='width:100%;border-collapse:collapse;table-layout:fixed;'>
+  <colgroup><col width='30%'><col width='40%'><col width='30%'></colgroup>
+  <tr style='font-weight:700;font-size:7pt;border-bottom:1px solid #000;'>
+    <td style='{TD}'>Date</td><td style='{TD}'>Cashier</td><td style='{TDR}'>Amount</td>
+  </tr>
+  {cashier_rows}
+</table>
+
+<hr style='border:none;border-top:1px solid #000;margin:3px 0;'>
+<div style='text-align:center;font-size:7pt;margin-top:4px;'>*** Shift Closed ***</div>
 </body></html>"""
 
             from PySide6.QtPrintSupport import QPrinter
-            from PySide6.QtGui import QPageSize
-            from PySide6.QtCore import QSizeF
             from utils.receipt_printer import _render_to_printer, _get_qt_printer_name
 
             qt_name = _get_qt_printer_name()
