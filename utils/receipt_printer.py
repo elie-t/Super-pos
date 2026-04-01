@@ -203,7 +203,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     footer = e(data.get("receipt_footer", "Thank you!"))
 
     return f"""<html><head><meta charset='utf-8'></head>
-<body style='margin:0;padding:0;width:80mm;font-family:"Courier New",Courier,monospace;font-size:10pt;line-height:1.2;color:#000000;'>{header}
+<body style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:10pt;line-height:1.2;color:#000000;'>{header}
 <table style='width:100%;table-layout:fixed;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
   {sep()}{meta}
   {sep()}{items_html}
