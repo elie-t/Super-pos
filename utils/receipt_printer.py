@@ -155,7 +155,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         disc_tag = f" (-{disc:.0f}%)" if disc else ""
         detail   = f"  {qty_str} x {fmt(price)}{disc_tag}"
         items_html += (
-            f"<tr><td colspan='2' style='padding:1px 0 0 0;font-size:12pt;line-height:1.05;'>{e(desc)}</td></tr>"
+            f"<tr><td colspan='2' style='padding:1px 0 0 0;font-size:9pt;line-height:1.05;'>{e(desc)}</td></tr>"
             + row2(detail, fmt(total))
         )
 
@@ -196,7 +196,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     footer = e(data.get("receipt_footer", "Thank you!"))
 
     return f"""<html dir='ltr'><head><meta charset='utf-8'></head>
-<body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:10pt;line-height:1.2;color:#000000;'>{header}
+<body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:9pt;line-height:1.2;color:#000000;'>{header}
 <table style='width:100%;table-layout:fixed;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
   {sep()}{meta}
   {sep()}{items_html}
