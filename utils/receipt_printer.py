@@ -111,8 +111,8 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         return _h.escape(str(s))
 
     # Left col 62%, right col 38% — fixed layout prevents Qt squeezing labels
-    L = "width:58%;padding:1px 2px 1px 0;word-break:break-word;"
-    R = "width:42%;text-align:right;padding:1px 0 1px 2px;word-break:break-word;"
+    L = "width:56%;padding:0 1px 0 0;white-space:nowrap;overflow:hidden;vertical-align:top;"
+    R = "width:44%;text-align:right;padding:0 0 0 1px;white-space:nowrap;overflow:hidden;vertical-align:top;"
 
     def row2(left, right, bold=False) -> str:
         b0, b1 = ("<b>", "</b>") if bold else ("", "")
@@ -128,11 +128,11 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         f"<div style='text-align:center;font-size:15pt;font-weight:700;'>{e(data.get('shop_name',''))}</div>"
     )
     if data.get("shop_address"):
-        header += f"<div style='text-align:center;'>{e(data['shop_address'])}</div>"
+        header += f"<div style='text-align:center;font-size:11pt;line-height:1.0;margin:0;'>{e(data['shop_address'])}</div>"
     if data.get("shop_phone"):
-        header += f"<div style='text-align:center;'>Tel: {e(data['shop_phone'])}</div>"
+        header += f"<div style='text-align:center;font-size:11pt;line-height:1.0;margin:0;'>Tel: {e(data['shop_phone'])}</div>"
     if data.get("warehouse"):
-        header += f"<div style='text-align:center;'>{e(data['warehouse'])}</div>"
+        header += f"<div style='text-align:center;font-size:11pt;line-height:1.0;margin:0;'>{e(data['warehouse'])}</div>"
 
     # ── Meta rows ─────────────────────────────────────────────────────────────
     meta = (
@@ -154,10 +154,10 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         qty_str  = f"{qty:g}"
         disc_tag = f" (-{disc:.0f}%)" if disc else ""
         detail   = f"  {qty_str} x {fmt(price)}{disc_tag}"
-        items_html += (
-            f"<tr><td colspan='2' style='padding:1px 0;'>{e(desc)}</td></tr>"
-            + row2(detail, fmt(total))
-        )
+    items_html += (
+        f"<tr><td colspan='2' style='padding:1px 0 0 0;font-size:12pt;line-height:1.05;'>{e(desc)}</td></tr>"
+        + row2(detail, fmt(total))
+    )
 
     # ── Totals ────────────────────────────────────────────────────────────────
     method_label = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
@@ -195,8 +195,8 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     if is_lbp and inv_total and lbp_rate:
         usd_equiv = inv_total / lbp_rate
         usd_line = (
-            f"<div style='text-align:center;font-size:8pt;margin-top:3px;"
-            f"border-top:1px dashed #000;padding-top:3px;'>"
+    f"<div style='text-align:center;font-size:10pt;margin-top:4px;"
+    f"border-top:1px dashed #000;padding-top:4px;line-height:1.0;'>"
             f"&#8776; $ {usd_equiv:,.2f} USD</div>"
         )
 
@@ -211,7 +211,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
   {sep()}
 </table>
 {usd_line}
-<div style='text-align:center;margin-top:4px;'>{footer}</div>
+<div style='text-align:center;margin-top:6px;font-size:11pt;line-height:1.0;'>{footer}</div>
 </body></html>"""
 
 
@@ -267,18 +267,20 @@ def print_receipt(
     qt_name = _get_qt_printer_name()
     if qt_name:
         html = _build_html(data, payment_method, tendered)
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
         printer.setPrinterName(qt_name)
         printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
-        printer.setFullPage(True)  # bypass driver margins; 80mm is the full page
+        printer.setFullPage(True)
+        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
         _render_to_printer(html, printer)
         return
 
     # ── 3. No printer configured — show Qt preview dialog ──────────────────
     html = _build_html(data, payment_method, tendered)
-    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+    printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
     printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
     printer.setFullPage(True)
+    printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
     _try_set_thermal_printer(printer)
 
     dlg = QPrintPreviewDialog(printer, parent)
@@ -290,11 +292,10 @@ def print_receipt(
 def _render_to_printer(html: str, printer: QPrinter) -> None:
     doc = QTextDocument()
     doc.setDocumentMargin(0)
-    doc.setDefaultStyleSheet("body { margin:0; padding:0; }")
+    doc.setDefaultStyleSheet("html, body, table { margin:0; padding:0; border:0; }")
     page_rect = printer.pageRect(QPrinter.Unit.Point)
-    doc.setPageSize(page_rect.size())
-    doc.setTextWidth(page_rect.width())
     doc.setHtml(html)
+    doc.setTextWidth(page_rect.width())
     doc.print_(printer)
 
 
