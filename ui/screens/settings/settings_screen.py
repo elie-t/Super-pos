@@ -337,6 +337,44 @@ class SettingsScreen(QWidget):
 
         root.addWidget(sync_box)
 
+        # ── General / Currency panel ───────────────────────────────────────────
+        general_box = QGroupBox("General Settings")
+        general_box.setStyleSheet(
+            "QGroupBox { font-weight:700; font-size:13px; padding-top:12px; }"
+        )
+        gen_lay = QVBoxLayout(general_box)
+        gen_lay.setSpacing(10)
+
+        gen_form = QFormLayout()
+        gen_form.setSpacing(8)
+        gen_form.setLabelAlignment(Qt.AlignRight)
+
+        self._lbp_rate = QLineEdit()
+        self._lbp_rate.setPlaceholderText("e.g. 89500")
+        self._lbp_rate.setFixedWidth(140)
+        gen_form.addRow("LBP Rate (LBP per 1 USD):", self._lbp_rate)
+        gen_lay.addLayout(gen_form)
+
+        save_gen_btn = QPushButton("💾  Save General Settings")
+        save_gen_btn.setFixedHeight(32)
+        save_gen_btn.setStyleSheet(
+            "QPushButton{background:#1a3a5c;color:#fff;border:none;"
+            "border-radius:4px;font-size:12px;font-weight:700;padding:0 16px;}"
+            "QPushButton:hover{background:#1a6cb5;}"
+        )
+        save_gen_btn.clicked.connect(self._save_general_settings)
+        gen_btn_row = QHBoxLayout()
+        gen_btn_row.addWidget(save_gen_btn)
+        gen_btn_row.addStretch()
+        gen_lay.addLayout(gen_btn_row)
+
+        self._gen_status_lbl = QLabel("")
+        self._gen_status_lbl.setStyleSheet("font-size:11px; color:#2e7d32;")
+        gen_lay.addWidget(self._gen_status_lbl)
+
+        root.addWidget(general_box)
+        self._load_general_settings()
+
         # ── Receipt Printer panel ──────────────────────────────────────────────
         printer_box = QGroupBox("Receipt Printer (ESC/POS)")
         printer_box.setStyleSheet(
@@ -519,6 +557,42 @@ class SettingsScreen(QWidget):
         back_btn.setFixedWidth(100)
         back_btn.clicked.connect(self.back.emit)
         root.addWidget(back_btn, alignment=Qt.AlignLeft)
+
+    def _load_general_settings(self):
+        try:
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            session = get_session()
+            try:
+                s = session.get(Setting, "lbp_rate")
+                self._lbp_rate.setText(s.value if s else "")
+            finally:
+                session.close()
+        except Exception:
+            pass
+
+    def _save_general_settings(self):
+        try:
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            session = get_session()
+            try:
+                val = self._lbp_rate.text().strip()
+                s = session.get(Setting, "lbp_rate")
+                if s:
+                    s.value = val
+                else:
+                    session.add(Setting(key="lbp_rate", value=val))
+                session.commit()
+                self._gen_status_lbl.setText("✔  Saved.")
+                self._gen_status_lbl.setStyleSheet("font-size:11px; color:#2e7d32;")
+            finally:
+                session.close()
+        except Exception as exc:
+            self._gen_status_lbl.setText(f"Error: {exc}")
+            self._gen_status_lbl.setStyleSheet("font-size:11px; color:#c62828;")
 
     def _do_force_sync(self):
         self._sync_btn.setEnabled(False)
