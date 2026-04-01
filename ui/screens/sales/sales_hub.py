@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, Signal
 
 SALES_TOOLS = [
     ("Sales\nInvoice",         "sales_invoice"),
+    ("Shift\nInvoices",        "shift_invoices"),
     ("Customers",              "customers"),
     ("Customer\nStatement",    "customer_statement"),
     ("Payment\nReceipt",       "payment_receipt"),

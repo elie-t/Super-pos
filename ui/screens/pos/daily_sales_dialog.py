@@ -401,13 +401,20 @@ class DailySalesDialog(QDialog):
         self._cashier_table = self._make_table(["Cashier", "Invoices", "Total (ل.ل)", "Total (USD)"])
         self._cashier_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
 
+        self._cashier_date_table = self._make_table(["Date", "Cashier", "Invoices", "Total (ل.ل)"])
+        self._cashier_date_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        for col, w_ in ((0, 100), (2, 70), (3, 140)):
+            self._cashier_date_table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Fixed)
+            self._cashier_date_table.setColumnWidth(col, w_)
+
         self._pay_table = self._make_table(["Payment Method", "Amount", "Currency"])
         self._pay_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
 
         for tab_widget, label in [
-            (self._cat_table,     "📦  By Category"),
-            (self._cashier_table, "👤  By Cashier"),
-            (self._pay_table,     "💳  By Payment"),
+            (self._cat_table,          "📦  By Category"),
+            (self._cashier_table,      "👤  By Cashier"),
+            (self._cashier_date_table, "📅  By Date/Cashier"),
+            (self._pay_table,          "💳  By Payment"),
         ]:
             w = QWidget()
             wl = QVBoxLayout(w)
@@ -439,6 +446,19 @@ class DailySalesDialog(QDialog):
         export_btn.setCursor(Qt.PointingHandCursor)
         export_btn.clicked.connect(self._export_json)
         bl2.addWidget(export_btn)
+
+        bl2.addSpacing(8)
+
+        print_cashier_btn = QPushButton("🖨  Cashier Report")
+        print_cashier_btn.setFixedHeight(34)
+        print_cashier_btn.setStyleSheet(
+            "QPushButton{background:#00695c;color:#fff;border:none;"
+            "border-radius:6px;font-size:12px;font-weight:600;padding:0 14px;}"
+            "QPushButton:hover{background:#004d40;}"
+        )
+        print_cashier_btn.setCursor(Qt.PointingHandCursor)
+        print_cashier_btn.clicked.connect(self._print_cashier_report)
+        bl2.addWidget(print_cashier_btn)
 
         bl2.addSpacing(8)
 
@@ -609,6 +629,24 @@ class DailySalesDialog(QDialog):
             t2.setItem(i, 2, self._cell(f"ل.ل {lbp_amt:,.0f}" if lbp_amt else "—", Qt.AlignRight | Qt.AlignVCenter))
             t2.setItem(i, 3, self._cell(f"${usd_amt:,.2f}" if usd_amt else "—", Qt.AlignRight | Qt.AlignVCenter))
 
+        # By cashier × date
+        cd_rows = r.get("by_cashier_date", [])
+        t_cd = self._cashier_date_table
+        t_cd.setRowCount(len(cd_rows))
+        prev_date = None
+        for i, row in enumerate(cd_rows):
+            date_txt = row["date"] if row["date"] != prev_date else ""
+            prev_date = row["date"]
+            lbp_amt = row["totals"].get("LBP", 0)
+            total_txt = f"ل.ل {lbp_amt:,.0f}" if lbp_amt else "—"
+            t_cd.setItem(i, 0, self._cell(date_txt, Qt.AlignCenter))
+            t_cd.setItem(i, 1, self._cell(row["cashier"]))
+            t_cd.setItem(i, 2, self._cell(str(row["invoices"]), Qt.AlignCenter))
+            amt_cell = self._cell(total_txt, Qt.AlignRight | Qt.AlignVCenter)
+            if lbp_amt:
+                amt_cell.setFont(QFont("", -1, QFont.Bold))
+            t_cd.setItem(i, 3, amt_cell)
+
         # By payment
         pays = r.get("by_payment", [])
         t3 = self._pay_table
@@ -619,6 +657,73 @@ class DailySalesDialog(QDialog):
             t3.setItem(i, 2, self._cell(row.get("currency", ""), Qt.AlignCenter))
 
     # ── Actions ───────────────────────────────────────────────────────────────
+
+    def _print_cashier_report(self):
+        """Print cashier-by-date summary on POS printer."""
+        rows = self._report.get("by_cashier_date", [])
+        if not rows:
+            QMessageBox.information(self, "No Data", "No sales data to print.")
+            return
+
+        from PySide6.QtPrintSupport import QPrinter, QPrintPreviewDialog
+        from PySide6.QtGui import QTextDocument, QPageSize, QPageLayout
+        from PySide6.QtCore import QSizeF, QMarginsF
+
+        # Build rows HTML
+        rows_html = ""
+        prev_date = None
+        for row in rows:
+            lbp = row["totals"].get("LBP", 0)
+            total_str = f"&#x644;.&#x644; {lbp:,.0f}" if lbp else "—"
+            date_cell = row["date"] if row["date"] != prev_date else ""
+            prev_date = row["date"]
+            rows_html += (
+                f"<tr>"
+                f"<td style='padding:3px 4px;border-bottom:1px solid #ddd;font-weight:{'700' if date_cell else '400'};'>{date_cell}</td>"
+                f"<td style='padding:3px 4px;border-bottom:1px solid #ddd;'>{row['cashier']}</td>"
+                f"<td style='padding:3px 4px;border-bottom:1px solid #ddd;text-align:right;font-weight:700;'>{total_str}</td>"
+                f"</tr>"
+            )
+
+        mode = "Daily Sales" if not self._is_old_mode() else "Old Sales"
+        from_dt = self._from_dt.date().toString("dd/MM/yyyy")
+        to_dt   = self._to_dt.date().toString("dd/MM/yyyy")
+        period  = f"{from_dt} → {to_dt}" if self._is_old_mode() else from_dt
+
+        html = f"""
+        <html><body style='font-family:Arial,sans-serif;font-size:11px;margin:0;padding:4px;'>
+        <div style='text-align:center;font-size:13px;font-weight:700;margin-bottom:2px;'>
+            Cashier Sales Report
+        </div>
+        <div style='text-align:center;font-size:10px;color:#555;margin-bottom:8px;'>
+            {mode} · {period}
+        </div>
+        <table style='width:100%;border-collapse:collapse;'>
+          <tr style='background:#1a3a5c;color:#fff;'>
+            <th style='padding:4px;text-align:left;'>Date</th>
+            <th style='padding:4px;text-align:left;'>Cashier</th>
+            <th style='padding:4px;text-align:right;'>Total</th>
+          </tr>
+          {rows_html}
+        </table>
+        </body></html>"""
+
+        printer = QPrinter(QPrinter.HighResolution)
+        # Use 80 mm thermal width
+        page_size = QPageSize(QSizeF(80, 200), QPageSize.Millimeter, "80mm")
+        printer.setPageSize(page_size)
+        printer.setPageMargins(QMarginsF(3, 3, 3, 3), QPageLayout.Millimeter)
+
+        preview = QPrintPreviewDialog(printer, self)
+        preview.setWindowTitle("Print — Cashier Report")
+
+        def paint(pr):
+            doc = QTextDocument()
+            doc.setHtml(html)
+            doc.print_(pr)
+
+        preview.paintRequested.connect(paint)
+        preview.exec()
 
     def _export_json(self):
         if not self._report or not self._report.get("summary", {}).get("invoice_count"):

@@ -50,8 +50,9 @@ class DailySalesService:
                 },
                 "by_payment":  [],
                 "by_category": [],
-                "by_cashier":  [],
-                "invoices":    [],
+                "by_cashier":       [],
+                "by_cashier_date":  [],
+                "invoices":         [],
             }
             if not invoices:
                 return empty
@@ -164,6 +165,32 @@ class DailySalesService:
                 reverse=True,
             )
 
+            # ── By cashier × date (date + cashier → totals) ────────────────────
+            cashier_date_agg: dict[tuple, dict] = {}
+            for inv in invoices:
+                name = op_map.get(inv.operator_id, "Unknown")
+                cur  = inv.currency or "LBP"
+                key  = (inv.invoice_date or "", name)
+                if key not in cashier_date_agg:
+                    cashier_date_agg[key] = {"count": 0, "totals": {}}
+                cashier_date_agg[key]["count"] += 1
+                cashier_date_agg[key]["totals"][cur] = (
+                    cashier_date_agg[key]["totals"].get(cur, 0.0) + inv.total
+                )
+
+            by_cashier_date = sorted(
+                [
+                    {
+                        "date":     k[0],
+                        "cashier":  k[1],
+                        "invoices": v["count"],
+                        "totals":   {c: round(t, 0) for c, t in v["totals"].items()},
+                    }
+                    for k, v in cashier_date_agg.items()
+                ],
+                key=lambda x: (x["date"], x["cashier"]),
+            )
+
             # ── Raw invoice list (for export) ──────────────────────────────────
             inv_items_map: dict[str, list] = {}
             for li in line_items:
@@ -212,6 +239,7 @@ class DailySalesService:
                 "by_category":      by_category,
                 "highlighted_cats": highlighted,
                 "by_cashier":       by_cashier,
+                "by_cashier_date":  by_cashier_date,
                 "invoices":         invoice_list,
             }
         finally:

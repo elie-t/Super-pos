@@ -585,9 +585,9 @@ class SalesListDialog(QDialog):
         ll.setSpacing(0)
 
         self._table = QTableWidget()
-        self._table.setColumnCount(6)
+        self._table.setColumnCount(5)
         self._table.setHorizontalHeaderLabels([
-            "Invoice #", "Date", "Customer", "Total (ل.ل)", "Paid (ل.ل)", "Status",
+            "Invoice #", "Date", "Customer", "Cashier", "Total (ل.ل)",
         ])
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -600,7 +600,7 @@ class SalesListDialog(QDialog):
 
         th = self._table.horizontalHeader()
         th.setSectionResizeMode(2, QHeaderView.Stretch)
-        for col, w in ((0, 110), (1, 90), (3, 120), (4, 110), (5, 80)):
+        for col, w in ((0, 110), (1, 90), (3, 140), (4, 130)):
             th.setSectionResizeMode(col, QHeaderView.Fixed)
             self._table.setColumnWidth(col, w)
         th.setStyleSheet(
@@ -765,7 +765,6 @@ class SalesListDialog(QDialog):
         grand = 0.0
         for i, r in enumerate(rows):
             grand += r["total"]
-            status_color = "#2e7d32" if r["payment_status"] == "paid" else "#e65100"
 
             def cell(txt, align=Qt.AlignCenter, bold=False, color=None, _r=r):
                 it = QTableWidgetItem(str(txt))
@@ -780,10 +779,8 @@ class SalesListDialog(QDialog):
             self._table.setItem(i, 0, cell(r["invoice_number"]))
             self._table.setItem(i, 1, cell(r["date"]))
             self._table.setItem(i, 2, cell(r["customer"], Qt.AlignLeft | Qt.AlignVCenter))
-            self._table.setItem(i, 3, cell(f"{r['total']:,.0f}", bold=True))
-            self._table.setItem(i, 4, cell(f"{r['amount_paid']:,.0f}"))
-            self._table.setItem(i, 5, cell(r["payment_status"].upper(),
-                                           color=status_color, bold=True))
+            self._table.setItem(i, 3, cell(r.get("cashier", "—"), Qt.AlignLeft | Qt.AlignVCenter))
+            self._table.setItem(i, 4, cell(f"{r['total']:,.0f}", bold=True))
 
         self._total_lbl.setText(f"{len(rows)} invoices  ·  Total ل.ل  {grand:,.0f}")
         self._detail_table.setRowCount(0)
@@ -1171,8 +1168,27 @@ class POSScreen(QWidget):
     # ── Right panel ────────────────────────────────────────────────────────────
 
     def _make_right_panel(self):
+        from PySide6.QtWidgets import QScrollArea
+        outer = QWidget()
+        outer.setStyleSheet("background:#f0f4f8;")
+        outer_lay = QVBoxLayout(outer)
+        outer_lay.setContentsMargins(0, 0, 0, 0)
+        outer_lay.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            "QScrollArea{border:none;background:#f0f4f8;}"
+            "QScrollBar:vertical{width:6px;background:#e0e8f0;border-radius:3px;}"
+            "QScrollBar::handle:vertical{background:#9ab;border-radius:3px;}"
+        )
+        outer_lay.addWidget(scroll)
+
         w = QWidget()
         w.setStyleSheet("background:#f0f4f8;")
+        scroll.setWidget(w)
+
         lay = QVBoxLayout(w)
         lay.setContentsMargins(10, 10, 10, 10)
         lay.setSpacing(8)
@@ -1327,7 +1343,7 @@ class POSScreen(QWidget):
         hints.setAlignment(Qt.AlignCenter)
         lay.addWidget(hints)
 
-        return w
+        return outer
 
     # ── Status bar ─────────────────────────────────────────────────────────────
 

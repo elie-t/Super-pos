@@ -447,9 +447,11 @@ class PosService:
         try:
             from database.models.invoices import SalesInvoice, SalesInvoiceItem
             from database.models.parties import Customer
+            from database.models.users import User
             q = (
-                session.query(SalesInvoice, Customer.name)
+                session.query(SalesInvoice, Customer.name, User.full_name)
                 .outerjoin(Customer, SalesInvoice.customer_id == Customer.id)
+                .outerjoin(User, SalesInvoice.operator_id == User.id)
                 .filter(
                     SalesInvoice.source == "pos",
                     SalesInvoice.is_archived == False,
@@ -471,6 +473,7 @@ class PosService:
                     "id":             inv.id,
                     "invoice_number": inv.invoice_number,
                     "customer":       cust_name or "Walk-In",
+                    "cashier":        cashier_name or "—",
                     "date":           inv.invoice_date or "",
                     "total":          inv.total,
                     "currency":       inv.currency,
@@ -479,7 +482,7 @@ class PosService:
                     "warehouse_id":   inv.warehouse_id or "",
                     "lines":          len(inv.items),
                 }
-                for inv, cust_name in rows
+                for inv, cust_name, cashier_name in rows
             ]
         finally:
             session.close()
@@ -492,9 +495,11 @@ class PosService:
         try:
             from database.models.invoices import SalesInvoice
             from database.models.parties import Customer
+            from database.models.users import User
             q = (
-                session.query(SalesInvoice, Customer.name)
+                session.query(SalesInvoice, Customer.name, User.full_name)
                 .outerjoin(Customer, SalesInvoice.customer_id == Customer.id)
+                .outerjoin(User, SalesInvoice.operator_id == User.id)
                 .filter(
                     SalesInvoice.source == "pos",
                     SalesInvoice.is_archived == True,
@@ -511,6 +516,7 @@ class PosService:
                     "id":             inv.id,
                     "invoice_number": inv.invoice_number,
                     "customer":       cust_name or "Walk-In",
+                    "cashier":        cashier_name or "—",
                     "date":           inv.invoice_date or "",
                     "total":          inv.total,
                     "currency":       inv.currency,
@@ -518,7 +524,7 @@ class PosService:
                     "amount_paid":    inv.amount_paid,
                     "lines":          len(inv.items),
                 }
-                for inv, cust_name in rows
+                for inv, cust_name, cashier_name in rows
             ]
         finally:
             session.close()

@@ -235,7 +235,24 @@ class SettingsScreen(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            "QScrollArea{border:none;background:#fff;}"
+            "QScrollBar:vertical{width:8px;background:#f0f4f8;border-radius:4px;}"
+            "QScrollBar::handle:vertical{background:#bcd;border-radius:4px;}"
+        )
+        outer.addWidget(scroll)
+
+        inner = QWidget()
+        scroll.setWidget(inner)
+
+        root = QVBoxLayout(inner)
         root.setContentsMargins(40, 30, 40, 30)
         root.setSpacing(24)
 
@@ -345,8 +362,8 @@ class SettingsScreen(QWidget):
         pb_lay.addLayout(type_row)
 
         # Detail fields
-        form = QFormLayout()
-        form.setSpacing(6)
+        self._printer_form = QFormLayout()
+        self._printer_form.setSpacing(6)
 
         self._pe_host   = QLineEdit(); self._pe_host.setPlaceholderText("192.168.1.100")
         self._pe_port   = QLineEdit("9100"); self._pe_port.setFixedWidth(80)
@@ -357,30 +374,25 @@ class SettingsScreen(QWidget):
         self._pe_win    = QLineEdit(); self._pe_win.setPlaceholderText("printer name from Windows")
         self._pe_file   = QLineEdit(); self._pe_file.setPlaceholderText("/dev/usb/lp0")
 
-        form.addRow("IP Address:", self._pe_host)
-        form.addRow("Port:", self._pe_port)
-        form.addRow("USB Vendor ID:", self._pe_vid)
-        form.addRow("USB Product ID:", self._pe_pid)
-        form.addRow("Serial device:", self._pe_serial)
-        form.addRow("Baud rate:", self._pe_baud)
-        form.addRow("Printer name:", self._pe_win)
-        form.addRow("File / pipe:", self._pe_file)
-        pb_lay.addLayout(form)
+        self._printer_form.addRow("IP Address:", self._pe_host)     # row 0
+        self._printer_form.addRow("Port:", self._pe_port)           # row 1
+        self._printer_form.addRow("USB Vendor ID:", self._pe_vid)   # row 2
+        self._printer_form.addRow("USB Product ID:", self._pe_pid)  # row 3
+        self._printer_form.addRow("Serial device:", self._pe_serial)# row 4
+        self._printer_form.addRow("Baud rate:", self._pe_baud)      # row 5
+        self._printer_form.addRow("Printer name:", self._pe_win)    # row 6
+        self._printer_form.addRow("File / pipe:", self._pe_file)    # row 7
+        pb_lay.addLayout(self._printer_form)
 
-        self._printer_detail_rows = [
-            ("network",    [self._pe_host, self._pe_port]),
-            ("usb_manual", [self._pe_vid,  self._pe_pid]),
-            ("serial",     [self._pe_serial, self._pe_baud]),
-            ("win_raw",    [self._pe_win]),
-            ("file",       [self._pe_file]),
-        ]
-        # Map each widget to its form row widget (label + field)
-        self._all_printer_fields = [
-            self._pe_host, self._pe_port,
-            self._pe_vid,  self._pe_pid,
-            self._pe_serial, self._pe_baud,
-            self._pe_win,  self._pe_file,
-        ]
+        # (type → list of row indices that should be visible for that type)
+        self._printer_type_rows = {
+            "network":    {0, 1},
+            "usb_auto":   set(),
+            "usb_manual": {2, 3},
+            "serial":     {4, 5},
+            "win_raw":    {6},
+            "file":       {7},
+        }
 
         self._printer_type.currentIndexChanged.connect(self._refresh_printer_fields)
         self._refresh_printer_fields()
@@ -519,12 +531,9 @@ class SettingsScreen(QWidget):
 
     def _refresh_printer_fields(self):
         ptype = self._printer_type.currentData() or ""
-        visible_fields = set()
-        for typ, fields in self._printer_detail_rows:
-            if typ == ptype:
-                visible_fields.update(id(f) for f in fields)
-        for f in self._all_printer_fields:
-            f.setVisible(id(f) in visible_fields)
+        visible_rows = self._printer_type_rows.get(ptype, set())
+        for row_idx in range(self._printer_form.rowCount()):
+            self._printer_form.setRowVisible(row_idx, row_idx in visible_rows)
 
     def _load_printer_config(self):
         try:

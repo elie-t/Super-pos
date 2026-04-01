@@ -125,6 +125,13 @@ def init_db() -> None:
             pass
         try:
             conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE sales_invoice_items ADD COLUMN barcode TEXT"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(__import__("sqlalchemy").text(
                 """CREATE TABLE IF NOT EXISTS applied_central_movements (
                     movement_id TEXT PRIMARY KEY,
                     applied_at  TEXT NOT NULL

@@ -314,6 +314,17 @@ class SalesInvoiceScreen(QWidget):
 
         lay.addStretch()
 
+        # Cashier
+        user = AuthService.current_user()
+        cashier_name = user.full_name if user else "—"
+        lay.addWidget(QLabel("Cashier:"))
+        cashier_lbl = QLabel(cashier_name)
+        cashier_lbl.setStyleSheet("font-weight:700;color:#1a3a5c;font-size:12px;min-width:100px;")
+        lay.addWidget(cashier_lbl)
+        self._cashier_name = cashier_name
+
+        lay.addSpacing(8)
+
         # Currency
         lay.addWidget(QLabel("Currency:"))
         self._cur_combo = QComboBox()
@@ -562,6 +573,7 @@ class SalesInvoiceScreen(QWidget):
 
     def _make_footer(self):
         frame = QFrame()
+        frame.setMinimumHeight(100)
         frame.setStyleSheet("QFrame{background:#f0f4f8;border-top:2px solid #1a3a5c;} QLabel{color:#1a1a2e;}")
         outer = QHBoxLayout(frame)
         outer.setContentsMargins(12, 8, 12, 8)
@@ -642,9 +654,9 @@ class SalesInvoiceScreen(QWidget):
             lbl.setStyleSheet("color:#555;font-size:12px;font-weight:500;")
             lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             val = QLabel("0.00")
-            sz  = "16px" if big else "13px"
+            sz  = "18px" if big else "13px"
             wt  = "800"  if big else "700"
-            val.setStyleSheet(f"font-weight:{wt};font-size:{sz};color:{color};min-width:110px;")
+            val.setStyleSheet(f"font-weight:{wt};font-size:{sz};color:{color};min-width:130px;")
             val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             tlay.addWidget(lbl, row_idx, 0)
             tlay.addWidget(val, row_idx, 1)
@@ -1103,7 +1115,7 @@ class SalesInvoiceScreen(QWidget):
             "customer_name": self._customer["name"] if self._customer else "Walk-In",
             "warehouse_name": wh_name,
             "warehouse_num": "",
-            "cashier": "",
+            "cashier": getattr(self, "_cashier_name", "—"),
             "invoice_date": self._date_edit.date().toString("yyyy-MM-dd"),
             "currency": cur,
             "total": sum(ln["total"] for ln in self._lines),

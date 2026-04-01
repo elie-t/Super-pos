@@ -9,6 +9,7 @@ from ui.screens.sales.sales_hub import SalesHub
 from ui.screens.sales.sales_invoice_screen import SalesInvoiceScreen
 from ui.screens.sales.sales_invoice_list import SalesInvoiceListScreen
 from ui.screens.sales.customer_screen import CustomerScreen
+from ui.screens.sales.shift_invoices_screen import ShiftInvoicesScreen
 
 
 class SalesModule(QWidget):
@@ -29,10 +30,23 @@ class SalesModule(QWidget):
     def _open_tool(self, key: str):
         if key == "sales_invoice":
             self._choose_invoice_mode()
+        elif key == "shift_invoices":
+            self._open_shift_invoices()
         elif key == "customers":
             self._open_customers()
         else:
             self._show_placeholder(key)
+
+    def _open_shift_invoices(self):
+        key = "shift_invoices"
+        if key not in self._screens:
+            screen = ShiftInvoicesScreen()
+            screen.back.connect(self._go_hub)
+            self._screens[key] = screen
+            self._stack.addWidget(screen)
+        screen = self._screens[key]
+        screen.refresh()
+        self._stack.setCurrentWidget(screen)
 
     def _open_customers(self):
         key = "customers"
