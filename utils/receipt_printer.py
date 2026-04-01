@@ -164,17 +164,40 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     method_label = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
         payment_method, payment_method.capitalize()
     )
-    change = max(0.0, tendered - data.get("total", 0.0)) if payment_method == "cash" else 0.0
+    inv_total  = data.get("total", 0.0)
+    change = max(0.0, tendered - inv_total) if payment_method == "cash" else 0.0
 
     totals = row2("Subtotal:", fmt(data.get("subtotal", 0.0)))
     if data.get("discount", 0.0):
         totals += row2("Discount:", f"-{fmt(data['discount'])}")
     if data.get("vat", 0.0):
         totals += row2("VAT (11%):", fmt(data.get("vat", 0.0)))
-    totals += row2("TOTAL:", fmt(data.get("total", 0.0)), bold=True)
+    totals += row2("TOTAL:", fmt(inv_total), bold=True)
     totals += row2(f"Paid ({method_label}):", fmt(data.get("amount_paid", 0.0)))
     if change > 0:
         totals += row2("Change:", fmt(change), bold=True)
+
+    # ── USD equivalent (only when invoice is in LBP) ──────────────────────
+    usd_line = ""
+    if is_lbp and inv_total:
+        try:
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            _s = get_session()
+            try:
+                _r = _s.get(Setting, "lbp_rate")
+                lbp_rate = int(_r.value) if _r and _r.value else 0
+            finally:
+                _s.close()
+            if lbp_rate:
+                usd_equiv = inv_total / lbp_rate
+                usd_line = (
+                    f"<div style='text-align:center;font-size:8pt;margin-top:2px;'>"
+                    f"≈ $ {usd_equiv:,.2f} USD</div>"
+                )
+        except Exception:
+            pass
 
     footer = e(data.get("receipt_footer", "Thank you!"))
 
@@ -187,6 +210,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
   {sep()}{totals}
   {sep()}
 </table>
+{usd_line}
 <div style='text-align:center;margin-top:4px;'>{footer}</div>
 </body></html>"""
 
@@ -245,17 +269,15 @@ def print_receipt(
         html = _build_html(data, payment_method, tendered)
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setPrinterName(qt_name)
-        # Do NOT force 80mm — use whatever paper the driver has configured.
-        # Forcing a custom size that the driver doesn't know causes it to fall
-        # back to A4 and offset content by ~15 mm from the left.
-        printer.setFullPage(True)
+        printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
+        printer.setFullPage(True)  # bypass driver margins; 80mm is the full page
         _render_to_printer(html, printer)
         return
 
     # ── 3. No printer configured — show Qt preview dialog ──────────────────
     html = _build_html(data, payment_method, tendered)
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-    # Same — don't force page size; use printer's native paper
+    printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
     printer.setFullPage(True)
     _try_set_thermal_printer(printer)
 
