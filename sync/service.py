@@ -1307,36 +1307,36 @@ def pull_sales_invoices() -> tuple[int, str]:
                     session.add(inv)
                     session.flush()
 
-                # Add / re-add line items and create audit trail movements
-                # (skip for pos_shift — movements come via pull_stock_movements)
-                if not is_shift:
-                    for li in lines_by_inv.get(ri["id"], []):
-                        item_id = li.get("item_id") or ""
-                        qty     = float(li["quantity"])
-                        price   = float(li.get("unit_price") or 0)
-                        session.add(SalesInvoiceItem(
-                            id=li["id"] if not is_update else _new_uuid(),
-                            invoice_id=ri["id"],
+                # Add / re-add line items for all invoices.
+                # For pos_shift: add items but skip stock movements
+                # (movements already arrive via pull_stock_movements).
+                for li in lines_by_inv.get(ri["id"], []):
+                    item_id = li.get("item_id") or ""
+                    qty     = float(li["quantity"])
+                    price   = float(li.get("unit_price") or 0)
+                    session.add(SalesInvoiceItem(
+                        id=li["id"] if not is_update else _new_uuid(),
+                        invoice_id=ri["id"],
+                        item_id=item_id,
+                        item_name=li["item_name"],
+                        barcode=li.get("barcode") or "",
+                        quantity=qty,
+                        unit_price=price,
+                        currency=li.get("currency", "USD"),
+                        line_total=float(li.get("line_total") or 0),
+                    ))
+                    # Audit trail movement — only for non-shift invoices
+                    if not is_shift and item_id and wh_id:
+                        session.add(StockMovement(
+                            id=_new_uuid(),
                             item_id=item_id,
-                            item_name=li["item_name"],
-                            barcode=li.get("barcode") or "",
-                            quantity=qty,
-                            unit_price=price,
-                            currency=li.get("currency", "USD"),
-                            line_total=float(li.get("line_total") or 0),
+                            warehouse_id=wh_id,
+                            movement_type="sale",
+                            quantity=-qty,
+                            unit_cost=price,
+                            reference_type="sales_invoice",
+                            reference_id=ri["id"],
                         ))
-                        # Audit trail movement — sale removes stock
-                        if item_id and wh_id:
-                            session.add(StockMovement(
-                                id=_new_uuid(),
-                                item_id=item_id,
-                                warehouse_id=wh_id,
-                                movement_type="sale",
-                                quantity=-qty,
-                                unit_cost=price,
-                                reference_type="sales_invoice",
-                                reference_id=ri["id"],
-                            ))
 
                 latest_ts = ri["synced_at"]
                 pulled += 1
