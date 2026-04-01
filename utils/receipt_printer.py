@@ -154,10 +154,10 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         qty_str  = f"{qty:g}"
         disc_tag = f" (-{disc:.0f}%)" if disc else ""
         detail   = f"  {qty_str} x {fmt(price)}{disc_tag}"
-    items_html += (
-        f"<tr><td colspan='2' style='padding:1px 0 0 0;font-size:12pt;line-height:1.05;'>{e(desc)}</td></tr>"
-        + row2(detail, fmt(total))
-    )
+        items_html += (
+            f"<tr><td colspan='2' style='padding:1px 0 0 0;font-size:12pt;line-height:1.05;'>{e(desc)}</td></tr>"
+            + row2(detail, fmt(total))
+        )
 
     # ── Totals ────────────────────────────────────────────────────────────────
     method_label = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
@@ -173,11 +173,8 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         totals += row2("VAT (11%):", fmt(data.get("vat", 0.0)))
     totals += row2("TOTAL:", fmt(inv_total), bold=True)
     totals += row2(f"Paid ({method_label}):", fmt(data.get("amount_paid", 0.0)))
-    if change > 0:
-        totals += row2("Change:", fmt(change), bold=True)
 
-    # ── USD equivalent (only when invoice is in LBP) ──────────────────────
-    usd_line = ""
+    # ── USD equivalent row ─────────────────────────────────────────────────
     lbp_rate = int(data.get("lbp_rate") or 0)
     if not lbp_rate:
         try:
@@ -194,11 +191,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
             pass
     if is_lbp and inv_total and lbp_rate:
         usd_equiv = inv_total / lbp_rate
-        usd_line = (
-    f"<div style='text-align:center;font-size:10pt;margin-top:4px;"
-    f"border-top:1px dashed #000;padding-top:4px;line-height:1.0;'>"
-            f"&#8776; $ {usd_equiv:,.2f} USD</div>"
-        )
+        totals += row2("USD:", f"$ {usd_equiv:,.2f}", bold=True)
 
     footer = e(data.get("receipt_footer", "Thank you!"))
 
@@ -210,7 +203,6 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
   {sep()}{totals}
   {sep()}
 </table>
-{usd_line}
 <div style='text-align:center;margin-top:6px;font-size:11pt;line-height:1.0;'>{footer}</div>
 </body></html>"""
 
@@ -269,8 +261,10 @@ def print_receipt(
         html = _build_html(data, payment_method, tendered)
         printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
         printer.setPrinterName(qt_name)
-        printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
-        printer.setFullPage(True)
+        # Do NOT force a custom page size — use whatever the printer has configured
+        # in Windows. Forcing 80mm when the driver expects a different size causes
+        # an offset/centering that produces the large left gap.
+        printer.setFullPage(False)
         printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
         _render_to_printer(html, printer)
         return
