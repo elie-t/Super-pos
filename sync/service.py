@@ -609,6 +609,11 @@ def pull_master_items() -> tuple[int, str]:
             cats   = {c.name: c.id for c in session.query(Category).all()}
             brands = {b.name: b.id for b in session.query(Brand).all()}
 
+            # Build a set of codes already seen in this batch to handle duplicates
+            seen_codes: set[str] = set(
+                r[0] for r in session.query(Item.code).all()
+            )
+
             for ri in remote_items:
                 # Skip if pushed by this branch (we are the source)
                 if ri.get("pushed_by") == BRANCH_ID:
@@ -617,8 +622,15 @@ def pull_master_items() -> tuple[int, str]:
 
                 item = session.get(Item, ri["id"])
                 if not item:
+                    code_str = ri.get("code") or ri["id"][:12]
+                    if code_str in seen_codes:
+                        # Duplicate code in central — skip to avoid UNIQUE crash
+                        latest_ts = ri["updated_at"]
+                        updated += 1
+                        continue
                     item = Item(id=ri["id"])
                     session.add(item)
+                    seen_codes.add(code_str)
 
                 item.code           = ri.get("code") or ri["id"][:12]
                 item.name           = ri.get("name") or ri.get("code") or ri["id"][:12]
