@@ -11,7 +11,7 @@ from PySide6.QtGui import QTextDocument, QPageSize, QPageLayout
 from PySide6.QtCore import QSizeF, QMarginsF
 
 # 80 mm paper → 72 mm printable → 576 dots @ 203 dpi → 48 chars (Font A 12-dot)
-CHARS_PER_LINE = 42   # conservative safe width for 80mm / 203dpi printers
+CHARS_PER_LINE = 48   # conservative safe width for 80mm / 203dpi printers
 
 
 def _build_receipt_text(data: dict, payment_method: str, tendered: float) -> str:
@@ -111,8 +111,8 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         return _h.escape(str(s))
 
     # Left col 62%, right col 38% — fixed layout prevents Qt squeezing labels
-    L = "width:62%;padding:3px 4px 3px 0;word-break:break-word;"
-    R = "width:38%;text-align:right;padding:3px 0 3px 4px;word-break:break-word;"
+    L = "width:58%;padding:1px 2px 1px 0;word-break:break-word;"
+    R = "width:42%;text-align:right;padding:1px 0 1px 2px;word-break:break-word;"
 
     def row2(left, right, bold=False) -> str:
         b0, b1 = ("<b>", "</b>") if bold else ("", "")
@@ -122,11 +122,10 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         )
 
     def sep(dbl=False) -> str:
-        return f"<tr><td colspan='2' style='border-top:1px {'solid' if dbl else 'dashed'} #000;padding:1px 0;font-size:3pt;'></td></tr>"
-
+        return f"<tr><td colspan='2' style='border-top:1px {'solid' if dbl else 'dashed'} #000;padding:0;margin:0;height:2px;line-height:2px;font-size:1pt;'></td></tr>"
     # ── Header ────────────────────────────────────────────────────────────────
     header = (
-        f"<div style='text-align:center;font-size:11pt;font-weight:700;'>{e(data.get('shop_name',''))}</div>"
+        f"<div style='text-align:center;font-size:15pt;font-weight:700;'>{e(data.get('shop_name',''))}</div>"
     )
     if data.get("shop_address"):
         header += f"<div style='text-align:center;'>{e(data['shop_address'])}</div>"
@@ -204,8 +203,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     footer = e(data.get("receipt_footer", "Thank you!"))
 
     return f"""<html><head><meta charset='utf-8'></head>
-<body style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:8pt;color:#000000;'>
-{header}
+<body style='margin:0;padding:0;width:80mm;font-family:"Courier New",Courier,monospace;font-size:10pt;line-height:1.2;color:#000000;'>{header}
 <table style='width:100%;table-layout:fixed;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
   {sep()}{meta}
   {sep()}{items_html}
@@ -256,13 +254,15 @@ def print_receipt(
     try:
         p = get_escpos_printer()
         if p is not None:
+            QMessageBox.information(parent, "DEBUG", "PATH: ESC/POS printer found → calling print_receipt_escpos")
             ok, err = print_receipt_escpos(data, payment_method, tendered)
             if not ok and parent:
                 QMessageBox.warning(parent, "Printer Error", err)
             return
+        else:
+            QMessageBox.information(parent, "DEBUG", "PATH: get_escpos_printer() returned None → skipping ESC/POS")
     except Exception as exc:
-        if parent:
-            QMessageBox.warning(parent, "Printer Error", str(exc))
+        QMessageBox.warning(parent, "DEBUG", f"PATH: ESC/POS raised exception → {exc}")
         return
 
     # ── 2. Windows Qt system printer — auto-print, no dialog ───────────────
@@ -293,8 +293,9 @@ def _render_to_printer(html: str, printer: QPrinter) -> None:
     doc = QTextDocument()
     doc.setDocumentMargin(0)
     doc.setDefaultStyleSheet("body { margin:0; padding:0; }")
-    paper_w = printer.paperRect(QPrinter.Unit.Point).width()
-    doc.setTextWidth(paper_w)
+    page_rect = printer.pageRect(QPrinter.Unit.Point)
+    doc.setPageSize(page_rect.size())
+    doc.setTextWidth(page_rect.width())
     doc.setHtml(html)
     doc.print_(printer)
 
@@ -466,6 +467,8 @@ def print_transfer_escpos(
 
 
 def print_receipt_escpos(
+        
+    
     data: dict,
     payment_method: str = "cash",
     tendered: float = 0.0,
@@ -473,90 +476,118 @@ def print_receipt_escpos(
     """
     Print a POS sales receipt on the configured ESC/POS printer.
     Two-line item format: name on line 1, qty x price → total on line 2.
-    This handles long item names and large LBP numbers without overflow.
+    Wider 80mm layout.
     """
     p = get_escpos_printer()
     if p is None:
         return False, "No ESC/POS printer configured."
 
-    W        = CHARS_PER_LINE   # 42
+    W        = CHARS_PER_LINE
     currency = data.get("currency", "LBP")
     is_lbp   = currency == "LBP"
 
     def fmt(v: float) -> str:
         return f"{v:,.0f} L" if is_lbp else f"$ {v:,.2f}"
 
-    # ── helper: right-align a value; same style as _escpos_row ────────────
     def rrow(label: str, value: str) -> str:
-        value = str(value)
-        vw    = len(value)
-        lw    = W - vw
-        label = label[:lw]
-        return f"{label:<{lw}}{value}\n"
+        label = str(label or "")
+        value = str(value or "")
+        vw = len(value)
+
+        # keep at least 1 space between left and right
+        lw = max(1, W - vw - 1)
+
+        # trim left text only if needed
+        if len(label) > lw:
+            label = label[:lw]
+
+        return f"{label:<{lw}} {value}\n"
+
+    def wrap_text(text: str, width: int):
+        text = str(text or "")
+        if not text:
+            return [""]
+        lines = []
+        while text:
+            lines.append(text[:width])
+            text = text[width:]
+        return lines
 
     try:
-        # ── Top margin ────────────────────────────────────────────────────
-        p.text("\n\n")
+        # top feed
+        p.text("\n")
 
-        # ── Shop header ───────────────────────────────────────────────────
+        # force normal body size
+        p.set(align="left", bold=False, double_height=False, double_width=False)
+
+        # debug line to confirm this function is printing
+        p.set(align="center", bold=False, double_height=False, double_width=False)
+        p.text("ESCPOS ACTIVE\n")
+
+        # header
         p.set(align="center", bold=True, double_height=True, double_width=False)
         p.text(f"{data.get('shop_name', 'Shop')}\n")
-        p.set(align="center", bold=False, double_height=False)
+
+        p.set(align="center", bold=False, double_height=False, double_width=False)
         if data.get("shop_address"):
             p.text(f"{data['shop_address']}\n")
         if data.get("shop_phone"):
             p.text(f"Tel: {data['shop_phone']}\n")
         if data.get("warehouse"):
             p.text(f"{data['warehouse']}\n")
+
         p.text("-" * W + "\n")
 
-        # ── Meta ──────────────────────────────────────────────────────────
-        p.set(align="left", bold=False)
+        # meta
+        p.set(align="left", bold=False, double_height=False, double_width=False)
         p.text(rrow("Receipt #:", data.get("invoice_number", "")))
-        p.text(rrow("Date:",      data.get("date", "")))
-        p.text(rrow("Cashier:",   data.get("cashier", "")))
+        p.text(rrow("Date:", data.get("date", "")))
+        p.text(rrow("Cashier:", data.get("cashier", "")))
+
         if data.get("customer"):
-            p.text(rrow("Customer:", data["customer"]))
+            customer_lines = wrap_text(str(data["customer"]), W - len("Customer: ") - 1)
+            if customer_lines:
+                p.text(rrow("Customer:", customer_lines[0]))
+                for extra in customer_lines[1:]:
+                    p.text(f"{extra}\n")
+
         p.text("-" * W + "\n")
 
-        # ── Item rows ─────────────────────────────────────────────────────
-        # Line 1: full item name  (wraps if >W chars, same as transfer)
-        # Line 2: "  qty x unit_price"  right-aligned with line total
+        # items
         for li in data.get("lines", []):
             desc  = str(li.get("description", ""))
-            qty   = li.get("qty",        0)
+            qty   = li.get("qty", 0)
             price = li.get("unit_price", 0.0)
-            total = li.get("total",      0.0)
-            disc  = li.get("disc_pct",   0.0)
+            total = li.get("total", 0.0)
+            disc  = li.get("disc_pct", 0.0)
 
-            # Name line — wrap long names (same helper as transfer)
-            name_w = W
-            if len(desc) <= name_w:
-                p.text(f"{desc}\n")
-            else:
-                while desc:
-                    p.text(f"{desc[:name_w]}\n")
-                    desc = desc[name_w:]
+            # item name wraps
+            for line in wrap_text(desc, W):
+                p.text(f"{line}\n")
 
-            # Detail line: "  qty x price" right-aligned with total
             qty_str  = f"{qty:g}"
             disc_tag = f" (-{disc:.0f}%)" if disc else ""
             detail   = f"  {qty_str} x {fmt(price)}{disc_tag}"
+
             p.text(rrow(detail, fmt(total)))
 
-        # ── Totals ────────────────────────────────────────────────────────
+        # totals
         p.text("-" * W + "\n")
-        p.set(bold=False)
+        p.set(align="left", bold=False, double_height=False, double_width=False)
         p.text(rrow("Subtotal:", fmt(data.get("subtotal", 0.0))))
+
         if data.get("discount", 0.0):
             p.text(rrow("Discount:", f"-{fmt(data['discount'])}"))
+
         if data.get("vat", 0.0):
             p.text(rrow("VAT (11%):", fmt(data.get("vat", 0.0))))
-        p.text("=" * W + "\n")
-        p.set(bold=True)
-        p.text(rrow("TOTAL:", fmt(data.get("total", 0.0))))
-        p.set(bold=False)
 
+        p.text("=" * W + "\n")
+
+        p.set(align="left", bold=True, double_height=False, double_width=False)
+        p.text(rrow("TOTAL:", fmt(data.get("total", 0.0))))
+
+        p.set(align="left", bold=False, double_height=False, double_width=False)
         method_label = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
             payment_method, payment_method.capitalize()
         )
@@ -564,18 +595,18 @@ def print_receipt_escpos(
 
         change = max(0.0, tendered - data.get("total", 0.0)) if payment_method == "cash" else 0.0
         if change > 0:
-            p.set(bold=True)
+            p.set(align="left", bold=True, double_height=False, double_width=False)
             p.text(rrow("Change:", fmt(change)))
-            p.set(bold=False)
+            p.set(align="left", bold=False, double_height=False, double_width=False)
 
-        # ── Footer ────────────────────────────────────────────────────────
+        # footer
         p.text("-" * W + "\n")
         footer = data.get("receipt_footer", "Thank you!")
         if footer:
-            p.set(align="center")
+            p.set(align="center", bold=False, double_height=False, double_width=False)
             p.text(f"{footer}\n")
 
-        # ── Feed + cut ────────────────────────────────────────────────────
+        # final feed and cut
         p.text("\n\n\n")
         p.cut()
 
