@@ -357,6 +357,7 @@ class SettingsScreen(QWidget):
         self._printer_type.addItem("Serial  (COM / ttyUSB)", "serial")
         self._printer_type.addItem("Windows printer name", "win_raw")
         self._printer_type.addItem("File / pipe",          "file")
+        self._printer_type.addItem("Windows (system printer)", "windows_qt")
         type_row.addWidget(self._printer_type)
         type_row.addStretch()
         pb_lay.addLayout(type_row)
@@ -374,6 +375,24 @@ class SettingsScreen(QWidget):
         self._pe_win    = QLineEdit(); self._pe_win.setPlaceholderText("printer name from Windows")
         self._pe_file   = QLineEdit(); self._pe_file.setPlaceholderText("/dev/usb/lp0")
 
+        # Windows Qt system printer — combo populated from OS printer list
+        from PySide6.QtPrintSupport import QPrinterInfo as _QPrinterInfo
+        qt_row_widget = QWidget()
+        qt_row_lay = QHBoxLayout(qt_row_widget)
+        qt_row_lay.setContentsMargins(0, 0, 0, 0)
+        qt_row_lay.setSpacing(6)
+        self._pe_qt_printer = QComboBox()
+        self._pe_qt_printer.setFixedHeight(26)
+        for _info in _QPrinterInfo.availablePrinters():
+            self._pe_qt_printer.addItem(_info.printerName())
+        qt_row_lay.addWidget(self._pe_qt_printer)
+        _refresh_btn = QPushButton("↺")
+        _refresh_btn.setFixedSize(26, 26)
+        _refresh_btn.setToolTip("Refresh printer list")
+        _refresh_btn.clicked.connect(self._refresh_qt_printer_list)
+        qt_row_lay.addWidget(_refresh_btn)
+        qt_row_lay.addStretch()
+
         self._printer_form.addRow("IP Address:", self._pe_host)     # row 0
         self._printer_form.addRow("Port:", self._pe_port)           # row 1
         self._printer_form.addRow("USB Vendor ID:", self._pe_vid)   # row 2
@@ -382,6 +401,7 @@ class SettingsScreen(QWidget):
         self._printer_form.addRow("Baud rate:", self._pe_baud)      # row 5
         self._printer_form.addRow("Printer name:", self._pe_win)    # row 6
         self._printer_form.addRow("File / pipe:", self._pe_file)    # row 7
+        self._printer_form.addRow("System printer:", qt_row_widget) # row 8
         pb_lay.addLayout(self._printer_form)
 
         # (type → list of row indices that should be visible for that type)
@@ -392,6 +412,7 @@ class SettingsScreen(QWidget):
             "serial":     {4, 5},
             "win_raw":    {6},
             "file":       {7},
+            "windows_qt": {8},
         }
 
         self._printer_type.currentIndexChanged.connect(self._refresh_printer_fields)
@@ -558,6 +579,11 @@ class SettingsScreen(QWidget):
                 self._pe_baud.setText(_get("escpos_baud", "9600"))
                 self._pe_win.setText(_get("escpos_win_printer", ""))
                 self._pe_file.setText(_get("escpos_file", ""))
+                qt_pname = _get("escpos_qt_printer", "")
+                if qt_pname:
+                    idx = self._pe_qt_printer.findText(qt_pname)
+                    if idx >= 0:
+                        self._pe_qt_printer.setCurrentIndex(idx)
             finally:
                 session.close()
         except Exception:
@@ -586,6 +612,7 @@ class SettingsScreen(QWidget):
                 _set("escpos_baud",        self._pe_baud.text().strip() or "9600")
                 _set("escpos_win_printer", self._pe_win.text().strip())
                 _set("escpos_file",        self._pe_file.text().strip())
+                _set("escpos_qt_printer",  self._pe_qt_printer.currentText())
                 session.commit()
                 self._printer_status_lbl.setText("✔  Printer config saved.")
                 self._printer_status_lbl.setStyleSheet("font-size:11px; color:#2e7d32;")
@@ -594,6 +621,16 @@ class SettingsScreen(QWidget):
         except Exception as exc:
             self._printer_status_lbl.setText(f"Error: {exc}")
             self._printer_status_lbl.setStyleSheet("font-size:11px; color:#c62828;")
+
+    def _refresh_qt_printer_list(self):
+        from PySide6.QtPrintSupport import QPrinterInfo as _QPrinterInfo
+        current = self._pe_qt_printer.currentText()
+        self._pe_qt_printer.clear()
+        for info in _QPrinterInfo.availablePrinters():
+            self._pe_qt_printer.addItem(info.printerName())
+        idx = self._pe_qt_printer.findText(current)
+        if idx >= 0:
+            self._pe_qt_printer.setCurrentIndex(idx)
 
     def _test_printer(self):
         self._printer_status_lbl.setText("Sending test print…")

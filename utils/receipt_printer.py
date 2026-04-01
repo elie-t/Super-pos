@@ -10,170 +10,126 @@ from PySide6.QtPrintSupport import QPrinter, QPrintPreviewDialog, QPrinterInfo
 from PySide6.QtGui import QTextDocument, QPageSize, QPageLayout
 from PySide6.QtCore import QSizeF, QMarginsF
 
+# 80 mm paper → 72 mm printable → 576 dots @ 203 dpi → 48 chars (Font A 12-dot)
+CHARS_PER_LINE = 42   # conservative safe width for 80mm / 203dpi printers
 
-def _build_html(data: dict, payment_method: str, tendered: float) -> str:
-    currency    = data.get("currency", "LBP")
-    is_lbp      = currency == "LBP"
-    cur_symbol  = "LBP" if is_lbp else "USD"
+
+def _build_receipt_text(data: dict, payment_method: str, tendered: float) -> str:
+    """Build a plain-text receipt (same layout as ESC/POS) — used for HTML <pre> and Qt print."""
+    W        = CHARS_PER_LINE
+    currency = data.get("currency", "LBP")
+    is_lbp   = currency == "LBP"
 
     def fmt(v: float) -> str:
-        if is_lbp:
-            return f"{v:,.0f} {cur_symbol}"
-        return f"$ {v:,.2f}"
+        return f"{v:,.0f} L" if is_lbp else f"$ {v:,.2f}"
 
-    shop_name    = data.get("shop_name",      "My Supermarket")
-    shop_address = data.get("shop_address",   "")
-    shop_phone   = data.get("shop_phone",     "")
-    footer_text  = data.get("receipt_footer", "Thank you!")
-    inv_no       = data.get("invoice_number", "")
-    date_str     = data.get("date",           "")
-    cashier      = data.get("cashier",        "")
-    customer     = data.get("customer",       "")
-    warehouse    = data.get("warehouse",      "")
+    def rrow(label: str, value: str) -> str:
+        value = str(value)
+        vw    = len(value)
+        lw    = W - vw
+        label = label[:lw]
+        return f"{label:<{lw}}{value}"
 
-    subtotal    = data.get("subtotal",    0.0)
-    discount    = data.get("discount",    0.0)
-    vat         = data.get("vat",         0.0)
-    total       = data.get("total",       0.0)
-    amount_paid = data.get("amount_paid", 0.0)
-    change      = max(0.0, tendered - total) if payment_method == "cash" else 0.0
+    rows: list[str] = []
+
+    # Header
+    rows.append(data.get("shop_name", "Shop").center(W))
+    if data.get("shop_address"):
+        rows.append(data["shop_address"].center(W))
+    if data.get("shop_phone"):
+        rows.append(f"Tel: {data['shop_phone']}".center(W))
+    if data.get("warehouse"):
+        rows.append(data["warehouse"].center(W))
+    rows.append("-" * W)
+
+    # Meta
+    rows.append(rrow("Receipt #:", data.get("invoice_number", "")))
+    rows.append(rrow("Date:",      data.get("date", "")))
+    rows.append(rrow("Cashier:",   data.get("cashier", "")))
+    if data.get("customer"):
+        rows.append(rrow("Customer:", data["customer"]))
+    rows.append("-" * W)
+
+    # Items — two-line format: name then qty x price → total
+    for li in data.get("lines", []):
+        desc  = str(li.get("description", ""))
+        qty   = li.get("qty",        0)
+        price = li.get("unit_price", 0.0)
+        total = li.get("total",      0.0)
+        disc  = li.get("disc_pct",   0.0)
+
+        # Name line (wrap if needed)
+        while desc:
+            rows.append(desc[:W])
+            desc = desc[W:]
+
+        # Detail line: "  qty x price" right-aligned with total
+        qty_str  = f"{qty:g}"
+        disc_tag = f" (-{disc:.0f}%)" if disc else ""
+        detail   = f"  {qty_str} x {fmt(price)}{disc_tag}"
+        rows.append(rrow(detail, fmt(total)))
+
+    # Totals
+    rows.append("-" * W)
+    rows.append(rrow("Subtotal:", fmt(data.get("subtotal", 0.0))))
+    if data.get("discount", 0.0):
+        rows.append(rrow("Discount:", f"-{fmt(data['discount'])}"))
+    if data.get("vat", 0.0):
+        rows.append(rrow("VAT (11%):", fmt(data.get("vat", 0.0))))
+    rows.append("=" * W)
+    rows.append(rrow("TOTAL:", fmt(data.get("total", 0.0))))
 
     method_label = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
         payment_method, payment_method.capitalize()
     )
+    rows.append(rrow(f"Paid ({method_label}):", fmt(data.get("amount_paid", 0.0))))
 
-    # ── Header info lines ─────────────────────────────────────────────────────
-    address_lines = ""
-    if shop_address:
-        address_lines += f"<div>{shop_address}</div>"
-    if shop_phone:
-        address_lines += f"<div>Tel: {shop_phone}</div>"
-    if warehouse:
-        address_lines += f"<div>{warehouse}</div>"
-
-    # ── Line items ────────────────────────────────────────────────────────────
-    lines_html = ""
-    for li in data.get("lines", []):
-        desc     = li.get("description", "")
-        qty      = li.get("qty",        0)
-        price    = li.get("unit_price", 0.0)
-        disc     = li.get("disc_pct",   0.0)
-        line_tot = li.get("total",      0.0)
-        qty_str  = f"{qty:g}"
-        disc_str = f"<br><small style='color:#888;'>(-{disc:.0f}%)</small>" if disc else ""
-        lines_html += f"""
-        <tr>
-          <td style='padding:2px 2px 2px 0; word-break:break-word;'>{desc}{disc_str}</td>
-          <td style='text-align:center; padding:2px; white-space:nowrap;'>{qty_str}</td>
-          <td style='text-align:right;  padding:2px; white-space:nowrap;'>{fmt(price)}</td>
-          <td style='text-align:right;  padding:2px 0 2px 4px; white-space:nowrap;'><b>{fmt(line_tot)}</b></td>
-        </tr>"""
-
-    # ── Optional rows ─────────────────────────────────────────────────────────
-    discount_html = ""
-    if discount > 0:
-        discount_html = f"""
-        <tr>
-          <td colspan='2'>Discount:</td>
-          <td colspan='2' style='text-align:right; color:#c62828;'>- {fmt(discount)}</td>
-        </tr>"""
-
-    change_html = ""
+    change = max(0.0, tendered - data.get("total", 0.0)) if payment_method == "cash" else 0.0
     if change > 0:
-        change_html = f"""
-        <tr>
-          <td colspan='2'>Change:</td>
-          <td colspan='2' style='text-align:right; color:#2e7d32; font-weight:700;'>{fmt(change)}</td>
-        </tr>"""
+        rows.append(rrow("Change:", fmt(change)))
 
-    html = f"""
-<html>
-<head>
-<meta charset='utf-8'>
-</head>
-<body style='
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 9pt;
-    margin: 0;
-    padding: 0;
-'>
+    # Footer
+    rows.append("-" * W)
+    footer = data.get("receipt_footer", "Thank you!")
+    if footer:
+        rows.append(footer.center(W))
 
-<!-- HEADER -->
-<div style='text-align:center; margin-bottom:6px;'>
-  <div style='font-size:14pt; font-weight:700;'>{shop_name}</div>
-  <div style='font-size:9pt;'>{address_lines}</div>
-</div>
+    return "\n".join(rows)
 
-<hr style='border:none; border-top:1px dashed #000; margin:4px 0;'>
 
-<!-- META -->
-<table style='width:100%; font-size:9pt; border-collapse:collapse;'>
-  <tr><td style='padding:1px 0;'><b>Receipt #:</b></td>
-      <td style='text-align:right; padding:1px 0;'>{inv_no}</td></tr>
-  <tr><td style='padding:1px 0;'><b>Date:</b></td>
-      <td style='text-align:right; padding:1px 0;'>{date_str}</td></tr>
-  <tr><td style='padding:1px 0;'><b>Cashier:</b></td>
-      <td style='text-align:right; padding:1px 0;'>{cashier}</td></tr>
-  <tr><td style='padding:1px 0;'><b>Customer:</b></td>
-      <td style='text-align:right; padding:1px 0;'>{customer}</td></tr>
-</table>
+def _build_html(data: dict, payment_method: str, tendered: float) -> str:
+    """Wrap plain-text receipt in <pre> so columns align on any printer/screen."""
+    text = _build_receipt_text(data, payment_method, tendered)
+    # Escape HTML special characters so <> & in item names don't break layout
+    import html as _html
+    safe = _html.escape(text)
+    return (
+        "<html><head><meta charset='utf-8'></head>"
+        "<body style='margin:0;padding:4px;'>"
+        "<pre style=\"font-family:'Courier New',Courier,monospace;"
+        "font-size:8pt;margin:0;padding:0;white-space:pre;\">"
+        f"{safe}"
+        "</pre></body></html>"
+    )
 
-<hr style='border:none; border-top:1px dashed #000; margin:4px 0;'>
 
-<!-- ITEMS TABLE — col widths: item=50% qty=8% price=21% total=21% -->
-<table style='width:100%; font-size:9pt; border-collapse:collapse;'>
-  <colgroup>
-    <col style='width:50%;'>
-    <col style='width:8%;'>
-    <col style='width:21%;'>
-    <col style='width:21%;'>
-  </colgroup>
-  <thead>
-    <tr style='border-bottom:1px solid #000;'>
-      <th style='text-align:left;   padding-bottom:3px;'>Item</th>
-      <th style='text-align:center; padding-bottom:3px;'>Qty</th>
-      <th style='text-align:right;  padding-bottom:3px;'>Price</th>
-      <th style='text-align:right;  padding-bottom:3px;'>Total</th>
-    </tr>
-  </thead>
-  <tbody>
-    {lines_html}
-  </tbody>
-</table>
-
-<hr style='border:none; border-top:1px dashed #000; margin:4px 0;'>
-
-<!-- TOTALS -->
-<table style='width:100%; font-size:9pt; border-collapse:collapse;'>
-  <tr>
-    <td colspan='2' style='padding:2px 0;'>Subtotal:</td>
-    <td colspan='2' style='text-align:right; padding:2px 0; white-space:nowrap;'>{fmt(subtotal)}</td>
-  </tr>
-  {discount_html}
-  <tr>
-    <td colspan='2' style='padding:2px 0;'>VAT (11%):</td>
-    <td colspan='2' style='text-align:right; padding:2px 0; white-space:nowrap;'>{fmt(vat)}</td>
-  </tr>
-  <tr style='font-size:11pt; font-weight:700; border-top:1px solid #000;'>
-    <td colspan='2' style='padding:4px 0;'>TOTAL:</td>
-    <td colspan='2' style='text-align:right; padding:4px 0; white-space:nowrap;'>{fmt(total)}</td>
-  </tr>
-  <tr>
-    <td colspan='2' style='padding:2px 0;'>Paid ({method_label}):</td>
-    <td colspan='2' style='text-align:right; padding:2px 0; white-space:nowrap;'>{fmt(amount_paid)}</td>
-  </tr>
-  {change_html}
-</table>
-
-<hr style='border:none; border-top:1px dashed #000; margin:6px 0;'>
-
-<!-- FOOTER -->
-<div style='text-align:center; font-size:9pt;'>{footer_text}</div>
-
-</body>
-</html>
-"""
-    return html
+def _get_qt_printer_name() -> str:
+    """Return the Windows Qt system printer name from settings, or '' if not configured."""
+    try:
+        from database.engine import get_session, init_db
+        from database.models.items import Setting
+        init_db()
+        session = get_session()
+        try:
+            ptype = session.get(Setting, "escpos_type")
+            if ptype and ptype.value == "windows_qt":
+                s = session.get(Setting, "escpos_qt_printer")
+                return s.value if s else ""
+        finally:
+            session.close()
+    except Exception:
+        pass
+    return ""
 
 
 def print_receipt(
@@ -185,28 +141,40 @@ def print_receipt(
 ) -> None:
     """
     Print a POS receipt.
-    If an ESC/POS printer is configured in Settings → always use it (same as transfers).
-    If not configured → fall back to Qt print preview dialog only (never silent HTML to thermal).
+    Priority:
+      1. ESC/POS printer (configured in Settings) → direct thermal print
+      2. Windows system printer (windows_qt type) → auto-print via Qt, no dialog
+      3. Fallback → Qt print preview dialog
     """
     from PySide6.QtWidgets import QMessageBox
 
-    # ── Try ESC/POS direct print (mirrors transfer behaviour exactly) ──────
+    # ── 1. Try ESC/POS direct print ────────────────────────────────────────
     try:
         p = get_escpos_printer()
         if p is not None:
             ok, err = print_receipt_escpos(data, payment_method, tendered)
-            if not ok:
-                if parent:
-                    QMessageBox.warning(parent, "Printer Error", err)
+            if not ok and parent:
+                QMessageBox.warning(parent, "Printer Error", err)
             return
     except Exception as exc:
         if parent:
             QMessageBox.warning(parent, "Printer Error", str(exc))
         return
 
-    # ── No ESC/POS configured — show Qt preview (never silent direct print) ─
-    html = _build_html(data, payment_method, tendered)
+    # ── 2. Windows Qt system printer — auto-print, no dialog ───────────────
+    qt_name = _get_qt_printer_name()
+    if qt_name:
+        html = _build_html(data, payment_method, tendered)
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setPrinterName(qt_name)
+        printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
+        printer.setPageMargins(QMarginsF(3.0, 3.0, 3.0, 3.0), QPageLayout.Unit.Millimeter)
+        printer.setFullPage(False)
+        _render_to_printer(html, printer)
+        return
 
+    # ── 3. No printer configured — show Qt preview dialog ──────────────────
+    html = _build_html(data, payment_method, tendered)
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
     printer.setPageMargins(QMarginsF(3.0, 3.0, 3.0, 3.0), QPageLayout.Unit.Millimeter)
@@ -239,11 +207,6 @@ def _try_set_thermal_printer(printer: QPrinter) -> None:
 
 
 # ── ESC/POS direct thermal printing ──────────────────────────────────────────
-# 80 mm paper → 72 mm printable → 576 dots @ 203 dpi → 48 chars (Font A 12-dot)
-
-CHARS_PER_LINE = 42   # conservative safe width for 80mm / 203dpi printers
-
-
 def get_escpos_printer():
     """
     Return a configured python-escpos printer instance, or None.
