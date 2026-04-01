@@ -742,6 +742,68 @@ class DailySalesDialog(QDialog):
         except Exception as exc:
             QMessageBox.critical(self, "Export Failed", str(exc))
 
+    def _auto_print_shift_report(self):
+        """Auto-print the shift summary on the configured POS printer after closing."""
+        try:
+            report = self._report or {}
+            s      = report.get("summary", {})
+            rows   = report.get("by_cashier_date", [])
+
+            rows_html = ""
+            prev_date = None
+            for row in rows:
+                lbp = row["totals"].get("LBP", 0)
+                total_str = f"LL {lbp:,.0f}" if lbp else "—"
+                date_cell = row["date"] if row["date"] != prev_date else ""
+                prev_date = row["date"]
+                rows_html += (
+                    f"<tr>"
+                    f"<td style='padding:1px 2px;font-size:7pt;font-weight:{'700' if date_cell else '400'};'>{date_cell}</td>"
+                    f"<td style='padding:1px 2px;font-size:7pt;'>{row['cashier']}</td>"
+                    f"<td style='padding:1px 2px;font-size:7pt;text-align:right;font-weight:700;'>{total_str}</td>"
+                    f"</tr>"
+                )
+
+            tbc   = s.get("totals_by_currency", {})
+            total_line = "  ·  ".join(
+                _fmt(amt, cur) for cur, amt in sorted(tbc.items()) if amt
+            ) or "0"
+
+            from datetime import date as _date
+            html = f"""<html dir='ltr'><head><meta charset='utf-8'></head>
+<body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:7pt;line-height:1.2;color:#000;'>
+<div style='text-align:center;font-size:11pt;font-weight:700;'>End of Shift</div>
+<div style='text-align:center;font-size:8pt;'>{_date.today().strftime('%Y-%m-%d')}</div>
+<hr style='border:1px dashed #000;margin:2px 0;'>
+<table style='width:100%;border-collapse:collapse;table-layout:fixed;'>
+  <colgroup><col width='34%'><col width='33%'><col width='33%'></colgroup>
+  <tr style='font-weight:700;font-size:7pt;'>
+    <td style='padding:1px 2px;'>Date</td>
+    <td style='padding:1px 2px;'>Cashier</td>
+    <td style='padding:1px 2px;text-align:right;'>Total</td>
+  </tr>
+  {rows_html}
+</table>
+<hr style='border:1px solid #000;margin:2px 0;'>
+<div style='text-align:right;font-size:8pt;font-weight:700;'>TOTAL: {total_line}</div>
+<div style='text-align:right;font-size:7pt;'>Invoices: {s.get("invoice_count", 0)}</div>
+<div style='text-align:center;margin-top:4px;font-size:7pt;'>*** Shift Closed ***</div>
+</body></html>"""
+
+            from PySide6.QtPrintSupport import QPrinter
+            from PySide6.QtGui import QPageSize
+            from PySide6.QtCore import QSizeF
+            from utils.receipt_printer import _render_to_printer, _get_qt_printer_name
+
+            qt_name = _get_qt_printer_name()
+            printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
+            if qt_name:
+                printer.setPrinterName(qt_name)
+            printer.setFullPage(False)
+            _render_to_printer(html, printer)
+        except Exception:
+            pass  # never block the shift close on a print failure
+
     def _end_of_shift(self):
         self._refresh()
         s     = self._report.get("summary", {})
@@ -762,6 +824,7 @@ class DailySalesDialog(QDialog):
         try:
             wh_id = self._wh.currentData() or ""
             archived, path = DailySalesService.close_shift(wh_id)
+            self._auto_print_shift_report()
             _EndOfShiftSuccessDialog(archived, total_lines, path, self).exec()
             self._shift_was_closed = True
             self.accept()
