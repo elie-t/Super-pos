@@ -183,39 +183,40 @@ def print_receipt(
     parent=None,
     show_preview: bool = True,
 ) -> None:
-    # ── Try ESC/POS direct print first ────────────────────────────────────
-    try:
-        if get_escpos_printer() is not None:
-            ok, err = print_receipt_escpos(data, payment_method, tendered)
-            if not ok and parent:
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(parent, "Printer Error", err)
-            return
-    except Exception:
-        pass  # fall through to Qt preview
+    """
+    Print a POS receipt.
+    If an ESC/POS printer is configured in Settings → always use it (same as transfers).
+    If not configured → fall back to Qt print preview dialog only (never silent HTML to thermal).
+    """
+    from PySide6.QtWidgets import QMessageBox
 
+    # ── Try ESC/POS direct print (mirrors transfer behaviour exactly) ──────
+    try:
+        p = get_escpos_printer()
+        if p is not None:
+            ok, err = print_receipt_escpos(data, payment_method, tendered)
+            if not ok:
+                if parent:
+                    QMessageBox.warning(parent, "Printer Error", err)
+            return
+    except Exception as exc:
+        if parent:
+            QMessageBox.warning(parent, "Printer Error", str(exc))
+        return
+
+    # ── No ESC/POS configured — show Qt preview (never silent direct print) ─
     html = _build_html(data, payment_method, tendered)
 
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
     printer.setPageMargins(QMarginsF(3.0, 3.0, 3.0, 3.0), QPageLayout.Unit.Millimeter)
     printer.setFullPage(False)
-
     _try_set_thermal_printer(printer)
 
-    if show_preview:
-        dlg = QPrintPreviewDialog(printer, parent)
-        dlg.setWindowTitle("Receipt Preview")
-        dlg.paintRequested.connect(lambda p: _render_to_printer(html, p))
-        dlg.exec()
-    else:
-        if QPrinterInfo.defaultPrinter().isNull():
-            dlg = QPrintPreviewDialog(printer, parent)
-            dlg.setWindowTitle("Receipt Preview — No default printer")
-            dlg.paintRequested.connect(lambda p: _render_to_printer(html, p))
-            dlg.exec()
-        else:
-            _render_to_printer(html, printer)
+    dlg = QPrintPreviewDialog(printer, parent)
+    dlg.setWindowTitle("Receipt Preview")
+    dlg.paintRequested.connect(lambda p: _render_to_printer(html, p))
+    dlg.exec()
 
 
 def _render_to_printer(html: str, printer: QPrinter) -> None:
@@ -420,13 +421,13 @@ def print_receipt_escpos(
     def fmt(v: float) -> str:
         return f"{v:,.0f} L" if is_lbp else f"$ {v:,.2f}"
 
-    def rline(left: str, right: str) -> str:
-        """Right-align `right` at column W; pad/truncate `left` to fill."""
-        right = str(right)
-        r_len = len(right)
-        l_max = W - r_len
-        left  = left[:l_max]
-        return f"{left:<{l_max}}{right}\n"
+    # ── helper: right-align a value; same style as _escpos_row ────────────
+    def rrow(label: str, value: str) -> str:
+        value = str(value)
+        vw    = len(value)
+        lw    = W - vw
+        label = label[:lw]
+        return f"{label:<{lw}}{value}\n"
 
     try:
         # ── Top margin ────────────────────────────────────────────────────
@@ -446,55 +447,60 @@ def print_receipt_escpos(
 
         # ── Meta ──────────────────────────────────────────────────────────
         p.set(align="left", bold=False)
-        p.text(rline("Receipt #:", data.get("invoice_number", "")))
-        p.text(rline("Date:",      data.get("date", "")))
-        p.text(rline("Cashier:",   data.get("cashier", "")))
+        p.text(rrow("Receipt #:", data.get("invoice_number", "")))
+        p.text(rrow("Date:",      data.get("date", "")))
+        p.text(rrow("Cashier:",   data.get("cashier", "")))
         if data.get("customer"):
-            p.text(rline("Customer:", data["customer"]))
+            p.text(rrow("Customer:", data["customer"]))
         p.text("-" * W + "\n")
 
-        # ── Item rows (2-line: name / qty x price → total) ────────────────
+        # ── Item rows ─────────────────────────────────────────────────────
+        # Line 1: full item name  (wraps if >W chars, same as transfer)
+        # Line 2: "  qty x unit_price"  right-aligned with line total
         for li in data.get("lines", []):
             desc  = str(li.get("description", ""))
-            qty   = li.get("qty", 0)
+            qty   = li.get("qty",        0)
             price = li.get("unit_price", 0.0)
-            total = li.get("total", 0.0)
-            disc  = li.get("disc_pct", 0.0)
+            total = li.get("total",      0.0)
+            disc  = li.get("disc_pct",   0.0)
 
-            # Line 1: item name — wrap at W chars
-            while len(desc) > W:
-                p.text(f"{desc[:W]}\n")
-                desc = desc[W:]
-            p.text(f"{desc}\n")
+            # Name line — wrap long names (same helper as transfer)
+            name_w = W
+            if len(desc) <= name_w:
+                p.text(f"{desc}\n")
+            else:
+                while desc:
+                    p.text(f"{desc[:name_w]}\n")
+                    desc = desc[name_w:]
 
-            # Line 2: "  {qty}x {unit_price}" right-aligned with total
+            # Detail line: "  qty x price" right-aligned with total
             qty_str  = f"{qty:g}"
             disc_tag = f" (-{disc:.0f}%)" if disc else ""
             detail   = f"  {qty_str} x {fmt(price)}{disc_tag}"
-            p.text(rline(detail, fmt(total)))
+            p.text(rrow(detail, fmt(total)))
 
         # ── Totals ────────────────────────────────────────────────────────
         p.text("-" * W + "\n")
         p.set(bold=False)
-        p.text(rline("Subtotal:", fmt(data.get("subtotal", 0.0))))
+        p.text(rrow("Subtotal:", fmt(data.get("subtotal", 0.0))))
         if data.get("discount", 0.0):
-            p.text(rline("Discount:", f"-{fmt(data['discount'])}"))
+            p.text(rrow("Discount:", f"-{fmt(data['discount'])}"))
         if data.get("vat", 0.0):
-            p.text(rline("VAT (11%):", fmt(data.get("vat", 0.0))))
+            p.text(rrow("VAT (11%):", fmt(data.get("vat", 0.0))))
         p.text("=" * W + "\n")
         p.set(bold=True)
-        p.text(rline("TOTAL:", fmt(data.get("total", 0.0))))
+        p.text(rrow("TOTAL:", fmt(data.get("total", 0.0))))
         p.set(bold=False)
 
         method_label = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
             payment_method, payment_method.capitalize()
         )
-        p.text(rline(f"Paid ({method_label}):", fmt(data.get("amount_paid", 0.0))))
+        p.text(rrow(f"Paid ({method_label}):", fmt(data.get("amount_paid", 0.0))))
 
         change = max(0.0, tendered - data.get("total", 0.0)) if payment_method == "cash" else 0.0
         if change > 0:
             p.set(bold=True)
-            p.text(rline("Change:", fmt(change)))
+            p.text(rrow("Change:", fmt(change)))
             p.set(bold=False)
 
         # ── Footer ────────────────────────────────────────────────────────
