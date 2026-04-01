@@ -617,6 +617,11 @@ def pull_master_items() -> tuple[int, str]:
 
                 item = session.get(Item, ri["id"])
                 if not item:
+                    # Try matching by code — handles case where Mac imported
+                    # from Excel separately (different UUIDs, same codes)
+                    code_str = ri.get("code") or ri["id"][:12]
+                    item = session.query(Item).filter_by(code=code_str).first()
+                if not item:
                     item = Item(id=ri["id"])
                     session.add(item)
 
@@ -1779,6 +1784,7 @@ def pull_transfers() -> tuple[int, str]:
         session = get_session()
         pulled = 0
         latest_ts = last_pull
+        stock_cache: dict[tuple, "ItemStock"] = {}  # (item_id, wh_id) → ItemStock
         try:
             session.execute(sqlalchemy.text("PRAGMA foreign_keys=OFF"))
             for rt in remote:
@@ -1877,24 +1883,30 @@ def pull_transfers() -> tuple[int, str]:
                                 reference_id=rt["id"],
                             ))
 
-                            # Update ItemStock
-                            src = session.query(ItemStock).filter_by(
+                            # Update ItemStock (cache avoids UNIQUE violation within batch)
+                            src_key = (item_id, from_wh)
+                            src = stock_cache.get(src_key) or session.query(ItemStock).filter_by(
                                 item_id=item_id, warehouse_id=from_wh
                             ).first()
                             if src:
                                 src.quantity -= qty
                             else:
-                                session.add(ItemStock(id=new_uuid(), item_id=item_id,
-                                                      warehouse_id=from_wh, quantity=-qty))
+                                src = ItemStock(id=new_uuid(), item_id=item_id,
+                                                warehouse_id=from_wh, quantity=-qty)
+                                session.add(src)
+                            stock_cache[src_key] = src
 
-                            dst = session.query(ItemStock).filter_by(
+                            dst_key = (item_id, to_wh)
+                            dst = stock_cache.get(dst_key) or session.query(ItemStock).filter_by(
                                 item_id=item_id, warehouse_id=to_wh
                             ).first()
                             if dst:
                                 dst.quantity += qty
                             else:
-                                session.add(ItemStock(id=new_uuid(), item_id=item_id,
-                                                      warehouse_id=to_wh, quantity=qty))
+                                dst = ItemStock(id=new_uuid(), item_id=item_id,
+                                                warehouse_id=to_wh, quantity=qty)
+                                session.add(dst)
+                            stock_cache[dst_key] = dst
 
                 latest_ts = rt["synced_at"]
 
