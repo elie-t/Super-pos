@@ -195,8 +195,8 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
 
     footer = e(data.get("receipt_footer", "Thank you!"))
 
-    return f"""<html><head><meta charset='utf-8'></head>
-<body style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:10pt;line-height:1.2;color:#000000;'>{header}
+    return f"""<html dir='ltr'><head><meta charset='utf-8'></head>
+<body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:10pt;line-height:1.2;color:#000000;'>{header}
 <table style='width:100%;table-layout:fixed;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
   {sep()}{meta}
   {sep()}{items_html}
@@ -284,9 +284,15 @@ def print_receipt(
 
 
 def _render_to_printer(html: str, printer: QPrinter) -> None:
+    from PySide6.QtGui import QTextOption
+    from PySide6.QtCore import Qt as _Qt
     doc = QTextDocument()
     doc.setDocumentMargin(0)
     doc.setDefaultStyleSheet("html, body, table { margin:0; padding:0; border:0; }")
+    # Force LTR so Arabic item names don't flip the whole document to RTL
+    opt = QTextOption()
+    opt.setTextDirection(_Qt.LeftToRight)
+    doc.setDefaultTextOption(opt)
     page_rect = printer.pageRect(QPrinter.Unit.Point)
     doc.setHtml(html)
     doc.setTextWidth(page_rect.width())
