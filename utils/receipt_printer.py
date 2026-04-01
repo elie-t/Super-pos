@@ -406,21 +406,27 @@ def print_receipt_escpos(
 ) -> tuple[bool, str]:
     """
     Print a POS sales receipt on the configured ESC/POS printer.
-    Mirrors the layout of _build_html() but in ESC/POS commands.
+    Two-line item format: name on line 1, qty x price → total on line 2.
+    This handles long item names and large LBP numbers without overflow.
     """
     p = get_escpos_printer()
     if p is None:
         return False, "No ESC/POS printer configured."
 
-    W       = CHARS_PER_LINE
+    W        = CHARS_PER_LINE   # 42
     currency = data.get("currency", "LBP")
-    is_lbp  = currency == "LBP"
+    is_lbp   = currency == "LBP"
 
     def fmt(v: float) -> str:
         return f"{v:,.0f} L" if is_lbp else f"$ {v:,.2f}"
 
-    # column widths: desc=28 qty=4 price=8 total=8
-    dw, qw, pw, tw = 28, 4, 8, 8
+    def rline(left: str, right: str) -> str:
+        """Right-align `right` at column W; pad/truncate `left` to fill."""
+        right = str(right)
+        r_len = len(right)
+        l_max = W - r_len
+        left  = left[:l_max]
+        return f"{left:<{l_max}}{right}\n"
 
     try:
         # ── Top margin ────────────────────────────────────────────────────
@@ -440,61 +446,55 @@ def print_receipt_escpos(
 
         # ── Meta ──────────────────────────────────────────────────────────
         p.set(align="left", bold=False)
-        p.text(_escpos_row("Receipt #:", data.get("invoice_number", ""), W - 16, 16))
-        p.text(_escpos_row("Date:",      data.get("date", ""),            W - 16, 16))
-        p.text(_escpos_row("Cashier:",   data.get("cashier", ""),         W - 16, 16))
+        p.text(rline("Receipt #:", data.get("invoice_number", "")))
+        p.text(rline("Date:",      data.get("date", "")))
+        p.text(rline("Cashier:",   data.get("cashier", "")))
         if data.get("customer"):
-            p.text(_escpos_row("Customer:", data["customer"],             W - 16, 16))
+            p.text(rline("Customer:", data["customer"]))
         p.text("-" * W + "\n")
 
-        # ── Items header ──────────────────────────────────────────────────
-        p.set(bold=True)
-        p.text(f"{'Item':<{dw}}{'Qty':>{qw}}{'Price':>{pw}}{'Total':>{tw}}\n")
-        p.text("-" * W + "\n")
-        p.set(bold=False)
-
-        # ── Item rows ─────────────────────────────────────────────────────
+        # ── Item rows (2-line: name / qty x price → total) ────────────────
         for li in data.get("lines", []):
             desc  = str(li.get("description", ""))
-            qty   = f"{li.get('qty', 0):g}"
-            price = fmt(li.get("unit_price", 0))
-            total = fmt(li.get("total", 0))
-            disc  = li.get("disc_pct", 0)
+            qty   = li.get("qty", 0)
+            price = li.get("unit_price", 0.0)
+            total = li.get("total", 0.0)
+            disc  = li.get("disc_pct", 0.0)
 
-            # Truncate/wrap description
-            if len(desc) <= dw:
-                p.text(f"{desc:<{dw}}{qty:>{qw}}{price:>{pw}}{total:>{tw}}\n")
-            else:
-                p.text(f"{desc[:dw]}{qty:>{qw}}{price:>{pw}}{total:>{tw}}\n")
-                rest = desc[dw:]
-                while rest:
-                    p.text(f"  {rest[:W - 2]}\n")
-                    rest = rest[W - 2:]
-            if disc:
-                p.text(f"  (-{disc:.0f}%)\n")
+            # Line 1: item name — wrap at W chars
+            while len(desc) > W:
+                p.text(f"{desc[:W]}\n")
+                desc = desc[W:]
+            p.text(f"{desc}\n")
+
+            # Line 2: "  {qty}x {unit_price}" right-aligned with total
+            qty_str  = f"{qty:g}"
+            disc_tag = f" (-{disc:.0f}%)" if disc else ""
+            detail   = f"  {qty_str} x {fmt(price)}{disc_tag}"
+            p.text(rline(detail, fmt(total)))
 
         # ── Totals ────────────────────────────────────────────────────────
         p.text("-" * W + "\n")
         p.set(bold=False)
-        p.text(_escpos_row("Subtotal:", fmt(data.get("subtotal", 0)), W - 12, 12))
-        if data.get("discount", 0):
-            p.text(_escpos_row("Discount:", f"-{fmt(data['discount'])}", W - 12, 12))
-        if data.get("vat", 0):
-            p.text(_escpos_row("VAT (11%):", fmt(data.get("vat", 0)), W - 12, 12))
+        p.text(rline("Subtotal:", fmt(data.get("subtotal", 0.0))))
+        if data.get("discount", 0.0):
+            p.text(rline("Discount:", f"-{fmt(data['discount'])}"))
+        if data.get("vat", 0.0):
+            p.text(rline("VAT (11%):", fmt(data.get("vat", 0.0))))
         p.text("=" * W + "\n")
         p.set(bold=True)
-        p.text(_escpos_row("TOTAL:", fmt(data.get("total", 0)), W - 12, 12))
+        p.text(rline("TOTAL:", fmt(data.get("total", 0.0))))
         p.set(bold=False)
 
         method_label = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
             payment_method, payment_method.capitalize()
         )
-        p.text(_escpos_row(f"Paid ({method_label}):", fmt(data.get("amount_paid", 0)), W - 12, 12))
+        p.text(rline(f"Paid ({method_label}):", fmt(data.get("amount_paid", 0.0))))
 
-        change = max(0.0, tendered - data.get("total", 0)) if payment_method == "cash" else 0.0
+        change = max(0.0, tendered - data.get("total", 0.0)) if payment_method == "cash" else 0.0
         if change > 0:
             p.set(bold=True)
-            p.text(_escpos_row("Change:", fmt(change), W - 12, 12))
+            p.text(rline("Change:", fmt(change)))
             p.set(bold=False)
 
         # ── Footer ────────────────────────────────────────────────────────
