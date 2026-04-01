@@ -105,7 +105,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     safe = _html.escape(text)
     return (
         "<html><head><meta charset='utf-8'></head>"
-        "<body style='margin:0;padding:4px;'>"
+        "<body style='margin:0;padding:0;'>"
         "<pre style=\"font-family:'Courier New',Courier,monospace;"
         "font-size:8pt;margin:0;padding:0;white-space:pre;\">"
         f"{safe}"
@@ -168,7 +168,7 @@ def print_receipt(
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setPrinterName(qt_name)
         printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
-        printer.setPageMargins(QMarginsF(3.0, 3.0, 3.0, 3.0), QPageLayout.Unit.Millimeter)
+        printer.setPageMargins(QMarginsF(1.0, 2.0, 1.0, 2.0), QPageLayout.Unit.Millimeter)
         printer.setFullPage(False)
         _render_to_printer(html, printer)
         return
@@ -177,7 +177,7 @@ def print_receipt(
     html = _build_html(data, payment_method, tendered)
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
-    printer.setPageMargins(QMarginsF(3.0, 3.0, 3.0, 3.0), QPageLayout.Unit.Millimeter)
+    printer.setPageMargins(QMarginsF(1.0, 2.0, 1.0, 2.0), QPageLayout.Unit.Millimeter)
     printer.setFullPage(False)
     _try_set_thermal_printer(printer)
 
@@ -189,8 +189,8 @@ def print_receipt(
 
 def _render_to_printer(html: str, printer: QPrinter) -> None:
     doc = QTextDocument()
+    doc.setDocumentMargin(0)          # kill QTextDocument's default 4pt internal indent
     doc.setDefaultStyleSheet("body { margin:0; padding:0; }")
-    # Use logical (point-based) width so it's DPI-independent
     page_rect = printer.pageRect(QPrinter.Unit.Point)
     doc.setTextWidth(page_rect.width())
     doc.setHtml(html)
