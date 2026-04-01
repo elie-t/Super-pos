@@ -238,6 +238,7 @@ class PurchaseService:
         invoice_number: str, invoice_date: str, due_date: str, order_number: str,
         currency: str, lines: list[PurchaseLineItem],
         payment_mode: str, notes: str,
+        invoice_id: str | None = None,
     ) -> tuple[bool, str]:
         init_db()
         session = get_session()
@@ -249,25 +250,69 @@ class PurchaseService:
             from datetime import datetime, timezone
 
             subtotal = sum(l.total for l in lines)
-            inv = PurchaseInvoice(
-                id=new_uuid(),
-                invoice_number=invoice_number,
-                supplier_id=supplier_id,
-                operator_id=operator_id,
-                warehouse_id=warehouse_id,
-                invoice_date=invoice_date,
-                due_date=due_date,
-                order_number=order_number or None,
-                invoice_type="purchase",
-                subtotal=subtotal,
-                total=subtotal,
-                currency=currency,
-                status="finalized",
-                payment_status="unpaid" if payment_mode == "account" else "paid",
-                notes=notes or None,
-            )
-            session.add(inv)
-            session.flush()
+
+            # ── Edit existing invoice ──────────────────────────────────────────
+            if invoice_id:
+                inv = session.get(PurchaseInvoice, invoice_id)
+                if inv:
+                    # Reverse old stock movements and wipe old line items
+                    old_lines = session.query(PurchaseInvoiceItem).filter_by(invoice_id=invoice_id).all()
+                    for old_li in old_lines:
+                        mv = session.query(StockMovement).filter_by(
+                            reference_type="purchase_invoice",
+                            reference_id=invoice_id,
+                            item_id=old_li.item_id,
+                        ).first()
+                        if mv:
+                            # Reverse stock
+                            stock = session.query(ItemStock).filter_by(
+                                item_id=old_li.item_id,
+                                warehouse_id=inv.warehouse_id,
+                            ).first()
+                            if stock:
+                                stock.quantity = max(0.0, stock.quantity - old_li.quantity)
+                        session.delete(old_li)
+                    session.query(StockMovement).filter_by(
+                        reference_type="purchase_invoice",
+                        reference_id=invoice_id,
+                    ).delete()
+                    session.flush()
+                    # Update header fields
+                    inv.supplier_id    = supplier_id
+                    inv.operator_id    = operator_id
+                    inv.warehouse_id   = warehouse_id
+                    inv.invoice_date   = invoice_date
+                    inv.due_date       = due_date
+                    inv.order_number   = order_number or None
+                    inv.subtotal       = subtotal
+                    inv.total          = subtotal
+                    inv.currency       = currency
+                    inv.notes          = notes or None
+                    session.flush()
+                else:
+                    invoice_id = None  # fall through to create new
+
+            # ── Create new invoice ─────────────────────────────────────────────
+            if not invoice_id:
+                inv = PurchaseInvoice(
+                    id=new_uuid(),
+                    invoice_number=invoice_number,
+                    supplier_id=supplier_id,
+                    operator_id=operator_id,
+                    warehouse_id=warehouse_id,
+                    invoice_date=invoice_date,
+                    due_date=due_date,
+                    order_number=order_number or None,
+                    invoice_type="purchase",
+                    subtotal=subtotal,
+                    total=subtotal,
+                    currency=currency,
+                    status="finalized",
+                    payment_status="unpaid" if payment_mode == "account" else "paid",
+                    notes=notes or None,
+                )
+                session.add(inv)
+                session.flush()
 
             for line in lines:
                 li = PurchaseInvoiceItem(

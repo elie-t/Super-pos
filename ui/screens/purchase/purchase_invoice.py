@@ -458,6 +458,7 @@ class PurchaseInvoiceScreen(QWidget):
         self._current_pack_qty = 1
         self._editing_row: int = -1           # -1 = new line, ≥0 = editing existing row
         self._wh_num_map: dict[str, int] = {} # wh_id → warehouse number
+        self._loaded_invoice_id: str = ""     # set when editing an existing invoice
         self._build_ui()
         self._load_defaults()
 
@@ -895,9 +896,9 @@ class PurchaseInvoiceScreen(QWidget):
         note_lbl.setStyleSheet("font-size:11px;")
         meta_row.addWidget(note_lbl)
         self._notes_input = QLineEdit()
-        self._notes_input.setFixedHeight(24)
-        self._notes_input.setMinimumWidth(160)
-        self._notes_input.setStyleSheet("font-size:11px;")
+        self._notes_input.setFixedHeight(28)
+        self._notes_input.setMinimumWidth(240)
+        self._notes_input.setStyleSheet("font-size:12px;")
         meta_row.addWidget(self._notes_input)
         meta_row.addStretch()
         left.addLayout(meta_row)
@@ -1593,6 +1594,7 @@ class PurchaseInvoiceScreen(QWidget):
             lines=line_items,
             payment_mode="account",
             notes=self._notes_input.text().strip(),
+            invoice_id=self._loaded_invoice_id or None,
         )
 
         if ok:
@@ -1628,6 +1630,7 @@ class PurchaseInvoiceScreen(QWidget):
     # ── Clear all ─────────────────────────────────────────────────────────────
 
     def _clear_all(self):
+        self._loaded_invoice_id = ""
         self._lines.clear()
         self._supplier = None
         self._sup_name_label.setText("—")
@@ -1648,8 +1651,9 @@ class PurchaseInvoiceScreen(QWidget):
             return
 
         # Header fields
+        self._loaded_invoice_id = invoice_id
         self._inv_no = data["invoice_number"]
-        self._inv_no_label.setText(f"Invoice #  {self._inv_no}  [VIEW]")
+        self._inv_no_label.setText(f"Invoice #  {self._inv_no}  [EDIT]")
 
         # Supplier
         if data["supplier"]:
