@@ -442,6 +442,44 @@ class PurchaseService:
             session.close()
 
     @staticmethod
+    def mark_paid(invoice_id: str) -> tuple[bool, str]:
+        """Set payment_status = 'paid' on a purchase invoice."""
+        init_db()
+        session = get_session()
+        try:
+            from database.models.invoices import PurchaseInvoice
+            inv = session.get(PurchaseInvoice, invoice_id)
+            if not inv:
+                return False, "Invoice not found."
+            inv.payment_status = "paid"
+            session.commit()
+            return True, ""
+        except Exception as exc:
+            session.rollback()
+            return False, str(exc)
+        finally:
+            session.close()
+
+    @staticmethod
+    def mark_unpaid(invoice_id: str) -> tuple[bool, str]:
+        """Set payment_status = 'unpaid' on a purchase invoice."""
+        init_db()
+        session = get_session()
+        try:
+            from database.models.invoices import PurchaseInvoice
+            inv = session.get(PurchaseInvoice, invoice_id)
+            if not inv:
+                return False, "Invoice not found."
+            inv.payment_status = "unpaid"
+            session.commit()
+            return True, ""
+        except Exception as exc:
+            session.rollback()
+            return False, str(exc)
+        finally:
+            session.close()
+
+    @staticmethod
     def get_invoice_pricing_data(invoice_id: str) -> list[dict]:
         """Items from a saved invoice + their current selling prices for the pricing review."""
         init_db()

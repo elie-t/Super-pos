@@ -158,14 +158,44 @@ class PurchaseInvoiceListScreen(QWidget):
         )
         root.addWidget(self._table, stretch=1)
 
-        # Footer hint
+        # Footer
         hint = QFrame()
         hint.setStyleSheet("background:#f0f4f8;border-top:1px solid #cdd5e0;")
         hint_lay = QHBoxLayout(hint)
         hint_lay.setContentsMargins(16, 6, 16, 6)
-        hint_lay.addWidget(QLabel("Double-click an invoice to open it."))
+        hint_lay.setSpacing(8)
+        hint_lay.addWidget(QLabel("Double-click to open.  Select row to pay/unpay."))
+
+        self._pay_btn = QPushButton("💰  Mark as Paid")
+        self._pay_btn.setFixedHeight(30)
+        self._pay_btn.setEnabled(False)
+        self._pay_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;border:none;border-radius:4px;"
+            "font-size:12px;font-weight:700;padding:0 14px;}"
+            "QPushButton:hover{background:#1b5e20;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._pay_btn.setCursor(Qt.PointingHandCursor)
+        self._pay_btn.clicked.connect(self._mark_paid)
+        hint_lay.addWidget(self._pay_btn)
+
+        self._unpay_btn = QPushButton("✖  Mark as Unpaid")
+        self._unpay_btn.setFixedHeight(30)
+        self._unpay_btn.setEnabled(False)
+        self._unpay_btn.setStyleSheet(
+            "QPushButton{background:#c62828;color:#fff;border:none;border-radius:4px;"
+            "font-size:12px;font-weight:700;padding:0 14px;}"
+            "QPushButton:hover{background:#a01010;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._unpay_btn.setCursor(Qt.PointingHandCursor)
+        self._unpay_btn.clicked.connect(self._mark_unpaid)
+        hint_lay.addWidget(self._unpay_btn)
+
         hint_lay.addStretch()
         root.addWidget(hint)
+
+        self._table.selectionModel().selectionChanged.connect(self._on_selection_changed)
 
     def _load(self):
         self._table.setSortingEnabled(False)   # disable while populating
@@ -222,6 +252,50 @@ class PurchaseInvoiceListScreen(QWidget):
         else:
             QMessageBox.warning(self.parent(), "Not Found",
                                 f"No invoice found matching '{query}'.")
+
+    def _on_selection_changed(self):
+        row = self._table.currentRow()
+        if row < 0:
+            self._pay_btn.setEnabled(False)
+            self._unpay_btn.setEnabled(False)
+            return
+        item = self._table.item(row, 1)
+        if not item:
+            return
+        inv_no = item.text()
+        match = next((r for r in self._rows if r["invoice_number"] == inv_no), None)
+        if match:
+            paid = match["payment_status"] == "paid"
+            self._pay_btn.setEnabled(not paid)
+            self._unpay_btn.setEnabled(paid)
+
+    def _mark_paid(self):
+        self._set_payment_status("paid")
+
+    def _mark_unpaid(self):
+        self._set_payment_status("unpaid")
+
+    def _set_payment_status(self, status: str):
+        row = self._table.currentRow()
+        if row < 0:
+            return
+        inv_no = self._table.item(row, 1).text()
+        match = next((r for r in self._rows if r["invoice_number"] == inv_no), None)
+        if not match:
+            return
+        if status == "paid":
+            ok, err = PurchaseService.mark_paid(match["id"])
+        else:
+            ok, err = PurchaseService.mark_unpaid(match["id"])
+        if ok:
+            self._load()
+            # Re-select the same invoice
+            for r in range(self._table.rowCount()):
+                if self._table.item(r, 1) and self._table.item(r, 1).text() == inv_no:
+                    self._table.selectRow(r)
+                    break
+        else:
+            QMessageBox.warning(self.parent(), "Error", err)
 
     def refresh(self):
         self._load()
