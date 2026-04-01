@@ -43,8 +43,8 @@ class ItemDetail:
     is_pos_featured: bool
     is_online: bool
     is_visible: bool
-    show_on_touch: bool = False
     notes: str
+    show_on_touch: bool = False
     barcodes: list = field(default_factory=list)   # list of (id, barcode, is_primary, pack_qty)
     prices: list   = field(default_factory=list)   # list of (id, type, amount, currency, is_default)
     stock_entries: list = field(default_factory=list)  # list of (warehouse, qty)
