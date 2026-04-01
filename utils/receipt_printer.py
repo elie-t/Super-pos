@@ -110,16 +110,19 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     def e(s) -> str:
         return _h.escape(str(s))
 
+    # Left col 62%, right col 38% — fixed layout prevents Qt squeezing labels
+    L = "width:62%;padding:1px 0;word-break:break-word;"
+    R = "width:38%;text-align:right;padding:1px 0;word-break:break-word;"
+
     def row2(left, right, bold=False) -> str:
         b0, b1 = ("<b>", "</b>") if bold else ("", "")
         return (
-            f"<tr><td style='padding:1px 0;'>{b0}{e(left)}{b1}</td>"
-            f"<td style='text-align:right;padding:1px 0;white-space:nowrap;'>{b0}{e(right)}{b1}</td></tr>"
+            f"<tr><td style='{L}'>{b0}{e(left)}{b1}</td>"
+            f"<td style='{R}'>{b0}{e(right)}{b1}</td></tr>"
         )
 
     def sep(dbl=False) -> str:
-        ch = "=" if dbl else "-"
-        return f"<tr><td colspan='2' style='border-top:1px {'solid' if dbl else 'dashed'} #000;padding:2px 0;font-size:4pt;'></td></tr>"
+        return f"<tr><td colspan='2' style='border-top:1px {'solid' if dbl else 'dashed'} #000;padding:1px 0;font-size:3pt;'></td></tr>"
 
     # ── Header ────────────────────────────────────────────────────────────────
     header = (
@@ -176,9 +179,9 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     footer = e(data.get("receipt_footer", "Thank you!"))
 
     return f"""<html><head><meta charset='utf-8'></head>
-<body style='margin:0;padding:2px;font-family:"Courier New",Courier,monospace;font-size:8pt;color:#000000;'>
+<body style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:8pt;color:#000000;'>
 {header}
-<table style='width:100%;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
+<table style='width:100%;table-layout:fixed;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
   {sep()}{meta}
   {sep()}{items_html}
   {sep()}{totals}
