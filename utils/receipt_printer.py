@@ -284,8 +284,9 @@ def print_receipt(
 
 
 def _render_to_printer(html: str, printer: QPrinter) -> None:
-    from PySide6.QtGui import QTextOption
-    from PySide6.QtCore import Qt as _Qt
+    from PySide6.QtGui import QPainter, QTextOption
+    from PySide6.QtCore import Qt as _Qt, QRectF
+
     doc = QTextDocument()
     doc.setDocumentMargin(0)
     doc.setDefaultStyleSheet("html, body, table { margin:0; padding:0; border:0; }")
@@ -293,10 +294,24 @@ def _render_to_printer(html: str, printer: QPrinter) -> None:
     opt = QTextOption()
     opt.setTextDirection(_Qt.LeftToRight)
     doc.setDefaultTextOption(opt)
-    page_rect = printer.pageRect(QPrinter.Unit.Point)
     doc.setHtml(html)
-    doc.setTextWidth(page_rect.width())
-    doc.print_(printer)
+
+    # Layout the document using the full paper width (in points).
+    # We use paperRect — not pageRect — so we don't accidentally inherit
+    # the driver's margin offset as a layout width.
+    paper_pt = printer.paperRect(QPrinter.Unit.Point)
+    doc.setTextWidth(paper_pt.width())
+
+    # Render manually from (0, 0) of the paper.
+    # doc.print_() internally translates by pageRect().topLeft(), which adds
+    # the driver's left margin as an offset and shifts content to the right.
+    # By painting directly we skip that translation entirely.
+    painter = QPainter(printer)
+    # Scale from points (72 pt/inch) to device pixels (resolution dpi/inch)
+    scale = printer.resolution() / 72.0
+    painter.scale(scale, scale)
+    doc.drawContents(painter, paper_pt)
+    painter.end()
 
 
 def _try_set_thermal_printer(printer: QPrinter) -> None:
