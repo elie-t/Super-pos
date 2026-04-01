@@ -198,11 +198,13 @@ class PosService:
     def next_sale_number(warehouse_id: str = "") -> str:
         """Return the next invoice number for this warehouse.
         Format: wh_number * 10000 + sequence  (e.g. 10001, 30005).
+        Advances past any numbers already in the DB (e.g. pulled via sync).
         """
         init_db()
         session = get_session()
         try:
             from database.models.items import Setting, Warehouse
+            from database.models.invoices import SalesInvoice
             wh_num = 0
             if warehouse_id:
                 wh = session.query(Warehouse).filter_by(id=warehouse_id).first()
@@ -211,7 +213,31 @@ class PosService:
             key = f"next_sale_number_wh{wh_num}"
             s   = session.get(Setting, key)
             seq = int(s.value) if s else 1
-            return str(wh_num * 10000 + seq)
+            candidate = wh_num * 10000 + seq
+
+            # Build set of existing invoice numbers in this warehouse's range
+            # so we skip any that arrived via sync from other branches/devices.
+            lo = wh_num * 10000 + 1
+            hi = (wh_num + 1) * 10000
+            existing = {
+                int(r.invoice_number)
+                for r in session.query(SalesInvoice.invoice_number).all()
+                if r.invoice_number and r.invoice_number.isdigit()
+                and lo <= int(r.invoice_number) < hi
+            }
+            while candidate in existing:
+                candidate += 1
+
+            # Persist the advanced seq so future calls don't re-collide
+            new_seq = candidate - wh_num * 10000
+            if new_seq != seq:
+                if s:
+                    s.value = str(new_seq)
+                else:
+                    session.add(Setting(key=key, value=str(new_seq)))
+                session.commit()
+
+            return str(candidate)
         finally:
             session.close()
 
