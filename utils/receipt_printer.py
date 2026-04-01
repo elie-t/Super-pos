@@ -254,15 +254,13 @@ def print_receipt(
     try:
         p = get_escpos_printer()
         if p is not None:
-            QMessageBox.information(parent, "DEBUG", "PATH: ESC/POS printer found → calling print_receipt_escpos")
             ok, err = print_receipt_escpos(data, payment_method, tendered)
             if not ok and parent:
                 QMessageBox.warning(parent, "Printer Error", err)
             return
-        else:
-            QMessageBox.information(parent, "DEBUG", "PATH: get_escpos_printer() returned None → skipping ESC/POS")
     except Exception as exc:
-        QMessageBox.warning(parent, "DEBUG", f"PATH: ESC/POS raised exception → {exc}")
+        if parent:
+            QMessageBox.warning(parent, "Printer Error", str(exc))
         return
 
     # ── 2. Windows Qt system printer — auto-print, no dialog ───────────────
