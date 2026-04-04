@@ -322,6 +322,23 @@ class SettingsScreen(QWidget):
         )
         self._sync_btn.clicked.connect(self._do_force_sync)
         btn_row.addWidget(self._sync_btn)
+
+        reconcile_btn = QPushButton("🔁  Reconcile Stock")
+        reconcile_btn.setFixedHeight(38)
+        reconcile_btn.setCursor(Qt.PointingHandCursor)
+        reconcile_btn.setEnabled(configured)
+        reconcile_btn.setStyleSheet(
+            "QPushButton{background:#6a1b9a;color:#fff;border:none;"
+            "border-radius:5px;font-size:13px;font-weight:700;padding:0 20px;}"
+            "QPushButton:hover{background:#4a148c;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        reconcile_btn.clicked.connect(self._do_reconcile_stock)
+        reconcile_btn.setToolTip(
+            "Reset the stock-movements pull cursor and re-pull all movements.\n"
+            "Use this when stock counts differ between branches."
+        )
+        btn_row.addWidget(reconcile_btn)
         btn_row.addStretch()
         sync_layout.addLayout(btn_row)
 
@@ -621,6 +638,35 @@ class SettingsScreen(QWidget):
                 top.refresh_login()
         except Exception:
             pass
+
+    def _do_reconcile_stock(self):
+        """Reset the stock-movements pull cursor so the next sync re-fetches
+        all movements from the beginning. Already-applied movements are skipped
+        via applied_central_movements; only missed ones get applied."""
+        from PySide6.QtWidgets import QMessageBox
+        ans = QMessageBox.question(
+            self, "Reconcile Stock",
+            "This will reset the stock-movements sync cursor and re-pull all\n"
+            "movements from Supabase on the next sync cycle.\n\n"
+            "Already-applied movements will be skipped automatically.\n"
+            "Use this when stock counts differ between branches.\n\n"
+            "Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ans != QMessageBox.Yes:
+            return
+        try:
+            from sync.service import _state_set
+            _state_set("movements_pull", "2000-01-01T00:00:00Z")
+            self._sync_status.setText(
+                "Stock cursor reset. Triggering re-pull now…"
+            )
+            self._result_lbl.hide()
+            # Immediately trigger a pull so the user doesn't have to wait
+            self._do_force_sync()
+        except Exception as e:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Error", str(e))
 
     # ── Printer config helpers ─────────────────────────────────────────────────
 

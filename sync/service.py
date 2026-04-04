@@ -809,6 +809,8 @@ def push_stock_movements_for_invoice(reference_id: str) -> tuple[bool, str]:
     """
     Push all StockMovement rows for a given invoice/reference to Supabase.
     Called after purchase or sale is committed.
+    Deletes old movements for this reference first so edited invoices don't
+    leave stale rows that other branches would double-apply.
     """
     from database.engine import get_session, init_db
     from database.models.stock import StockMovement
@@ -839,9 +841,20 @@ def push_stock_movements_for_invoice(reference_id: str) -> tuple[bool, str]:
             }
             for mv in movements
         ]
-        return upsert_rows("stock_movements_central", rows)
     finally:
         session.close()
+
+    # Delete old movements for this reference first (handles invoice edits —
+    # old movement IDs are gone locally but may still exist in Supabase)
+    try:
+        requests.delete(
+            f"{_url('stock_movements_central')}?reference_id=eq.{reference_id}&branch_id=eq.{BRANCH_ID}",
+            headers=_headers(), timeout=15,
+        )
+    except Exception:
+        pass
+
+    return upsert_rows("stock_movements_central", rows)
 
 
 def pull_stock_movements() -> tuple[int, str]:
