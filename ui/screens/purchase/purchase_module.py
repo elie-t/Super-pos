@@ -192,6 +192,19 @@ class PurchaseInvoiceListScreen(QWidget):
         self._unpay_btn.clicked.connect(self._mark_unpaid)
         hint_lay.addWidget(self._unpay_btn)
 
+        self._del_btn = QPushButton("🗑  Delete")
+        self._del_btn.setFixedHeight(30)
+        self._del_btn.setEnabled(False)
+        self._del_btn.setStyleSheet(
+            "QPushButton{background:#6a1010;color:#fff;border:none;border-radius:4px;"
+            "font-size:12px;font-weight:700;padding:0 14px;}"
+            "QPushButton:hover{background:#a01010;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._del_btn.setCursor(Qt.PointingHandCursor)
+        self._del_btn.clicked.connect(self._delete_invoice)
+        hint_lay.addWidget(self._del_btn)
+
         hint_lay.addStretch()
         root.addWidget(hint)
 
@@ -258,6 +271,7 @@ class PurchaseInvoiceListScreen(QWidget):
         if row < 0:
             self._pay_btn.setEnabled(False)
             self._unpay_btn.setEnabled(False)
+            self._del_btn.setEnabled(False)
             return
         item = self._table.item(row, 1)
         if not item:
@@ -268,6 +282,7 @@ class PurchaseInvoiceListScreen(QWidget):
             paid = match["payment_status"] == "paid"
             self._pay_btn.setEnabled(not paid)
             self._unpay_btn.setEnabled(paid)
+            self._del_btn.setEnabled(True)
 
     def _mark_paid(self):
         self._set_payment_status("paid")
@@ -296,6 +311,27 @@ class PurchaseInvoiceListScreen(QWidget):
                     break
         else:
             QMessageBox.warning(self.parent(), "Error", err)
+
+    def _delete_invoice(self):
+        row = self._table.currentRow()
+        if row < 0:
+            return
+        inv_no = self._table.item(row, 1).text()
+        match = next((r for r in self._rows if r["invoice_number"] == inv_no), None)
+        if not match:
+            return
+        reply = QMessageBox.question(
+            self, "Delete Invoice",
+            f"Delete invoice {inv_no}?\nThis cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        ok, err = PurchaseService.delete_invoice(match["id"])
+        if ok:
+            self._load()
+        else:
+            QMessageBox.warning(self, "Error", err)
 
     def refresh(self):
         self._load()

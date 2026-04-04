@@ -525,6 +525,26 @@ class PurchaseService:
             session.close()
 
     @staticmethod
+    def delete_invoice(invoice_id: str) -> tuple[bool, str]:
+        """Delete a purchase invoice and all its lines."""
+        init_db()
+        session = get_session()
+        try:
+            from database.models.invoices import PurchaseInvoice, PurchaseInvoiceItem
+            session.query(PurchaseInvoiceItem).filter_by(invoice_id=invoice_id).delete()
+            inv = session.get(PurchaseInvoice, invoice_id)
+            if not inv:
+                return False, "Invoice not found."
+            session.delete(inv)
+            session.commit()
+            return True, ""
+        except Exception as exc:
+            session.rollback()
+            return False, str(exc)
+        finally:
+            session.close()
+
+    @staticmethod
     def get_invoice_pricing_data(invoice_id: str) -> list[dict]:
         """Items from a saved invoice + their current selling prices for the pricing review."""
         init_db()
