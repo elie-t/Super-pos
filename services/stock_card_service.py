@@ -80,7 +80,13 @@ class StockCardService:
                 StockMovement.created_at <= dt_to,
             ).order_by(StockMovement.created_at).all()
 
-            # ── Derive true opening from ItemStock (handles stock set without movements) ──
+            # Opening balance = sum of all movements before the period.
+            # This is purely movement-based so it is never distorted by
+            # an out-of-sync ItemStock value.
+            opening_qty = opening_qty_from_mvs
+
+            # Current stock: prefer live ItemStock for the top-bar display,
+            # fall back to running total from movements.
             from database.models.items import ItemStock
             from sqlalchemy import func as _fn
             if warehouse_id:
@@ -92,18 +98,6 @@ class StockCardService:
                 actual_stock = session.query(_fn.sum(ItemStock.quantity)).filter_by(
                     item_id=item_id
                 ).scalar()
-
-            if actual_stock is not None:
-                # Sum of movements after the period (needed to back-calculate)
-                future_sum = sum(
-                    r.quantity for r in base.filter(
-                        StockMovement.created_at > dt_to
-                    ).all()
-                )
-                period_sum = sum(r.quantity for r in period_rows)
-                opening_qty = actual_stock - future_sum - period_sum
-            else:
-                opening_qty = opening_qty_from_mvs
 
             # ── Pre-fetch reference data ────────────────────────────────────
             sale_ids  = [r.reference_id for r in period_rows

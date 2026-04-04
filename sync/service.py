@@ -543,11 +543,28 @@ def push_all_stock_levels() -> tuple[bool, str]:
             }
             for s in rows_all
         ]
-        # Push in batches of 500
+        # Use POST with upsert; if that fails try DELETE+INSERT per row
         for i in range(0, len(rows), 500):
-            ok, err = upsert_rows("stock_levels", rows[i:i+500])
-            if not ok:
-                return False, err
+            r = requests.post(
+                _url("stock_levels"),
+                headers=_headers(),
+                json=rows[i:i+500],
+                timeout=30,
+            )
+            if r.status_code not in (200, 201):
+                # Fallback: delete existing rows for this branch then re-insert
+                requests.delete(
+                    f"{_url('stock_levels')}?branch_id=like.{BRANCH_ID}|%",
+                    headers=_headers(), timeout=15,
+                )
+                r2 = requests.post(
+                    _url("stock_levels"),
+                    headers={**_headers(), "Prefer": ""},
+                    json=rows[i:i+500],
+                    timeout=30,
+                )
+                if r2.status_code not in (200, 201):
+                    return False, f"HTTP {r2.status_code}: {r2.text[:200]}"
         return True, ""
     finally:
         session.close()
