@@ -642,12 +642,13 @@ class PurchaseInvoiceScreen(QWidget):
         self._pcs_spin.setFixedHeight(32)
         self._pcs_spin.setFixedWidth(80)
         self._pcs_spin.installEventFilter(self)
+        self._pcs_spin.valueChanged.connect(self._on_pcs_changed)
         lay.addWidget(self._pcs_spin)
 
         # Price
-        price_lbl = QLabel("Price:")
-        price_lbl.setStyleSheet("font-weight:600;")
-        lay.addWidget(price_lbl)
+        self._price_lbl = QLabel("Price:")
+        self._price_lbl.setStyleSheet("font-weight:600;")
+        lay.addWidget(self._price_lbl)
         self._price_spin = QDoubleSpinBox()
         self._price_spin.setRange(0, 999999999)
         self._price_spin.setDecimals(4)
@@ -1100,20 +1101,45 @@ class PurchaseInvoiceScreen(QWidget):
             "font-weight:600;" if active else "font-weight:600;color:#aaa;"
         )
         self._pcs_lbl.setText(f"Pcs ({pack_qty}):" if active else "Pcs:")
+        # Unlock pcs when switching item — box will lock it again if needed
+        self._pcs_spin.setReadOnly(False)
+        self._pcs_spin.setStyleSheet("")
+        self._price_lbl.setText("Price:")
 
     def _on_box_changed(self, val):
         if self._current_pack_qty > 1:
+            # Lock pcs when boxes > 0; unlock when boxes cleared
+            locked = val > 0
+            self._pcs_spin.setReadOnly(locked)
+            self._pcs_spin.setStyleSheet(
+                "background:#e8e8e8;color:#555;" if locked else ""
+            )
+            self._price_lbl.setText("Price/Box:" if locked else "Price:")
             self._pcs_spin.blockSignals(True)
             self._pcs_spin.setValue(val * self._current_pack_qty)
             self._pcs_spin.blockSignals(False)
         self._recalc_total()
 
+    def _on_pcs_changed(self, val):
+        """User manually edited pcs — clear box count so they don't conflict."""
+        if self._current_pack_qty > 1 and self._box_spin.value() > 0:
+            self._box_spin.blockSignals(True)
+            self._box_spin.setValue(0)
+            self._box_spin.blockSignals(False)
+            self._pcs_spin.setReadOnly(False)
+            self._pcs_spin.setStyleSheet("")
+            self._price_lbl.setText("Price:")
+        self._recalc_total()
+
     def _recalc_total(self):
+        boxes = self._box_spin.value()
         pcs   = self._pcs_spin.value()
         price = self._price_spin.value()
         disc  = self._disc_spin.value()
         vat   = self._vat_spin.value()
-        net   = pcs * price * (1 - disc / 100) * (1 + vat / 100)
+        # When boxes are used: price is per box → total = boxes × price_per_box
+        qty = boxes if (self._current_pack_qty > 1 and boxes > 0) else pcs
+        net = qty * price * (1 - disc / 100) * (1 + vat / 100)
         self._block_total(True)
         self._total_spin.setValue(round(net, 2))
         self._block_total(False)
@@ -1122,10 +1148,12 @@ class PurchaseInvoiceScreen(QWidget):
         """Back-calculate unit price when total is edited by the user."""
         if self._total_editing:
             return
-        pcs  = self._pcs_spin.value()
-        disc = self._disc_spin.value()
-        vat  = self._vat_spin.value()
-        denom = pcs * (1 - disc / 100) * (1 + vat / 100)
+        boxes = self._box_spin.value()
+        pcs   = self._pcs_spin.value()
+        disc  = self._disc_spin.value()
+        vat   = self._vat_spin.value()
+        qty   = boxes if (self._current_pack_qty > 1 and boxes > 0) else pcs
+        denom = qty * (1 - disc / 100) * (1 + vat / 100)
         if denom > 0:
             self._price_spin.blockSignals(True)
             self._price_spin.setValue(round(val / denom, 4))
