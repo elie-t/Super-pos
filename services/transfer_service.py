@@ -244,6 +244,54 @@ class TransferService:
         return True, saved_id
 
     @staticmethod
+    def delete_transfer(transfer_id: str) -> tuple[bool, str]:
+        """Reverse stock movements, delete lines and header locally, then from Supabase."""
+        init_db()
+        session = get_session()
+        try:
+            from database.models.stock import WarehouseTransfer, WarehouseTransferItem, StockMovement
+            from database.models.items import ItemStock
+            from database.models.base import new_uuid
+
+            t = session.query(WarehouseTransfer).filter_by(id=transfer_id).first()
+            if not t:
+                return False, "Transfer not found."
+
+            # Reverse stock only if it was confirmed (has stock movements)
+            TransferService._reverse_stock(
+                session, transfer_id,
+                t.from_warehouse_id, t.to_warehouse_id,
+                t.items, new_uuid, ItemStock, StockMovement,
+            )
+
+            # Delete line items then header
+            session.query(WarehouseTransferItem).filter_by(transfer_id=transfer_id).delete()
+            session.delete(t)
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            return False, str(exc)
+        finally:
+            session.close()
+
+        # Delete from Supabase
+        try:
+            import requests
+            from sync.service import _url, _headers
+            requests.delete(
+                f"{_url('warehouse_transfer_items_central')}?transfer_id=eq.{transfer_id}",
+                headers=_headers(), timeout=15,
+            )
+            requests.delete(
+                f"{_url('warehouse_transfers_central')}?id=eq.{transfer_id}",
+                headers=_headers(), timeout=15,
+            )
+        except Exception as e:
+            print(f"[delete_transfer] Supabase delete failed: {e}")
+
+        return True, transfer_id
+
+    @staticmethod
     def lock_transfer(transfer_id: str) -> tuple[bool, str]:
         """Lock an open transfer to prevent further edits."""
         init_db()

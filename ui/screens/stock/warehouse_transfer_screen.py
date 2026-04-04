@@ -511,6 +511,20 @@ class WarehouseTransferScreen(QWidget):
         self._lock_btn.clicked.connect(self._toggle_lock)
         lay.addWidget(self._lock_btn)
 
+        self._delete_btn = QPushButton("🗑  Delete")
+        self._delete_btn.setFixedHeight(38)
+        self._delete_btn.setMinimumWidth(100)
+        self._delete_btn.setStyleSheet(
+            "QPushButton{background:#c62828;color:#fff;border:none;"
+            "border-radius:4px;font-size:13px;font-weight:600;padding:0 16px;}"
+            "QPushButton:hover{background:#b71c1c;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._delete_btn.setCursor(Qt.PointingHandCursor)
+        self._delete_btn.setEnabled(False)
+        self._delete_btn.clicked.connect(self._delete_transfer)
+        lay.addWidget(self._delete_btn)
+
         new_btn = QPushButton("✚  New")
         new_btn.setFixedHeight(38)
         new_btn.setStyleSheet(
@@ -1186,6 +1200,7 @@ class WarehouseTransferScreen(QWidget):
         self._lock_btn.setEnabled(True)
         self._lock_btn.setText("🔒  Lock")
         self._print_btn.setEnabled(True)
+        self._delete_btn.setEnabled(True)
 
         total   = sum(l["total"] for l in self._lines)
         n_lines = len(self._lines)
@@ -1389,6 +1404,7 @@ class WarehouseTransferScreen(QWidget):
         self._lock_btn.setEnabled(False)
         self._lock_btn.setText("🔒  Lock")
         self._print_btn.setEnabled(False)
+        self._delete_btn.setEnabled(False)
         self._set_locked(False)
         self._lines.clear()
         self._refresh_table()
@@ -1396,6 +1412,23 @@ class WarehouseTransferScreen(QWidget):
         self._clear_entry()
         self._refresh_transfer_number()
         self._notes_input.clear()
+
+    def _delete_transfer(self):
+        if not self._current_transfer_id:
+            return
+        ans = QMessageBox.question(
+            self, "Delete Transfer",
+            "Delete this transfer?\n\nStock movements will be reversed and the transfer "
+            "will be removed from all branches.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ans != QMessageBox.Yes:
+            return
+        ok, err = TransferService.delete_transfer(self._current_transfer_id)
+        if ok:
+            self._clear_all()
+        else:
+            QMessageBox.critical(self, "Delete Failed", err)
 
     # ── History ───────────────────────────────────────────────────────────────
 
@@ -1611,6 +1644,7 @@ class WarehouseTransferScreen(QWidget):
         self._clear_all()
         self._current_transfer_id = detail["id"]
         self._lock_btn.setEnabled(True)
+        self._delete_btn.setEnabled(True)
         locked = detail["status"] == "locked"
         self._lock_btn.setText("🔓  Unlock" if locked else "🔒  Lock")
         self._set_locked(locked)
