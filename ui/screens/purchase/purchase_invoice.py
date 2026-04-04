@@ -1464,6 +1464,10 @@ class PurchaseInvoiceScreen(QWidget):
                 line["pcs"] = val * line["pkg"]
         elif col == self.COL_PCS:
             line["pcs"] = val
+            # Pcs edited manually — reset box and clear price so user re-enters per-piece
+            if line["pkg"] > 1 and line.get("box", 0) > 0:
+                line["box"]   = 0
+                line["price"] = 0
         elif col == self.COL_PRC:
             line["price"] = val
         elif col == self.COL_DSC:
@@ -1472,10 +1476,12 @@ class PurchaseInvoiceScreen(QWidget):
             line["vat"] = val
         elif col == self.COL_TOT:
             # back-calc price from total
-            pcs   = line["pcs"]
-            disc  = line["disc"]
-            vat   = line["vat"]
-            denom = pcs * (1 - disc / 100) * (1 + vat / 100)
+            box  = line.get("box", 0)
+            pcs  = line["pcs"]
+            disc = line["disc"]
+            vat  = line["vat"]
+            qty  = box if (line["pkg"] > 1 and box > 0) else pcs
+            denom = qty * (1 - disc / 100) * (1 + vat / 100)
             if denom > 0:
                 line["price"] = round(val / denom, 4)
             line["total"] = val
@@ -1483,12 +1489,13 @@ class PurchaseInvoiceScreen(QWidget):
             self._refresh_totals()
             return
 
-        # Recalc total for all non-total edits
-        pcs   = line["pcs"]
+        # Recalc total — use box×price when box mode, pcs×price otherwise
+        box   = line.get("box", 0)
+        qty   = box if (line["pkg"] > 1 and box > 0) else line["pcs"]
         price = line["price"]
         disc  = line["disc"]
         vat   = line["vat"]
-        line["total"] = round(pcs * price * (1 - disc / 100) * (1 + vat / 100), 2)
+        line["total"] = round(qty * price * (1 - disc / 100) * (1 + vat / 100), 2)
 
         self._refresh_table()
         self._refresh_totals()
