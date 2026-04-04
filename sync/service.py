@@ -1447,6 +1447,13 @@ def push_purchase_invoice(invoice_id: str) -> tuple[bool, str]:
         if not ok:
             return False, err
 
+        # Delete all existing lines for this invoice from Supabase first,
+        # so removed lines don't survive and cause duplicates on re-pull.
+        requests.delete(
+            f"{_url('purchase_invoice_items_central')}?invoice_id=eq.{inv.id}",
+            headers=_headers(), timeout=15,
+        )
+
         item_rows = [
             {
                 "id":         li.id,
