@@ -1585,12 +1585,6 @@ class POSScreen(QWidget):
             self._open_vege_dialog()
             return
 
-        # "A" or "a" — free amount entry (custom description + amount)
-        if query.upper() == "A":
-            self._scan_input.clear()
-            self._open_free_amount_dialog()
-            return
-
         # "-code" prefix — deduct (negative qty) from invoice
         negative_qty = False
         if query.startswith("-") and len(query) > 1:
