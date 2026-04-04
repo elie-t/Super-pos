@@ -362,6 +362,55 @@ class SettingsScreen(QWidget):
 
         root.addWidget(sync_box)
 
+        # ── Stock History panel ────────────────────────────────────────────────
+        stock_box = QGroupBox("Stock History")
+        stock_box.setStyleSheet(
+            "QGroupBox { font-weight:700; font-size:13px; padding-top:12px; }"
+        )
+        stock_lay = QVBoxLayout(stock_box)
+        stock_lay.setSpacing(10)
+
+        stock_desc = QLabel(
+            "Set a stock start date to wipe all stock movements before that date\n"
+            "on ALL branches. Opening balance will show 0 from that date forward.\n"
+            "Current stock quantities are NOT affected — only the history is cleared."
+        )
+        stock_desc.setWordWrap(True)
+        stock_desc.setStyleSheet("font-size:11px; color:#555;")
+        stock_lay.addWidget(stock_desc)
+
+        date_row = QHBoxLayout()
+        date_row.setSpacing(10)
+        from PySide6.QtWidgets import QDateEdit as _QDE
+        from PySide6.QtCore import QDate as _QD
+        date_row.addWidget(QLabel("Clear all movements before:"))
+        self._stock_start_date = _QDE()
+        self._stock_start_date.setCalendarPopup(True)
+        self._stock_start_date.setDate(_QD.currentDate())
+        self._stock_start_date.setDisplayFormat("dd/MM/yyyy")
+        self._stock_start_date.setFixedHeight(30)
+        self._stock_start_date.setFixedWidth(130)
+        date_row.addWidget(self._stock_start_date)
+
+        set_start_btn = QPushButton("🗑  Clear History Before This Date")
+        set_start_btn.setFixedHeight(34)
+        set_start_btn.setCursor(Qt.PointingHandCursor)
+        set_start_btn.setStyleSheet(
+            "QPushButton{background:#b71c1c;color:#fff;border:none;"
+            "border-radius:5px;font-size:12px;font-weight:700;padding:0 16px;}"
+            "QPushButton:hover{background:#7f0000;}"
+        )
+        set_start_btn.clicked.connect(self._do_set_stock_start)
+        date_row.addWidget(set_start_btn)
+        date_row.addStretch()
+        stock_lay.addLayout(date_row)
+
+        self._stock_start_status = QLabel("")
+        self._stock_start_status.setStyleSheet("font-size:11px; color:#2e7d32;")
+        stock_lay.addWidget(self._stock_start_status)
+
+        root.addWidget(stock_box)
+
         # ── General / Currency panel ───────────────────────────────────────────
         general_box = QGroupBox("General Settings")
         general_box.setStyleSheet(
@@ -646,6 +695,71 @@ class SettingsScreen(QWidget):
                 top.refresh_login()
         except Exception:
             pass
+
+    def _do_set_stock_start(self):
+        from PySide6.QtWidgets import QMessageBox
+        cutoff_qdate = self._stock_start_date.date()
+        cutoff_str   = cutoff_qdate.toString("yyyy-MM-dd")
+        cutoff_iso   = f"{cutoff_str}T00:00:00Z"
+
+        ans = QMessageBox.question(
+            self, "Clear Stock History",
+            f"Delete ALL stock movements before  {cutoff_qdate.toString('dd/MM/yyyy')}  "
+            f"from this device AND from Supabase (all branches)?\n\n"
+            "Current stock quantities will NOT change.\n"
+            "This cannot be undone.\n\n"
+            "Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ans != QMessageBox.Yes:
+            return
+
+        try:
+            import requests as _req
+            import sqlalchemy as _sa
+            from database.engine import get_session, init_db
+            from sync.service import _url, _headers, is_configured
+
+            # 1. Delete from local stock_movements
+            init_db()
+            session = get_session()
+            try:
+                result = session.execute(
+                    _sa.text("DELETE FROM stock_movements WHERE created_at < :cutoff"),
+                    {"cutoff": cutoff_iso},
+                )
+                removed_local = result.rowcount
+                # Also clean applied_central_movements for gone movements
+                session.execute(_sa.text(
+                    "DELETE FROM applied_central_movements "
+                    "WHERE movement_id NOT IN (SELECT id FROM stock_movements)"
+                ))
+                session.commit()
+            finally:
+                session.close()
+
+            # 2. Delete from Supabase (all branches see the same cut)
+            removed_central = 0
+            if is_configured():
+                r = _req.delete(
+                    f"{_url('stock_movements_central')}?created_at=lt.{cutoff_iso}",
+                    headers=_headers(), timeout=30,
+                )
+                removed_central = 0 if r.status_code not in (200, 204) else -1
+
+            msg = (
+                f"Cleared {removed_local} local movements before {cutoff_str}.\n"
+                f"Supabase central movements also deleted."
+                if removed_central != 0 else
+                f"Cleared {removed_local} local movements before {cutoff_str}.\n"
+                "⚠ Supabase delete may have failed — check connection."
+            )
+            self._stock_start_status.setText(msg)
+            self._stock_start_status.setStyleSheet("font-size:11px; color:#2e7d32;")
+
+        except Exception as e:
+            self._stock_start_status.setText(f"Error: {e}")
+            self._stock_start_status.setStyleSheet("font-size:11px; color:#c62828;")
 
     def _do_reconcile_stock(self):
         """Full stock reconcile: clear applied-movements log, reset cursor,
