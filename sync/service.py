@@ -559,63 +559,65 @@ def pull_master_items() -> tuple[int, str]:
         return 0, ""
 
     last_pull = _state_get("items_pull")
+    # Also persist offset so we can resume if interrupted mid-batch
+    page_offset = int(_state_get("items_pull_offset") or 0)
+
+    PAGE = 500
+    total_updated = 0
+    latest_ts = last_pull
+
+    init_db()
+    session = get_session()
 
     try:
-        # Fetch changed items
-        r = requests.get(
-            f"{_url('items_central')}?updated_at=gt.{last_pull}&order=updated_at.asc&limit=500",
-            headers={**_headers(), "Prefer": ""},
-            timeout=20,
-        )
-        if r.status_code != 200:
-            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+        from sqlalchemy import func as sa_func
+        cats   = {c.name: c.id for c in session.query(Category).all()}
+        brands = {b.name: b.id for b in session.query(Brand).all()}
+        seen_codes: set[str] = set(r[0] for r in session.query(Item.code).all())
 
-        remote_items = r.json()
-        if not remote_items:
-            return 0, ""
+        while True:
+            try:
+                r = requests.get(
+                    f"{_url('items_central')}?updated_at=gte.{last_pull}"
+                    f"&order=updated_at.asc,id.asc&limit={PAGE}&offset={page_offset}",
+                    headers={**_headers(), "Prefer": ""},
+                    timeout=30,
+                )
+            except Exception as e:
+                return total_updated, str(e)
 
-        item_ids = [i["id"] for i in remote_items]
+            if r.status_code != 200:
+                return total_updated, f"HTTP {r.status_code}: {r.text[:200]}"
 
-        # Fetch prices for these items
-        ids_filter = ",".join(f'"{iid}"' for iid in item_ids)
-        rp = requests.get(
-            f"{_url('item_prices_central')}?item_id=in.({ids_filter})",
-            headers={**_headers(), "Prefer": ""},
-            timeout=20,
-        )
-        prices_by_item: dict[str, list] = {}
-        if rp.status_code == 200:
-            for p in rp.json():
-                prices_by_item.setdefault(p["item_id"], []).append(p)
+            remote_items = r.json()
+            if not remote_items:
+                break
 
-        # Fetch barcodes
-        rb = requests.get(
-            f"{_url('item_barcodes_central')}?item_id=in.({ids_filter})",
-            headers={**_headers(), "Prefer": ""},
-            timeout=20,
-        )
-        barcodes_by_item: dict[str, list] = {}
-        if rb.status_code == 200:
-            for b in rb.json():
-                barcodes_by_item.setdefault(b["item_id"], []).append(b)
+            item_ids = [i["id"] for i in remote_items]
+            ids_filter = ",".join(f'"{iid}"' for iid in item_ids)
 
-        init_db()
-        session = get_session()
-        updated = 0
-        latest_ts = last_pull
-
-        try:
-            # Build category/brand lookup by name
-            cats   = {c.name: c.id for c in session.query(Category).all()}
-            brands = {b.name: b.id for b in session.query(Brand).all()}
-
-            # Build a set of codes already seen in this batch to handle duplicates
-            seen_codes: set[str] = set(
-                r[0] for r in session.query(Item.code).all()
+            # Fetch prices and barcodes for this page
+            prices_by_item: dict[str, list] = {}
+            rp = requests.get(
+                f"{_url('item_prices_central')}?item_id=in.({ids_filter})",
+                headers={**_headers(), "Prefer": ""},
+                timeout=20,
             )
+            if rp.status_code == 200:
+                for p in rp.json():
+                    prices_by_item.setdefault(p["item_id"], []).append(p)
+
+            barcodes_by_item: dict[str, list] = {}
+            rb = requests.get(
+                f"{_url('item_barcodes_central')}?item_id=in.({ids_filter})",
+                headers={**_headers(), "Prefer": ""},
+                timeout=20,
+            )
+            if rb.status_code == 200:
+                for b in rb.json():
+                    barcodes_by_item.setdefault(b["item_id"], []).append(b)
 
             for ri in remote_items:
-                # Skip if pushed by this branch (we are the source)
                 if ri.get("pushed_by") == BRANCH_ID:
                     latest_ts = ri["updated_at"]
                     continue
@@ -624,39 +626,35 @@ def pull_master_items() -> tuple[int, str]:
                 if not item:
                     code_str = ri.get("code") or ri["id"][:12]
                     if code_str in seen_codes:
-                        # Duplicate code in central — skip to avoid UNIQUE crash
                         latest_ts = ri["updated_at"]
-                        updated += 1
+                        total_updated += 1
                         continue
                     item = Item(id=ri["id"])
                     session.add(item)
                     seen_codes.add(code_str)
 
-                item.code           = ri.get("code") or ri["id"][:12]
-                item.name           = ri.get("name") or ri.get("code") or ri["id"][:12]
-                item.name_ar        = ri.get("name_ar") or ""
-                item.unit           = ri.get("unit") or "PCS"
-                item.cost_price     = ri.get("cost_price") or 0
-                item.cost_currency  = ri.get("cost_currency") or "USD"
-                item.vat_rate       = ri.get("vat_rate") or 0
-                item.is_active      = ri.get("is_active", True)
-                item.is_online      = ri.get("is_online", False)
+                item.code            = ri.get("code") or ri["id"][:12]
+                item.name            = ri.get("name") or ri.get("code") or ri["id"][:12]
+                item.name_ar         = ri.get("name_ar") or ""
+                item.unit            = ri.get("unit") or "PCS"
+                item.cost_price      = ri.get("cost_price") or 0
+                item.cost_currency   = ri.get("cost_currency") or "USD"
+                item.vat_rate        = ri.get("vat_rate") or 0
+                item.is_active       = ri.get("is_active", True)
+                item.is_online       = ri.get("is_online", False)
                 item.is_pos_featured = ri.get("is_pos_featured", False)
-                item.photo_url      = ri.get("photo_url") or ""
-                item.notes          = ri.get("notes") or ""
+                item.photo_url       = ri.get("photo_url") or ""
+                item.notes           = ri.get("notes") or ""
 
                 cat_name   = ri.get("category") or ""
                 brand_name = ri.get("brand") or ""
                 item.category_id = cats.get(cat_name)
                 item.brand_id    = brands.get(brand_name)
 
-                # Upsert prices — match by ID first, then by (item_id, price_type, currency)
-                # to avoid duplicates when each machine imported from Excel independently
                 seen_price_keys: set[tuple] = set()
                 for rp_row in prices_by_item.get(ri["id"], []):
                     price = session.get(ItemPrice, rp_row["id"])
                     if not price:
-                        # Try matching by type+currency in case local UUID differs
                         price = session.query(ItemPrice).filter_by(
                             item_id=ri["id"],
                             price_type=rp_row["price_type"],
@@ -670,24 +668,19 @@ def pull_master_items() -> tuple[int, str]:
                     price.currency   = rp_row["currency"]
                     seen_price_keys.add((rp_row["price_type"], rp_row["currency"]))
 
-                # Remove duplicate prices not present in central (stale local-only records)
                 if seen_price_keys:
                     for dup in session.query(ItemPrice).filter_by(item_id=ri["id"]).all():
                         if (dup.price_type, dup.currency) not in seen_price_keys:
                             session.delete(dup)
 
-                # Upsert barcodes
-                from sqlalchemy import func as sa_func
                 for rb_row in barcodes_by_item.get(ri["id"], []):
                     bc = session.get(ItemBarcode, rb_row["id"])
                     if not bc:
-                        # Check for barcode value conflict with a different item
                         conflict = session.query(ItemBarcode).filter(
                             sa_func.lower(ItemBarcode.barcode) == rb_row["barcode"].lower(),
                             ItemBarcode.item_id != ri["id"],
                         ).first()
                         if conflict:
-                            # Local barcode for a different item takes priority — skip
                             continue
                         bc = ItemBarcode(id=rb_row["id"], item_id=ri["id"])
                         session.add(bc)
@@ -696,20 +689,26 @@ def pull_master_items() -> tuple[int, str]:
                     bc.pack_qty   = rb_row.get("pack_qty", 1)
 
                 latest_ts = ri["updated_at"]
-                updated += 1
+                total_updated += 1
 
+            # Commit this page and advance offset
             session.commit()
-            _state_set("items_pull", latest_ts)
-            return updated, ""
+            page_offset += len(remote_items)
+            _state_set("items_pull_offset", str(page_offset))
 
-        except Exception as e:
-            session.rollback()
-            return 0, str(e)
-        finally:
-            session.close()
+            if len(remote_items) < PAGE:
+                break  # Last page — done
+
+        # All pages done — save final timestamp, reset offset
+        _state_set("items_pull", latest_ts)
+        _state_set("items_pull_offset", "0")
+        return total_updated, ""
 
     except Exception as e:
-        return 0, str(e)
+        session.rollback()
+        return total_updated, str(e)
+    finally:
+        session.close()
 
 
 def pull_master_customers() -> tuple[int, str]:
