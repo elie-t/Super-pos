@@ -2281,6 +2281,60 @@ def pull_invoice_deletes() -> tuple[int, str]:
     finally:
         session.close()
 
+def pull_purchase_invoice_deletes() -> tuple[int, str]:
+    """
+    Reconcile: find local purchase invoices from other branches that no longer
+    exist in Supabase (deleted by that branch) and remove them locally.
+    Also removes own-branch invoices deleted from Supabase by another machine.
+    """
+    import sqlalchemy as _sa
+    from database.engine import get_session, init_db
+    from database.models.invoices import PurchaseInvoice, PurchaseInvoiceItem
+
+    if not is_configured():
+        return 0, ""
+
+    init_db()
+    session = get_session()
+    try:
+        rows = session.execute(
+            _sa.text("SELECT id FROM purchase_invoices LIMIT 500")
+        ).fetchall()
+
+        if not rows:
+            return 0, ""
+
+        local_ids = [r[0] for r in rows]
+        ids_filter = ",".join(f'"{i}"' for i in local_ids)
+
+        r = requests.get(
+            f"{_url('purchase_invoices_central')}?id=in.({ids_filter})&select=id",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}"
+
+        central_ids = {row["id"] for row in r.json()}
+        deleted_ids = [i for i in local_ids if i not in central_ids]
+
+        if not deleted_ids:
+            return 0, ""
+
+        for inv_id in deleted_ids:
+            session.query(PurchaseInvoiceItem).filter_by(invoice_id=inv_id).delete()
+            session.query(PurchaseInvoice).filter_by(id=inv_id).delete()
+
+        session.commit()
+        return len(deleted_ids), ""
+
+    except Exception as e:
+        session.rollback()
+        return 0, str(e)
+    finally:
+        session.close()
+
+
 # ── Enqueue helper (called from services) ────────────────────────────────────
 
 def enqueue(entity_type: str, entity_id: str, action: str, payload: dict) -> None:

@@ -42,7 +42,7 @@ class SyncWorker(QThread):
             pull_purchase_invoices, pull_suppliers,
             pull_sales_invoices, pull_warehouses, push_warehouses,
             pull_categories, pull_transfers, pull_inventory_sessions,
-            pull_invoice_deletes,
+            pull_invoice_deletes, pull_purchase_invoice_deletes,
             is_configured,
         )
         if not is_configured():
@@ -91,6 +91,9 @@ class SyncWorker(QThread):
             pinv_pulled, err = pull_purchase_invoices()
             if err:
                 self.error.emit(f"Purchase inv pull: {err}")
+
+            # Remove locally any purchase invoices deleted from Supabase
+            pull_purchase_invoice_deletes()
 
             # Pull categories (full sync)
             pull_categories()
