@@ -534,7 +534,7 @@ class FreeAmountDialog(QDialog):
         btn_row.addWidget(add)
         lay.addLayout(btn_row)
 
-        self._desc.setFocus()
+        self._inp.setFocus()
         # Tab from desc goes to amount
         self._desc.returnPressed.connect(self._inp.setFocus)
 
