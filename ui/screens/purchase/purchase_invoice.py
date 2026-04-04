@@ -878,6 +878,19 @@ class PurchaseInvoiceScreen(QWidget):
         clear_btn.setCursor(Qt.PointingHandCursor)
         clear_btn.clicked.connect(self._clear_all)
         btn_row.addWidget(clear_btn)
+
+        self._delete_btn = QPushButton("✖  Delete Invoice")
+        self._delete_btn.setFixedHeight(36)
+        self._delete_btn.setStyleSheet(
+            "QPushButton{background:#6a1010;color:#fff;font-size:13px;font-weight:700;"
+            "border-radius:4px;border:none;}"
+            "QPushButton:hover{background:#a01010;}"
+        )
+        self._delete_btn.setCursor(Qt.PointingHandCursor)
+        self._delete_btn.clicked.connect(self._delete_invoice)
+        self._delete_btn.hide()   # shown only when editing an existing invoice
+        btn_row.addWidget(self._delete_btn)
+
         btn_row.addStretch()
         left.addLayout(btn_row)
 
@@ -1629,6 +1642,22 @@ class PurchaseInvoiceScreen(QWidget):
 
     # ── Clear all ─────────────────────────────────────────────────────────────
 
+    def _delete_invoice(self):
+        if not self._loaded_invoice_id:
+            return
+        reply = QMessageBox.question(
+            self, "Delete Invoice",
+            f"Delete invoice {self._inv_no}?\nThis cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        ok, err = PurchaseService.delete_invoice(self._loaded_invoice_id)
+        if ok:
+            self.back.emit()
+        else:
+            QMessageBox.warning(self, "Error", err)
+
     def _clear_all(self):
         self._loaded_invoice_id = ""
         self._lines.clear()
@@ -1654,6 +1683,7 @@ class PurchaseInvoiceScreen(QWidget):
         self._loaded_invoice_id = invoice_id
         self._inv_no = data["invoice_number"]
         self._inv_no_label.setText(f"Invoice #  {self._inv_no}  [EDIT]")
+        self._delete_btn.show()
 
         # Supplier
         if data["supplier"]:
