@@ -569,7 +569,7 @@ def pull_all_stock_levels() -> tuple[int, str]:
         # Fetch all rows whose branch_id encodes a warehouse (contains "|")
         # and does NOT belong to this branch
         r = requests.get(
-            f"{_url('stock_levels')}?branch_id=neq.{BRANCH_ID}&branch_id=like.*|*&limit=10000",
+            f"{_url('stock_levels')}?branch_id=neq.{BRANCH_ID}&limit=10000",
             headers={**_headers(), "Prefer": ""},
             timeout=20,
         )
@@ -587,6 +587,7 @@ def pull_all_stock_levels() -> tuple[int, str]:
             from database.models.base import new_uuid
             for row in remote:
                 encoded = row.get("branch_id", "")
+                # Only process rows that encode a warehouse (our format: "branch_id|warehouse_id")
                 if "|" not in encoded:
                     continue
                 _, warehouse_id = encoded.split("|", 1)
