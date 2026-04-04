@@ -278,8 +278,8 @@ class ItemMaintenanceScreen(QWidget):
         self._discount_spin.setValue(0)
         self._vat_spin.setValue(11.0)
         self._price_table.setRowCount(0)
-        self._date_created_lbl.setText("Date Created:\n—")
-        self._date_modified_lbl.setText("Last Modified:\n—")
+        self._date_created_lbl.setText("Created: —")
+        self._date_modified_lbl.setText("Modified: —")
 
     # ── Left panel: code / name / category ───────────────────────────────────
 
@@ -469,63 +469,64 @@ class ItemMaintenanceScreen(QWidget):
     def _build_right_panel(self) -> QWidget:
         w = QWidget()
         w.setStyleSheet("background:#f0f4f8; border-left:1px solid #c0ccd8;")
+        w.setMinimumWidth(130)
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(3)
 
         notes_lbl = QLabel("Notes:")
-        notes_lbl.setStyleSheet("font-weight:600;")
+        notes_lbl.setStyleSheet("font-weight:600; font-size:11px;")
         layout.addWidget(notes_lbl)
 
         self._notes_edit = QTextEdit()
-        self._notes_edit.setFixedHeight(48)
+        self._notes_edit.setFixedHeight(36)
         layout.addWidget(self._notes_edit)
 
-        self._date_created_lbl = QLabel("Date Created:\n—")
-        self._date_created_lbl.setStyleSheet("color:#c62828; font-size:11px;")
+        self._date_created_lbl = QLabel("Created: —")
+        self._date_created_lbl.setStyleSheet("color:#c62828; font-size:10px;")
         layout.addWidget(self._date_created_lbl)
 
-        self._date_modified_lbl = QLabel("Last Modified:\n—")
-        self._date_modified_lbl.setStyleSheet("color:#c62828; font-size:11px;")
+        self._date_modified_lbl = QLabel("Modified: —")
+        self._date_modified_lbl.setStyleSheet("color:#c62828; font-size:10px;")
         layout.addWidget(self._date_modified_lbl)
 
-        layout.addSpacing(6)
+        layout.addSpacing(2)
 
         # Online flags
         online_lbl = QLabel("Online Shop:")
-        online_lbl.setStyleSheet("font-weight:600; font-size:11px;")
+        online_lbl.setStyleSheet("font-weight:600; font-size:10px;")
         layout.addWidget(online_lbl)
 
         self._chk_online = QCheckBox("Active Online")
-        self._chk_online.setStyleSheet("font-size:11px;")
+        self._chk_online.setStyleSheet("font-size:10px;")
         layout.addWidget(self._chk_online)
 
         self._chk_featured = QCheckBox("Featured")
-        self._chk_featured.setStyleSheet("font-size:11px;")
+        self._chk_featured.setStyleSheet("font-size:10px;")
         layout.addWidget(self._chk_featured)
 
-        self._chk_touch = QCheckBox("Show on Touch Screen")
-        self._chk_touch.setStyleSheet("font-size:11px;color:#00695c;font-weight:600;")
+        self._chk_touch = QCheckBox("Touch Screen")
+        self._chk_touch.setStyleSheet("font-size:10px; color:#00695c; font-weight:600;")
         layout.addWidget(self._chk_touch)
 
-        layout.addSpacing(6)
+        layout.addSpacing(2)
 
-        # Action buttons — styled like reference software
+        # Action buttons
         btns = [
-            ("✖  Delete",      "#c62828", "#e53935", self._confirm_delete),
-            ("🔍  Search",      "#1a6cb5", "#1a80d4", self._go_search),
-            ("📊  Stock Card",  "#1a6cb5", "#1a80d4", self._open_stock_card),
-            ("💾  Save",        "#2e7d32", "#388e3c", self._save),
-            ("✖  Close",       "#555555", "#777777", self.back.emit),
+            ("✖  Delete",     "#c62828", "#e53935", self._confirm_delete),
+            ("🔍  Search",     "#1a6cb5", "#1a80d4", self._go_search),
+            ("📊  Stock Card", "#1a6cb5", "#1a80d4", self._open_stock_card),
+            ("💾  Save",       "#2e7d32", "#388e3c", self._save),
+            ("✖  Close",      "#555555", "#777777", self.back.emit),
         ]
 
         for label, bg, hover, slot in btns:
             btn = QPushButton(label)
-            btn.setFixedHeight(36)
+            btn.setFixedHeight(28)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(
                 f"QPushButton {{ background:{bg}; color:#fff; border:none; border-radius:4px; "
-                f"font-weight:600; font-size:12px; }}"
+                f"font-weight:600; font-size:11px; }}"
                 f"QPushButton:hover {{ background:{hover}; }}"
             )
             btn.clicked.connect(slot)
@@ -533,7 +534,7 @@ class ItemMaintenanceScreen(QWidget):
 
         self._status_lbl = QLabel("")
         self._status_lbl.setWordWrap(True)
-        self._status_lbl.setStyleSheet("font-size:11px; color:#c62828;")
+        self._status_lbl.setStyleSheet("font-size:10px; color:#c62828;")
         layout.addWidget(self._status_lbl)
         layout.addStretch()
         return w
@@ -778,8 +779,8 @@ class ItemMaintenanceScreen(QWidget):
 
         # Dates
         if detail.id:
-            self._date_created_lbl.setText(f"Date Created:\n—")
-            self._date_modified_lbl.setText(f"Last Modified:\n—")
+            self._date_created_lbl.setText("Created: —")
+            self._date_modified_lbl.setText("Modified: —")
 
         # Stock summary
         total_stock = sum(qty for _, qty in detail.stock_entries)
