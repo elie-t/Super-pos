@@ -726,7 +726,7 @@ class SalesListDialog(QDialog):
 
         th = self._table.horizontalHeader()
         th.setSectionResizeMode(2, QHeaderView.Stretch)
-        for col, w in ((0, 110), (1, 90), (3, 140), (4, 130)):
+        for col, w in ((0, 80), (1, 130), (3, 140), (4, 130)):
             th.setSectionResizeMode(col, QHeaderView.Fixed)
             self._table.setColumnWidth(col, w)
         th.setStyleSheet(
