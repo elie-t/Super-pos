@@ -159,7 +159,7 @@ class _SyncAllWorker(QThread):
             pull_inventory_sessions,
             push_categories,
             drain_sync_queue,
-            push_all_stock_levels, pull_all_stock_levels,
+            pull_all_stock_levels,
         )
         from sync.push_all import push_all_online_items
 
@@ -198,9 +198,7 @@ class _SyncAllWorker(QThread):
         n, err = pull_warehouses()
         results.append(f"Warehouses pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
-        self.progress.emit("Pushing stock snapshot…")
-        push_all_stock_levels()
-        self.progress.emit("Pulling stock snapshot from other branches…")
+        self.progress.emit("Rebuilding stock levels from movements…")
         n, err = pull_all_stock_levels()
         results.append(f"Stock levels synced: {n}" + (f" ⚠ {err}" if err else ""))
 

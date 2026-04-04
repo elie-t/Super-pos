@@ -43,7 +43,7 @@ class SyncWorker(QThread):
             pull_sales_invoices, pull_warehouses, push_warehouses,
             pull_categories, pull_transfers, pull_inventory_sessions,
             pull_invoice_deletes, pull_purchase_invoice_deletes,
-            push_all_stock_levels, pull_all_stock_levels,
+            pull_all_stock_levels,
             dedupe_stock_movements,
             is_configured,
         )
@@ -82,8 +82,7 @@ class SyncWorker(QThread):
             push_warehouses()
             pull_warehouses()
 
-            # Push this branch's current stock snapshot, pull other branches'
-            push_all_stock_levels()
+            # Rebuild ItemStock from local movements (keeps quantities in sync)
             pull_all_stock_levels()
 
             # Remove any duplicate stock movements (self-healing)

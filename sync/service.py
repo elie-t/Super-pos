@@ -572,76 +572,51 @@ def push_all_stock_levels() -> tuple[bool, str]:
 
 def pull_all_stock_levels() -> tuple[int, str]:
     """
-    Pull stock levels pushed by OTHER branches and overwrite local ItemStock.
-    Only touches items+warehouses that exist locally; ignores unknown IDs.
+    Rebuild ItemStock for every (item_id, warehouse_id) by summing all local
+    stock_movements. Guaranteed to be consistent with the movement history.
     """
     from database.engine import get_session, init_db
-    from database.models.items import ItemStock, Warehouse
+    from database.models.items import ItemStock
+    from database.models.base import new_uuid
     import sqlalchemy
 
-    if not is_configured() or not BRANCH_ID:
-        return 0, ""
-
+    init_db()
+    session = get_session()
     try:
-        # Fetch all rows whose branch_id encodes a warehouse (contains "|")
-        # and does NOT belong to this branch
-        r = requests.get(
-            f"{_url('stock_levels')}?branch_id=neq.{BRANCH_ID}&limit=10000",
-            headers={**_headers(), "Prefer": ""},
-            timeout=20,
-        )
-        if r.status_code != 200:
-            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+        rows = session.execute(sqlalchemy.text("""
+            SELECT item_id, warehouse_id, SUM(quantity) AS total
+            FROM stock_movements
+            WHERE item_id IS NOT NULL AND item_id != ''
+              AND warehouse_id IS NOT NULL AND warehouse_id != ''
+            GROUP BY item_id, warehouse_id
+        """)).fetchall()
 
-        remote = r.json()
-        if not remote:
-            return 0, ""
-
-        init_db()
-        session = get_session()
         updated = 0
-        try:
-            from database.models.base import new_uuid
-            for row in remote:
-                encoded = row.get("branch_id", "")
-                # Only process rows that encode a warehouse (our format: "branch_id|warehouse_id")
-                if "|" not in encoded:
-                    continue
-                _, warehouse_id = encoded.split("|", 1)
-                item_id  = row["item_id"]
-                quantity = float(row.get("quantity") or 0)
-
-                # Only apply if item and warehouse exist locally
-                item_exists = session.execute(
-                    sqlalchemy.text("SELECT 1 FROM items WHERE id=:id"), {"id": item_id}
-                ).fetchone()
-                wh_exists = session.get(Warehouse, warehouse_id)
-                if not item_exists or not wh_exists:
-                    continue
-
-                stock = session.query(ItemStock).filter_by(
-                    item_id=item_id, warehouse_id=warehouse_id
-                ).first()
-                if stock:
-                    stock.quantity = quantity
-                else:
-                    session.add(ItemStock(
-                        id=new_uuid(),
-                        item_id=item_id,
-                        warehouse_id=warehouse_id,
-                        quantity=quantity,
-                    ))
+        for item_id, warehouse_id, total in rows:
+            qty = float(total or 0)
+            stock = session.query(ItemStock).filter_by(
+                item_id=item_id, warehouse_id=warehouse_id
+            ).first()
+            if stock:
+                if stock.quantity != qty:
+                    stock.quantity = qty
+                    updated += 1
+            else:
+                session.add(ItemStock(
+                    id=new_uuid(),
+                    item_id=item_id,
+                    warehouse_id=warehouse_id,
+                    quantity=qty,
+                ))
                 updated += 1
 
-            session.commit()
-            return updated, ""
-        except Exception as e:
-            session.rollback()
-            return 0, str(e)
-        finally:
-            session.close()
+        session.commit()
+        return updated, ""
     except Exception as e:
+        session.rollback()
         return 0, str(e)
+    finally:
+        session.close()
 
 
 def push_customer_master(customer_id: str) -> tuple[bool, str]:
