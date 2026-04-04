@@ -559,8 +559,10 @@ def pull_master_items() -> tuple[int, str]:
         return 0, ""
 
     last_pull = _state_get("items_pull")
-    # Also persist offset so we can resume if interrupted mid-batch
-    page_offset = int(_state_get("items_pull_offset") or 0)
+    last_id   = _state_get("items_pull_last_id")   # cursor: last UUID processed
+    # last_id default from _state_get is a timestamp string — treat as empty
+    if not last_id or "-" not in last_id or len(last_id) != 36:
+        last_id = ""
 
     PAGE = 500
     total_updated = 0
@@ -576,13 +578,16 @@ def pull_master_items() -> tuple[int, str]:
         seen_codes: set[str] = set(r[0] for r in session.query(Item.code).all())
 
         while True:
+            # Cursor: get next PAGE items ordered by id, after last seen id
+            if last_id:
+                url = (f"{_url('items_central')}?updated_at=gte.{last_pull}"
+                       f"&id=gt.{last_id}&order=id.asc&limit={PAGE}")
+            else:
+                url = (f"{_url('items_central')}?updated_at=gte.{last_pull}"
+                       f"&order=id.asc&limit={PAGE}")
+
             try:
-                r = requests.get(
-                    f"{_url('items_central')}?updated_at=gte.{last_pull}"
-                    f"&order=updated_at.asc,id.asc&limit={PAGE}&offset={page_offset}",
-                    headers={**_headers(), "Prefer": ""},
-                    timeout=30,
-                )
+                r = requests.get(url, headers={**_headers(), "Prefer": ""}, timeout=30)
             except Exception as e:
                 return total_updated, str(e)
 
@@ -596,12 +601,10 @@ def pull_master_items() -> tuple[int, str]:
             item_ids = [i["id"] for i in remote_items]
             ids_filter = ",".join(f'"{iid}"' for iid in item_ids)
 
-            # Fetch prices and barcodes for this page
             prices_by_item: dict[str, list] = {}
             rp = requests.get(
                 f"{_url('item_prices_central')}?item_id=in.({ids_filter})",
-                headers={**_headers(), "Prefer": ""},
-                timeout=20,
+                headers={**_headers(), "Prefer": ""}, timeout=20,
             )
             if rp.status_code == 200:
                 for p in rp.json():
@@ -610,8 +613,7 @@ def pull_master_items() -> tuple[int, str]:
             barcodes_by_item: dict[str, list] = {}
             rb = requests.get(
                 f"{_url('item_barcodes_central')}?item_id=in.({ids_filter})",
-                headers={**_headers(), "Prefer": ""},
-                timeout=20,
+                headers={**_headers(), "Prefer": ""}, timeout=20,
             )
             if rb.status_code == 200:
                 for b in rb.json():
@@ -619,14 +621,14 @@ def pull_master_items() -> tuple[int, str]:
 
             for ri in remote_items:
                 if ri.get("pushed_by") == BRANCH_ID:
-                    latest_ts = ri["updated_at"]
+                    latest_ts = ri.get("updated_at", latest_ts)
                     continue
 
                 item = session.get(Item, ri["id"])
                 if not item:
                     code_str = ri.get("code") or ri["id"][:12]
                     if code_str in seen_codes:
-                        latest_ts = ri["updated_at"]
+                        latest_ts = ri.get("updated_at", latest_ts)
                         total_updated += 1
                         continue
                     item = Item(id=ri["id"])
@@ -688,20 +690,20 @@ def pull_master_items() -> tuple[int, str]:
                     bc.is_primary = rb_row.get("is_primary", False)
                     bc.pack_qty   = rb_row.get("pack_qty", 1)
 
-                latest_ts = ri["updated_at"]
+                latest_ts = ri.get("updated_at", latest_ts)
                 total_updated += 1
 
-            # Commit this page and advance offset
+            # Commit page, advance cursor to last id in this batch
             session.commit()
-            page_offset += len(remote_items)
-            _state_set("items_pull_offset", str(page_offset))
+            last_id = remote_items[-1]["id"]
+            _state_set("items_pull_last_id", last_id)
 
             if len(remote_items) < PAGE:
-                break  # Last page — done
+                break  # Last page
 
-        # All pages done — save final timestamp, reset offset
+        # Done — save timestamp, clear cursor
         _state_set("items_pull", latest_ts)
-        _state_set("items_pull_offset", "0")
+        _state_set("items_pull_last_id", "")
         return total_updated, ""
 
     except Exception as e:
