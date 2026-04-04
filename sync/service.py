@@ -515,6 +515,117 @@ def push_stock_level(item_id: str) -> tuple[bool, str]:
         session.close()
 
 
+def push_all_stock_levels() -> tuple[bool, str]:
+    """
+    Push every (item, warehouse) stock row to stock_levels in Supabase.
+    Uses branch_id = "{BRANCH_ID}|{warehouse_id}" as the unique composite key
+    so each warehouse gets its own row without schema changes.
+    """
+    from database.engine import get_session, init_db
+    from database.models.items import ItemStock
+
+    if not is_configured() or not BRANCH_ID:
+        return True, ""
+
+    init_db()
+    session = get_session()
+    try:
+        rows_all = session.query(ItemStock).all()
+        if not rows_all:
+            return True, ""
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [
+            {
+                "item_id":    s.item_id,
+                "branch_id":  f"{BRANCH_ID}|{s.warehouse_id}",
+                "quantity":   s.quantity,
+                "updated_at": now,
+            }
+            for s in rows_all
+        ]
+        # Push in batches of 500
+        for i in range(0, len(rows), 500):
+            ok, err = upsert_rows("stock_levels", rows[i:i+500])
+            if not ok:
+                return False, err
+        return True, ""
+    finally:
+        session.close()
+
+
+def pull_all_stock_levels() -> tuple[int, str]:
+    """
+    Pull stock levels pushed by OTHER branches and overwrite local ItemStock.
+    Only touches items+warehouses that exist locally; ignores unknown IDs.
+    """
+    from database.engine import get_session, init_db
+    from database.models.items import ItemStock, Warehouse
+    import sqlalchemy
+
+    if not is_configured() or not BRANCH_ID:
+        return 0, ""
+
+    try:
+        # Fetch all rows whose branch_id encodes a warehouse (contains "|")
+        # and does NOT belong to this branch
+        r = requests.get(
+            f"{_url('stock_levels')}?branch_id=neq.{BRANCH_ID}&branch_id=like.*|*&limit=10000",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+
+        remote = r.json()
+        if not remote:
+            return 0, ""
+
+        init_db()
+        session = get_session()
+        updated = 0
+        try:
+            from database.models.base import new_uuid
+            for row in remote:
+                encoded = row.get("branch_id", "")
+                if "|" not in encoded:
+                    continue
+                _, warehouse_id = encoded.split("|", 1)
+                item_id  = row["item_id"]
+                quantity = float(row.get("quantity") or 0)
+
+                # Only apply if item and warehouse exist locally
+                item_exists = session.execute(
+                    sqlalchemy.text("SELECT 1 FROM items WHERE id=:id"), {"id": item_id}
+                ).fetchone()
+                wh_exists = session.get(Warehouse, warehouse_id)
+                if not item_exists or not wh_exists:
+                    continue
+
+                stock = session.query(ItemStock).filter_by(
+                    item_id=item_id, warehouse_id=warehouse_id
+                ).first()
+                if stock:
+                    stock.quantity = quantity
+                else:
+                    session.add(ItemStock(
+                        id=new_uuid(),
+                        item_id=item_id,
+                        warehouse_id=warehouse_id,
+                        quantity=quantity,
+                    ))
+                updated += 1
+
+            session.commit()
+            return updated, ""
+        except Exception as e:
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+    except Exception as e:
+        return 0, str(e)
+
+
 def push_customer_master(customer_id: str) -> tuple[bool, str]:
     """Push a customer record to customers_central."""
     from database.engine import get_session, init_db

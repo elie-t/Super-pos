@@ -154,11 +154,12 @@ class _SyncAllWorker(QThread):
             pull_master_items, pull_master_customers,
             pull_stock_movements, pull_users,
             pull_purchase_invoices, pull_suppliers,
-            pull_sales_invoices, pull_warehouses,
+            pull_sales_invoices, pull_warehouses, push_warehouses,
             pull_categories, pull_transfers,
             pull_inventory_sessions,
             push_categories,
             drain_sync_queue,
+            push_all_stock_levels, pull_all_stock_levels,
         )
         from sync.push_all import push_all_online_items
 
@@ -193,8 +194,15 @@ class _SyncAllWorker(QThread):
         results.append(f"Stock movements applied: {n}" + (f" ⚠ {err}" if err else ""))
 
         self.progress.emit("Pulling warehouses…")
+        push_warehouses()
         n, err = pull_warehouses()
         results.append(f"Warehouses pulled: {n}" + (f" ⚠ {err}" if err else ""))
+
+        self.progress.emit("Pushing stock snapshot…")
+        push_all_stock_levels()
+        self.progress.emit("Pulling stock snapshot from other branches…")
+        n, err = pull_all_stock_levels()
+        results.append(f"Stock levels synced: {n}" + (f" ⚠ {err}" if err else ""))
 
         self.progress.emit("Pulling suppliers…")
         n, err = pull_suppliers()

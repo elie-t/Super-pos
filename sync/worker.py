@@ -43,6 +43,7 @@ class SyncWorker(QThread):
             pull_sales_invoices, pull_warehouses, push_warehouses,
             pull_categories, pull_transfers, pull_inventory_sessions,
             pull_invoice_deletes, pull_purchase_invoice_deletes,
+            push_all_stock_levels, pull_all_stock_levels,
             is_configured,
         )
         if not is_configured():
@@ -79,6 +80,10 @@ class SyncWorker(QThread):
             # Push local warehouses, then pull all from central
             push_warehouses()
             pull_warehouses()
+
+            # Push this branch's current stock snapshot, pull other branches'
+            push_all_stock_levels()
+            pull_all_stock_levels()
 
             # Pull suppliers
             pull_suppliers()
