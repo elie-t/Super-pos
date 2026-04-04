@@ -161,3 +161,17 @@ def init_db() -> None:
             conn.commit()
         except Exception:
             pass
+        try:
+            # Propagate show_on_touch from category to items that are missing it.
+            # Runs on every startup but is a no-op when already correct.
+            conn.execute(__import__("sqlalchemy").text(
+                """UPDATE items SET show_on_touch=1
+                   WHERE show_on_touch=0
+                     AND is_pos_featured=1
+                     AND category_id IN (
+                         SELECT id FROM categories WHERE show_on_touch=1
+                     )"""
+            ))
+            conn.commit()
+        except Exception:
+            pass

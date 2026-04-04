@@ -681,7 +681,8 @@ def pull_master_items() -> tuple[int, str]:
 
     try:
         from sqlalchemy import func as sa_func
-        cats   = {c.name: c.id for c in session.query(Category).all()}
+        cats       = {c.name: c.id          for c in session.query(Category).all()}
+        cat_touch  = {c.name: c.show_on_touch for c in session.query(Category).all()}
         brands = {b.name: b.id for b in session.query(Brand).all()}
         seen_codes: set[str] = set(r[0] for r in session.query(Item.code).all())
 
@@ -737,6 +738,7 @@ def pull_master_items() -> tuple[int, str]:
                     continue
 
                 item = session.get(Item, ri["id"])
+                is_new = False
                 if not item:
                     code_str = ri.get("code") or ri["id"][:12]
                     if code_str in seen_codes:
@@ -752,6 +754,7 @@ def pull_master_items() -> tuple[int, str]:
                     item = Item(id=ri["id"])
                     session.add(item)
                     seen_codes.add(code_str)
+                    is_new = True
 
                 item.code            = ri.get("code") or ri["id"][:12]
                 item.name            = ri.get("name") or ri.get("code") or ri["id"][:12]
@@ -770,6 +773,10 @@ def pull_master_items() -> tuple[int, str]:
                 brand_name = ri.get("brand") or ""
                 item.category_id = cats.get(cat_name)
                 item.brand_id    = brands.get(brand_name)
+
+                # New items inherit show_on_touch from their category
+                if is_new and cat_touch.get(cat_name):
+                    item.show_on_touch = True
 
                 seen_price_keys: set[tuple] = set()
                 for rp_row in prices_by_item.get(ri["id"], []):
