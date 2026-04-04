@@ -631,6 +631,13 @@ def pull_master_items() -> tuple[int, str]:
                         latest_ts = ri.get("updated_at", latest_ts)
                         total_updated += 1
                         continue
+                    # Belt-and-suspenders: check DB directly for code conflicts
+                    existing = session.query(Item).filter_by(code=code_str).first()
+                    if existing:
+                        seen_codes.add(code_str)
+                        latest_ts = ri.get("updated_at", latest_ts)
+                        total_updated += 1
+                        continue
                     item = Item(id=ri["id"])
                     session.add(item)
                     seen_codes.add(code_str)
