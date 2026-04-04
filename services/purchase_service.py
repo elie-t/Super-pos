@@ -526,7 +526,7 @@ class PurchaseService:
 
     @staticmethod
     def delete_invoice(invoice_id: str) -> tuple[bool, str]:
-        """Delete a purchase invoice and all its lines."""
+        """Delete a purchase invoice and all its lines from local DB and Supabase."""
         init_db()
         session = get_session()
         try:
@@ -537,12 +537,29 @@ class PurchaseService:
                 return False, "Invoice not found."
             session.delete(inv)
             session.commit()
-            return True, ""
         except Exception as exc:
             session.rollback()
             return False, str(exc)
         finally:
             session.close()
+
+        # Delete from Supabase
+        try:
+            from sync.service import _headers, _url, is_configured
+            import requests
+            if is_configured():
+                requests.delete(
+                    f"{_url('purchase_invoice_items_central')}?invoice_id=eq.{invoice_id}",
+                    headers=_headers(), timeout=15,
+                )
+                requests.delete(
+                    f"{_url('purchase_invoices_central')}?id=eq.{invoice_id}",
+                    headers=_headers(), timeout=15,
+                )
+        except Exception:
+            pass  # Local delete succeeded; Supabase failure is non-fatal
+
+        return True, ""
 
     @staticmethod
     def get_invoice_pricing_data(invoice_id: str) -> list[dict]:
