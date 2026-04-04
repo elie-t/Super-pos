@@ -923,27 +923,32 @@ def pull_stock_movements() -> tuple[int, str]:
                 ).fetchone()
                 wh_exists = session.get(Warehouse, warehouse_id)
 
-                if item_exists and wh_exists:
-                    cache_key = (item_id, warehouse_id)
-                    stock = stock_cache.get(cache_key)
-                    if stock is None:
-                        stock = session.query(ItemStock).filter_by(
-                            item_id=item_id, warehouse_id=warehouse_id
-                        ).first()
-                    if stock:
-                        stock.quantity += qty_change
-                        stock_cache[cache_key] = stock
-                    else:
-                        stock = ItemStock(
-                            id=new_uuid(),
-                            item_id=item_id,
-                            warehouse_id=warehouse_id,
-                            quantity=qty_change,
-                        )
-                        session.add(stock)
-                        stock_cache[cache_key] = stock
+                if not item_exists or not wh_exists:
+                    # Item or warehouse not yet synced — skip WITHOUT marking applied
+                    # so it will be retried on the next sync cycle
+                    latest_ts = rm["created_at"]
+                    continue
 
-                # Mark as applied
+                cache_key = (item_id, warehouse_id)
+                stock = stock_cache.get(cache_key)
+                if stock is None:
+                    stock = session.query(ItemStock).filter_by(
+                        item_id=item_id, warehouse_id=warehouse_id
+                    ).first()
+                if stock:
+                    stock.quantity += qty_change
+                    stock_cache[cache_key] = stock
+                else:
+                    stock = ItemStock(
+                        id=new_uuid(),
+                        item_id=item_id,
+                        warehouse_id=warehouse_id,
+                        quantity=qty_change,
+                    )
+                    session.add(stock)
+                    stock_cache[cache_key] = stock
+
+                # Mark as applied (only reached when stock was actually updated)
                 session.execute(
                     sqlalchemy.text(
                         "INSERT OR IGNORE INTO applied_central_movements"

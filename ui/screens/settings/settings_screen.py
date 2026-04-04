@@ -640,32 +640,38 @@ class SettingsScreen(QWidget):
             pass
 
     def _do_reconcile_stock(self):
-        """Reset the stock-movements pull cursor so the next sync re-fetches
-        all movements from the beginning. Already-applied movements are skipped
-        via applied_central_movements; only missed ones get applied."""
+        """Full stock reconcile: clear applied-movements log, reset cursor,
+        re-pull all movements from Supabase and re-apply from scratch."""
         from PySide6.QtWidgets import QMessageBox
         ans = QMessageBox.question(
             self, "Reconcile Stock",
-            "This will reset the stock-movements sync cursor and re-pull all\n"
-            "movements from Supabase on the next sync cycle.\n\n"
-            "Already-applied movements will be skipped automatically.\n"
-            "Use this when stock counts differ between branches.\n\n"
+            "This will:\n"
+            "  1. Clear the applied-movements log\n"
+            "  2. Reset the pull cursor to the beginning\n"
+            "  3. Re-pull and re-apply ALL stock movements from Supabase\n\n"
+            "Use this when stock counts differ between branches.\n"
             "Continue?",
             QMessageBox.Yes | QMessageBox.No,
         )
         if ans != QMessageBox.Yes:
             return
         try:
+            import sqlalchemy
+            from database.engine import get_session, init_db
             from sync.service import _state_set
+            init_db()
+            session = get_session()
+            try:
+                # Clear the applied log so every movement gets re-evaluated
+                session.execute(sqlalchemy.text("DELETE FROM applied_central_movements"))
+                session.commit()
+            finally:
+                session.close()
             _state_set("movements_pull", "2000-01-01T00:00:00Z")
-            self._sync_status.setText(
-                "Stock cursor reset. Triggering re-pull now…"
-            )
+            self._sync_status.setText("Applied-movements log cleared. Re-pulling now…")
             self._result_lbl.hide()
-            # Immediately trigger a pull so the user doesn't have to wait
             self._do_force_sync()
         except Exception as e:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Error", str(e))
 
     # ── Printer config helpers ─────────────────────────────────────────────────
