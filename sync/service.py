@@ -559,10 +559,14 @@ def pull_master_items() -> tuple[int, str]:
         return 0, ""
 
     last_pull = _state_get("items_pull")
-    last_id   = _state_get("items_pull_last_id")   # cursor: last UUID processed
-    # last_id default from _state_get is a timestamp string — treat as empty
-    if not last_id or "-" not in last_id or len(last_id) != 36:
+    last_id   = _state_get("items_pull_last_id")   # set only during initial full sync
+    if not last_id or len(last_id) != 36 or "-" not in last_id:
         last_id = ""
+
+    # ── Mode selection ────────────────────────────────────────────────────────
+    # Full-sync mode  : last_id cursor is set — paginate all items by ID
+    # Incremental mode: last_id empty — fetch only items updated since last_pull
+    full_sync_mode = bool(last_id) or last_pull == "2000-01-01T00:00:00Z"
 
     PAGE = 500
     total_updated = 0
@@ -578,13 +582,17 @@ def pull_master_items() -> tuple[int, str]:
         seen_codes: set[str] = set(r[0] for r in session.query(Item.code).all())
 
         while True:
-            # Cursor: get next PAGE items ordered by id, after last seen id
-            if last_id:
-                url = (f"{_url('items_central')}?updated_at=gte.{last_pull}"
-                       f"&id=gt.{last_id}&order=id.asc&limit={PAGE}")
+            if full_sync_mode:
+                # ID-cursor pagination — fast, no offset scanning
+                if last_id:
+                    url = (f"{_url('items_central')}?id=gt.{last_id}"
+                           f"&order=id.asc&limit={PAGE}")
+                else:
+                    url = f"{_url('items_central')}?order=id.asc&limit={PAGE}"
             else:
-                url = (f"{_url('items_central')}?updated_at=gte.{last_pull}"
-                       f"&order=id.asc&limit={PAGE}")
+                # Incremental — only items changed since last sync
+                url = (f"{_url('items_central')}?updated_at=gt.{last_pull}"
+                       f"&order=updated_at.asc,id.asc&limit={PAGE}")
 
             try:
                 r = requests.get(url, headers={**_headers(), "Prefer": ""}, timeout=30)
@@ -631,7 +639,6 @@ def pull_master_items() -> tuple[int, str]:
                         latest_ts = ri.get("updated_at", latest_ts)
                         total_updated += 1
                         continue
-                    # Belt-and-suspenders: check DB directly for code conflicts
                     existing = session.query(Item).filter_by(code=code_str).first()
                     if existing:
                         seen_codes.add(code_str)
@@ -700,17 +707,23 @@ def pull_master_items() -> tuple[int, str]:
                 latest_ts = ri.get("updated_at", latest_ts)
                 total_updated += 1
 
-            # Commit page, advance cursor to last id in this batch
             session.commit()
-            last_id = remote_items[-1]["id"]
-            _state_set("items_pull_last_id", last_id)
+
+            if full_sync_mode:
+                last_id = remote_items[-1]["id"]
+                _state_set("items_pull_last_id", last_id)
+            else:
+                # Incremental: save latest timestamp seen so next run starts here
+                _state_set("items_pull", latest_ts)
 
             if len(remote_items) < PAGE:
                 break  # Last page
 
-        # Done — save timestamp, clear cursor
-        _state_set("items_pull", latest_ts)
-        _state_set("items_pull_last_id", "")
+        if full_sync_mode:
+            # Full sync done — switch to incremental mode from now
+            _state_set("items_pull", datetime.now(timezone.utc).isoformat())
+            _state_set("items_pull_last_id", "")
+
         return total_updated, ""
 
     except Exception as e:
