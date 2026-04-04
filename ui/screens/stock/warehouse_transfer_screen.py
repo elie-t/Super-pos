@@ -73,6 +73,7 @@ class PostTransferDialog(QDialog):
 
 class WarehouseTransferScreen(QWidget):
     back = Signal()
+    edit_item_requested = Signal(str)   # item_id → open item maintenance
 
     COL_NUM  = 0
     COL_CODE = 1
@@ -886,16 +887,17 @@ class WarehouseTransferScreen(QWidget):
                         cell.setBackground(QColor("#ffebee"))
                 self._table.setItem(row, col, cell)
 
-            # Edit button
+            # Edit button → opens item maintenance
             edit_btn = QPushButton("✏")
-            edit_btn.setToolTip("Edit line")
+            edit_btn.setToolTip("Open item maintenance")
             edit_btn.setStyleSheet(
                 "QPushButton{background:#e65100;color:#fff;border:none;border-radius:3px;}"
                 "QPushButton:hover{background:#bf360c;}"
             )
             edit_btn.setFixedSize(24, 24)
             edit_btn.setCursor(Qt.PointingHandCursor)
-            edit_btn.clicked.connect(lambda _, r=row: self._load_line_to_entry(r))
+            item_id = line["item_id"]
+            edit_btn.clicked.connect(lambda _, iid=item_id: self.edit_item_requested.emit(iid))
             self._table.setCellWidget(row, self.COL_EDIT, edit_btn)
 
             # Stock-card (H) button

@@ -106,6 +106,23 @@ class StockModule(QWidget):
             screen.open_item_requested.connect(self._show_item_maintenance)
         if hasattr(screen, "add_item_requested"):
             screen.add_item_requested.connect(lambda: self._show_item_maintenance(""))
+        if hasattr(screen, "edit_item_requested"):
+            screen.edit_item_requested.connect(
+                lambda iid, s=screen: self._open_item_maintenance_from(iid, s)
+            )
+
+    def _open_item_maintenance_from(self, item_id: str, return_to: QWidget):
+        """Open item maintenance; pressing Back returns to return_to screen."""
+        screen = ItemMaintenanceScreen(item_id=item_id)
+        screen.back.connect(lambda: self._close_item_maintenance_to(screen, return_to))
+        screen.saved.connect(lambda _: self._close_item_maintenance_to(screen, return_to))
+        self._stack.addWidget(screen)
+        self._stack.setCurrentWidget(screen)
+
+    def _close_item_maintenance_to(self, maint_screen: QWidget, return_to: QWidget):
+        self._stack.setCurrentWidget(return_to)
+        self._stack.removeWidget(maint_screen)
+        maint_screen.deleteLater()
 
     def _go_hub(self):
         self._stack.setCurrentWidget(self._hub)
