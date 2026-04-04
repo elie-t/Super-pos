@@ -255,7 +255,7 @@ class StockCardScreen(QWidget):
     def _populate_categories(self):
         self._cat_combo.clear()
         self._cat_combo.addItem("All Categories", "")
-        for cat_id, cat_name, _parent, _daily in ItemService.get_categories():
+        for cat_id, cat_name, _parent, _daily, _touch in ItemService.get_categories():
             self._cat_combo.addItem(cat_name, cat_id)
 
     def _find_from_inputs(self):
