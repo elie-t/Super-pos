@@ -560,6 +560,17 @@ class WarehouseTransferScreen(QWidget):
         self._print_btn.clicked.connect(self._do_print_current)
         lay.addWidget(self._print_btn)
 
+        collector_btn = QPushButton("📥  Fill from Data Collector")
+        collector_btn.setFixedHeight(38)
+        collector_btn.setStyleSheet(
+            "QPushButton{background:#5c35a0;color:#fff;border:none;"
+            "border-radius:4px;font-size:13px;font-weight:600;padding:0 12px;}"
+            "QPushButton:hover{background:#4527a0;}"
+        )
+        collector_btn.setCursor(Qt.PointingHandCursor)
+        collector_btn.clicked.connect(self._fill_from_collector)
+        lay.addWidget(collector_btn)
+
         lay.addStretch()
 
         lay.addWidget(self._lbl("Notes:"))
@@ -1412,6 +1423,60 @@ class WarehouseTransferScreen(QWidget):
         self._clear_entry()
         self._refresh_transfer_number()
         self._notes_input.clear()
+
+    def _fill_from_collector(self):
+        if not self._from_wh_id or not self._to_wh_id:
+            QMessageBox.warning(self, "Warehouses", "Please select From and To warehouses first.")
+            return
+        from ui.widgets.data_collector_dialog import DataCollectorDialog
+        from services.transfer_service import TransferService
+        dlg = DataCollectorDialog(self)
+        if not dlg.exec():
+            return
+        added = skipped = 0
+        for row in dlg.rows:
+            item = row["item"]
+            if not item:
+                skipped += 1
+                continue
+            qty = row["qty"]
+            price = self._price_for_item(item)
+            # Merge if already in list
+            for line in self._lines:
+                if line["item_id"] == item.item_id:
+                    line["qty"] += qty
+                    line["total"] = round(line["qty"] * line["price"] * (1 - line["disc"] / 100), 2)
+                    line["src_stock"] = TransferService.get_item_stock(item.item_id, self._from_wh_id)
+                    line["dst_stock"] = TransferService.get_item_stock(item.item_id, self._to_wh_id)
+                    added += 1
+                    break
+            else:
+                src = TransferService.get_item_stock(item.item_id, self._from_wh_id)
+                dst = TransferService.get_item_stock(item.item_id, self._to_wh_id)
+                self._lines.append({
+                    "item_id":     item.item_id,
+                    "code":        item.code,
+                    "barcode":     item.barcode,
+                    "name":        item.description,
+                    "pack_qty":    item.pack_qty,
+                    "subgroup":    getattr(item, "subgroup", ""),
+                    "last_cost":   getattr(item, "last_cost", 0.0),
+                    "qty":         qty,
+                    "price":       price,
+                    "disc":        0.0,
+                    "total":       round(qty * price, 2),
+                    "src_stock":   src,
+                    "dst_stock":   dst,
+                    "sales_prices": getattr(item, "sales_prices", []),
+                })
+                added += 1
+        self._refresh_table()
+        self._refresh_totals()
+        QMessageBox.information(
+            self, "Imported",
+            f"Imported {added} item(s)." +
+            (f"\n{skipped} barcode(s) not found — skipped." if skipped else "")
+        )
 
     def _delete_transfer(self):
         if not self._current_transfer_id:

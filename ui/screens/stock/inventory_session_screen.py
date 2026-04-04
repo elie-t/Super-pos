@@ -414,6 +414,17 @@ class InventorySessionScreen(QWidget):
         self._delete_btn.clicked.connect(self._delete_session)
         lay.addWidget(self._delete_btn)
 
+        collector_btn = QPushButton("📥  Fill from Data Collector")
+        collector_btn.setFixedHeight(38)
+        collector_btn.setStyleSheet(
+            "QPushButton{background:#5c35a0;color:#fff;border:none;"
+            "border-radius:4px;font-size:13px;font-weight:600;padding:0 12px;}"
+            "QPushButton:hover{background:#4527a0;}"
+        )
+        collector_btn.setCursor(Qt.PointingHandCursor)
+        collector_btn.clicked.connect(self._fill_from_collector)
+        lay.addWidget(collector_btn)
+
         lay.addStretch()
 
         lay.addWidget(self._lbl("Notes:"))
@@ -876,6 +887,51 @@ class InventorySessionScreen(QWidget):
         self._clear_entry()
         self._notes_input.clear()
         self._refresh_session_number()
+
+    # ── Data collector import ──────────────────────────────────────────────────
+
+    def _fill_from_collector(self):
+        if not self._wh_id:
+            QMessageBox.warning(self, "Warehouse", "Please select a warehouse first.")
+            return
+        from ui.widgets.data_collector_dialog import DataCollectorDialog
+        dlg = DataCollectorDialog(self)
+        if not dlg.exec():
+            return
+        added = skipped = 0
+        for row in dlg.rows:
+            item = row["item"]
+            if not item:
+                skipped += 1
+                continue
+            qty = row["qty"]
+            sys_qty = self._get_current_stock(item.item_id)
+            # Merge if already in list
+            for line in self._lines:
+                if line["item_id"] == item.item_id:
+                    line["counted_qty"] += qty
+                    line["diff_qty"] = line["counted_qty"] - line["system_qty"]
+                    added += 1
+                    break
+            else:
+                self._lines.append({
+                    "item_id":     item.item_id,
+                    "code":        item.code,
+                    "barcode":     item.barcode,
+                    "item_name":   item.description,
+                    "system_qty":  sys_qty,
+                    "counted_qty": qty,
+                    "diff_qty":    qty - sys_qty,
+                    "unit_cost":   getattr(item, "last_cost", 0.0),
+                })
+                added += 1
+        self._refresh_table()
+        self._refresh_summary()
+        QMessageBox.information(
+            self, "Imported",
+            f"Imported {added} item(s)." +
+            (f"\n{skipped} barcode(s) not found — skipped." if skipped else "")
+        )
 
     # ── Delete ────────────────────────────────────────────────────────────────
 

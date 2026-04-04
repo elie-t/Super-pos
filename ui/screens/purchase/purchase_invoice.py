@@ -893,6 +893,17 @@ class PurchaseInvoiceScreen(QWidget):
         self._delete_btn.hide()   # shown only when editing an existing invoice
         btn_row.addWidget(self._delete_btn)
 
+        collector_btn = QPushButton("📥  Fill from Data Collector")
+        collector_btn.setFixedHeight(36)
+        collector_btn.setStyleSheet(
+            "QPushButton{background:#5c35a0;color:#fff;font-size:13px;"
+            "border-radius:4px;border:none;padding:0 12px;}"
+            "QPushButton:hover{background:#4527a0;}"
+        )
+        collector_btn.setCursor(Qt.PointingHandCursor)
+        collector_btn.clicked.connect(self._fill_from_collector)
+        btn_row.addWidget(collector_btn)
+
         btn_row.addStretch()
         left.addLayout(btn_row)
 
@@ -1674,6 +1685,49 @@ class PurchaseInvoiceScreen(QWidget):
                 self._refresh_invoice_number()
         else:
             QMessageBox.critical(self, "Error", f"Failed to save:\n{result}")
+
+    # ── Data collector import ──────────────────────────────────────────────────
+
+    def _fill_from_collector(self):
+        from ui.widgets.data_collector_dialog import DataCollectorDialog
+        dlg = DataCollectorDialog(self)
+        if not dlg.exec():
+            return
+        added = skipped = 0
+        for row in dlg.rows:
+            item = row["item"]
+            if not item:
+                skipped += 1
+                continue
+            qty = row["qty"]
+            # Check for existing line — merge qty
+            for line in self._lines:
+                if line["item"].item_id == item.item_id:
+                    line["pcs"] += qty
+                    line["box"] = round(line["pcs"] / item.pack_qty) if item.pack_qty > 1 else 0
+                    line["total"] = round(line["pcs"] * line["price"] * (1 - line["disc"] / 100), 2)
+                    added += 1
+                    break
+            else:
+                price = item.last_cost * item.pack_qty if item.pack_qty > 1 else item.last_cost
+                self._lines.append({
+                    "item":  item,
+                    "box":   0,
+                    "pcs":   qty,
+                    "pkg":   item.pack_qty,
+                    "price": price,
+                    "disc":  0.0,
+                    "vat":   item.vat_pct,
+                    "total": round(qty * price, 2),
+                })
+                added += 1
+        self._refresh_table()
+        self._refresh_totals()
+        QMessageBox.information(
+            self, "Imported",
+            f"Imported {added} item(s)." +
+            (f"\n{skipped} barcode(s) not found — skipped." if skipped else "")
+        )
 
     # ── Clear all ─────────────────────────────────────────────────────────────
 
