@@ -432,7 +432,8 @@ class PostSaveDialog(QDialog):
 # ── main screen ────────────────────────────────────────────────────────────────
 
 class PurchaseInvoiceScreen(QWidget):
-    back = Signal()
+    back    = Signal()
+    deleted = Signal()                  # emitted after successful delete → go to invoice list
     edit_item_requested = Signal(str)   # emits item_id → module opens Item Maintenance
 
     # Table column indices
@@ -1654,7 +1655,7 @@ class PurchaseInvoiceScreen(QWidget):
             return
         ok, err = PurchaseService.delete_invoice(self._loaded_invoice_id)
         if ok:
-            self.back.emit()
+            self.deleted.emit()
         else:
             QMessageBox.warning(self, "Error", err)
 

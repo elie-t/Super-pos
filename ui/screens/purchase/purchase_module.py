@@ -395,6 +395,7 @@ class PurchaseModule(QWidget):
         """Open an existing invoice, loading all its data."""
         screen = PurchaseInvoiceScreen()
         screen.back.connect(self._go_hub)
+        screen.deleted.connect(self._open_invoice_list)
         screen.edit_item_requested.connect(self._open_item_maintenance)
         self._stack.addWidget(screen)
         self._stack.setCurrentWidget(screen)
