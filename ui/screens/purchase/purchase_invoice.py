@@ -1074,7 +1074,9 @@ class PurchaseInvoiceScreen(QWidget):
         self._block_total(True)
         self._box_spin.setValue(0)
         self._pcs_spin.setValue(0)
-        self._price_spin.setValue(item.last_cost)
+        # Price per box when pack_qty > 1, price per piece otherwise
+        default_price = item.last_cost * item.pack_qty if item.pack_qty > 1 else item.last_cost
+        self._price_spin.setValue(default_price)
         self._disc_spin.setValue(0)
         self._vat_spin.setValue(0)          # VAT stays 0 unless user sets it
         self._total_spin.setValue(0)
@@ -1191,7 +1193,8 @@ class PurchaseInvoiceScreen(QWidget):
             self._block_total(True)
             self._box_spin.setValue(0)
             self._pcs_spin.setValue(0)
-            self._price_spin.setValue(row["cost"])
+            default_price = row["cost"] * item.pack_qty if item.pack_qty > 1 else row["cost"]
+            self._price_spin.setValue(default_price)
             self._disc_spin.setValue(0)
             self._vat_spin.setValue(0)
             self._total_spin.setValue(0)
