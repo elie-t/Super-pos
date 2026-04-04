@@ -2478,18 +2478,41 @@ def pull_purchase_invoice_deletes() -> tuple[int, str]:
 
 def dedupe_stock_movements() -> int:
     """
-    Remove duplicate StockMovement rows that share the same
-    (reference_type, reference_id, item_id, movement_type).
-    Keeps the newest row (highest rowid), deletes the rest.
-    Returns the number of duplicates removed.
+    1. Remove StockMovement rows whose reference_id points to a purchase or
+       sales invoice that no longer exists locally (orphaned by a delete).
+    2. Remove duplicate rows sharing the same
+       (reference_type, reference_id, item_id, movement_type) — keeps newest.
+    Returns total rows removed.
     """
     import sqlalchemy as _sa
     from database.engine import get_session, init_db
 
     init_db()
     session = get_session()
+    removed = 0
     try:
-        result = session.execute(_sa.text("""
+        # 1. Orphaned purchase-invoice movements
+        r1 = session.execute(_sa.text("""
+            DELETE FROM stock_movements
+            WHERE reference_type = 'purchase_invoice'
+              AND reference_id IS NOT NULL
+              AND reference_id != ''
+              AND reference_id NOT IN (SELECT id FROM purchase_invoices)
+        """))
+        removed += r1.rowcount
+
+        # 2. Orphaned sales-invoice movements
+        r2 = session.execute(_sa.text("""
+            DELETE FROM stock_movements
+            WHERE reference_type = 'sales_invoice'
+              AND reference_id IS NOT NULL
+              AND reference_id != ''
+              AND reference_id NOT IN (SELECT id FROM sales_invoices)
+        """))
+        removed += r2.rowcount
+
+        # 3. Duplicate movements (same invoice + item + type) — keep newest rowid
+        r3 = session.execute(_sa.text("""
             DELETE FROM stock_movements
             WHERE rowid NOT IN (
                 SELECT MAX(rowid)
@@ -2501,8 +2524,10 @@ def dedupe_stock_movements() -> int:
             AND reference_id IS NOT NULL
             AND reference_id != ''
         """))
+        removed += r3.rowcount
+
         session.commit()
-        return result.rowcount
+        return removed
     except Exception:
         session.rollback()
         return 0
