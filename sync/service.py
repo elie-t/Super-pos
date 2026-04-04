@@ -2141,6 +2141,23 @@ def push_inventory_session(session_id: str) -> tuple[bool, str]:
         db.close()
 
 
+def delete_inventory_session_remote(session_id: str):
+    """Delete an inventory session from Supabase central tables."""
+    if not is_configured():
+        return
+    try:
+        requests.delete(
+            f"{_url('inventory_session_items_central')}?session_id=eq.{session_id}",
+            headers=_headers(), timeout=10,
+        )
+        requests.delete(
+            f"{_url('inventory_sessions_central')}?id=eq.{session_id}",
+            headers=_headers(), timeout=10,
+        )
+    except Exception as e:
+        print(f"[sync] delete_inventory_session_remote: {e}")
+
+
 def pull_inventory_sessions() -> tuple[int, str]:
     """Pull inventory sessions from other branches."""
     import sqlalchemy

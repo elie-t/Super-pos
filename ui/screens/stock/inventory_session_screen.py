@@ -401,6 +401,19 @@ class InventorySessionScreen(QWidget):
         history_btn.clicked.connect(self._open_history)
         lay.addWidget(history_btn)
 
+        self._delete_btn = QPushButton("🗑  Delete")
+        self._delete_btn.setFixedHeight(38)
+        self._delete_btn.setStyleSheet(
+            "QPushButton{background:#c62828;color:#fff;border:none;"
+            "border-radius:4px;font-size:13px;font-weight:600;padding:0 16px;}"
+            "QPushButton:hover{background:#b71c1c;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._delete_btn.setCursor(Qt.PointingHandCursor)
+        self._delete_btn.setEnabled(False)
+        self._delete_btn.clicked.connect(self._delete_session)
+        lay.addWidget(self._delete_btn)
+
         lay.addStretch()
 
         lay.addWidget(self._lbl("Notes:"))
@@ -776,7 +789,7 @@ class InventorySessionScreen(QWidget):
     # ── Save ──────────────────────────────────────────────────────────────────
 
     def _save_session(self):
-        if not self._lines:
+        if not self._lines and not self._session_id:
             QMessageBox.warning(self, "Empty", "No items to save.")
             return
         if not self._wh_id:
@@ -810,6 +823,7 @@ class InventorySessionScreen(QWidget):
         self._session_id = result
         self._lock_btn.setEnabled(True)
         self._lock_btn.setText("🔒  Lock")
+        self._delete_btn.setEnabled(True)
 
         n = len(self._lines)
         QMessageBox.information(
@@ -854,6 +868,7 @@ class InventorySessionScreen(QWidget):
         self._session_id = None
         self._lock_btn.setEnabled(False)
         self._lock_btn.setText("🔒  Lock")
+        self._delete_btn.setEnabled(False)
         self._set_locked(False)
         self._lines.clear()
         self._refresh_table()
@@ -861,6 +876,30 @@ class InventorySessionScreen(QWidget):
         self._clear_entry()
         self._notes_input.clear()
         self._refresh_session_number()
+
+    # ── Delete ────────────────────────────────────────────────────────────────
+
+    def _delete_session(self):
+        if not self._session_id:
+            return
+        no = self._no_input.text().strip() or self._session_id[:8]
+        ans = QMessageBox.question(
+            self, "Delete Inventory Session",
+            f"Delete inventory session {no}?\n\n"
+            "All stock adjustments will be reversed and the session\n"
+            "will be removed from all branches.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if ans != QMessageBox.Yes:
+            return
+        from services.inventory_session_service import InventorySessionService
+        ok, msg = InventorySessionService.delete_session(self._session_id)
+        if not ok:
+            QMessageBox.critical(self, "Error", f"Delete failed:\n{msg}")
+            return
+        QMessageBox.information(self, "Deleted", f"Session {no} deleted.")
+        self._clear_all()
 
     # ── History ───────────────────────────────────────────────────────────────
 
@@ -1046,6 +1085,7 @@ class InventorySessionScreen(QWidget):
         self._clear_all()
         self._session_id = detail["id"]
         self._lock_btn.setEnabled(True)
+        self._delete_btn.setEnabled(True)
         locked = detail["status"] == "locked"
         self._lock_btn.setText("🔓  Unlock" if locked else "🔒  Lock")
         self._set_locked(locked)

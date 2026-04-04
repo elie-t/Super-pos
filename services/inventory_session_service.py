@@ -45,7 +45,7 @@ class InventorySessionService:
           - If diff < 0 → adjustment_out movement (diff, negative)
           - ItemStock is set to counted_qty directly.
         """
-        if not lines:
+        if not lines and not session_id:
             return False, "No items to save."
 
         init_db()
@@ -318,3 +318,56 @@ class InventorySessionService:
             }
         finally:
             db.close()
+
+    # ── Delete ─────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def delete_session(session_id: str) -> tuple[bool, str]:
+        """
+        Delete an inventory session:
+          - Reverse all stock adjustments (restore ItemStock to system_qty)
+          - Delete stock movements for this session
+          - Delete session items + header locally
+          - Delete from Supabase central tables
+        """
+        init_db()
+        db = get_session()
+        try:
+            from database.models.inventory import InventorySession, InventorySessionItem
+            from database.models.items import ItemStock
+            from database.models.stock import StockMovement
+            from database.models.base import new_uuid
+
+            inv = db.query(InventorySession).filter_by(id=session_id).first()
+            if not inv:
+                return False, "Session not found."
+            if inv.status == "locked":
+                return False, "Session is locked. Unlock it before deleting."
+
+            warehouse_id = inv.warehouse_id
+
+            # Reverse stock adjustments
+            InventorySessionService._reverse_stock(
+                db, session_id, warehouse_id,
+                inv.items, new_uuid, ItemStock, StockMovement
+            )
+
+            # Delete items then header
+            db.query(InventorySessionItem).filter_by(session_id=session_id).delete()
+            db.delete(inv)
+            db.commit()
+
+        except Exception as exc:
+            db.rollback()
+            return False, str(exc)
+        finally:
+            db.close()
+
+        # Remove from Supabase
+        try:
+            from sync.service import delete_inventory_session_remote
+            delete_inventory_session_remote(session_id)
+        except Exception as e:
+            print(f"[inventory] remote delete error: {e}")
+
+        return True, "Deleted"
