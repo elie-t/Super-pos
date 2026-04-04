@@ -15,6 +15,7 @@ PAGE_SIZE = 500   # rows per page
 
 
 class ItemsListScreen(QWidget):
+    back                = Signal()
     open_item_requested = Signal(str)
     add_item_requested  = Signal()
 
@@ -40,6 +41,12 @@ class ItemsListScreen(QWidget):
 
         # ── Title + count ─────────────────────────────────────────────────────
         title_row = QHBoxLayout()
+        back_btn = QPushButton("← Back")
+        back_btn.setObjectName("secondaryBtn")
+        back_btn.setFixedHeight(30)
+        back_btn.setFixedWidth(80)
+        back_btn.setCursor(Qt.PointingHandCursor)
+        back_btn.clicked.connect(self.back.emit)
         title = QLabel("Items List")
         title.setObjectName("sectionTitle")
         self._count_label = QLabel("")
@@ -47,6 +54,8 @@ class ItemsListScreen(QWidget):
             "background:#1a3a5c; color:#ffffff; border-radius:10px; "
             "padding:2px 12px; font-size:12px; font-weight:600;"
         )
+        title_row.addWidget(back_btn)
+        title_row.addSpacing(8)
         title_row.addWidget(title)
         title_row.addStretch()
         title_row.addWidget(self._count_label)
