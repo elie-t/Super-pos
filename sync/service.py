@@ -2426,6 +2426,7 @@ def pull_purchase_invoice_deletes() -> tuple[int, str]:
     import sqlalchemy as _sa
     from database.engine import get_session, init_db
     from database.models.invoices import PurchaseInvoice, PurchaseInvoiceItem
+    from database.models.stock import StockMovement
 
     if not is_configured():
         return 0, ""
@@ -2458,6 +2459,10 @@ def pull_purchase_invoice_deletes() -> tuple[int, str]:
             return 0, ""
 
         for inv_id in deleted_ids:
+            # Must delete stock movements first (orphaned movements cause wrong stock card)
+            session.query(StockMovement).filter_by(
+                reference_type="purchase_invoice", reference_id=inv_id
+            ).delete()
             session.query(PurchaseInvoiceItem).filter_by(invoice_id=inv_id).delete()
             session.query(PurchaseInvoice).filter_by(id=inv_id).delete()
 
@@ -2467,6 +2472,40 @@ def pull_purchase_invoice_deletes() -> tuple[int, str]:
     except Exception as e:
         session.rollback()
         return 0, str(e)
+    finally:
+        session.close()
+
+
+def dedupe_stock_movements() -> int:
+    """
+    Remove duplicate StockMovement rows that share the same
+    (reference_type, reference_id, item_id, movement_type).
+    Keeps the newest row (highest rowid), deletes the rest.
+    Returns the number of duplicates removed.
+    """
+    import sqlalchemy as _sa
+    from database.engine import get_session, init_db
+
+    init_db()
+    session = get_session()
+    try:
+        result = session.execute(_sa.text("""
+            DELETE FROM stock_movements
+            WHERE rowid NOT IN (
+                SELECT MAX(rowid)
+                FROM stock_movements
+                WHERE reference_id IS NOT NULL
+                  AND reference_id != ''
+                GROUP BY reference_type, reference_id, item_id, movement_type
+            )
+            AND reference_id IS NOT NULL
+            AND reference_id != ''
+        """))
+        session.commit()
+        return result.rowcount
+    except Exception:
+        session.rollback()
+        return 0
     finally:
         session.close()
 

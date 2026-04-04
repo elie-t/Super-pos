@@ -666,7 +666,7 @@ class SettingsScreen(QWidget):
         try:
             import sqlalchemy
             from database.engine import get_session, init_db
-            from sync.service import _state_set
+            from sync.service import _state_set, dedupe_stock_movements
             init_db()
             session = get_session()
             try:
@@ -675,8 +675,11 @@ class SettingsScreen(QWidget):
                 session.commit()
             finally:
                 session.close()
+            removed = dedupe_stock_movements()
             _state_set("movements_pull", "2000-01-01T00:00:00Z")
-            self._sync_status.setText("Applied-movements log cleared. Re-pulling now…")
+            self._sync_status.setText(
+                f"Cleaned {removed} duplicate movements. Re-pulling now…"
+            )
             self._result_lbl.hide()
             self._do_force_sync()
         except Exception as e:

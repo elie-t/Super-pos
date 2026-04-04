@@ -44,6 +44,7 @@ class SyncWorker(QThread):
             pull_categories, pull_transfers, pull_inventory_sessions,
             pull_invoice_deletes, pull_purchase_invoice_deletes,
             push_all_stock_levels, pull_all_stock_levels,
+            dedupe_stock_movements,
             is_configured,
         )
         if not is_configured():
@@ -84,6 +85,9 @@ class SyncWorker(QThread):
             # Push this branch's current stock snapshot, pull other branches'
             push_all_stock_levels()
             pull_all_stock_levels()
+
+            # Remove any duplicate stock movements (self-healing)
+            dedupe_stock_movements()
 
             # Pull suppliers
             pull_suppliers()
