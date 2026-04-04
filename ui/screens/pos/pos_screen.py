@@ -1585,6 +1585,12 @@ class POSScreen(QWidget):
             self._open_vege_dialog()
             return
 
+        # "A" or "a" — item without barcode: look up by barcode "A", ask for price
+        if query.upper() == "A":
+            self._scan_input.clear()
+            self._open_manual_price_dialog()
+            return
+
         # "-code" prefix — deduct (negative qty) from invoice
         negative_qty = False
         if query.startswith("-") and len(query) > 1:
@@ -1859,6 +1865,43 @@ class POSScreen(QWidget):
             currency   = "LBP",
             price_type = "retail",
             stock_qty  = 0.0,
+        )
+        self._lines.append({
+            "item":  item,
+            "qty":   dlg.result_qty,
+            "price": dlg.result_price,
+            "disc":  0.0,
+            "total": dlg.result_total,
+        })
+        self._refresh_table()
+        self._table.selectRow(len(self._lines) - 1)
+        self._scan_input.setFocus()
+
+    def _open_manual_price_dialog(self):
+        """Barcode A — item without barcode. Look it up, then ask for price."""
+        item_data = PosService.lookup_item("A", "barcode", currency="LBP", price_type=POS_PRICE_TYPE)
+        if item_data is None:
+            self._flash_scan("Item 'A' not found", "#c62828")
+            self._scan_input.setFocus()
+            return
+        dlg = VegeDialog(self)
+        dlg.setWindowTitle(item_data.description)
+        if not dlg.exec():
+            self._scan_input.setFocus()
+            return
+        item = PosLineItem(
+            item_id    = item_data.item_id,
+            code       = item_data.code,
+            barcode    = "A",
+            description= item_data.description,
+            qty        = dlg.result_qty,
+            unit_price = dlg.result_price,
+            disc_pct   = 0.0,
+            vat_pct    = 0.0,
+            total      = dlg.result_total,
+            currency   = "LBP",
+            price_type = POS_PRICE_TYPE,
+            stock_qty  = item_data.stock_qty,
         )
         self._lines.append({
             "item":  item,
