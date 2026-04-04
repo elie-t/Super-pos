@@ -568,10 +568,16 @@ class WarehouseTransferScreen(QWidget):
         self._pcs_lbl.setText(f"Pcs ({pack_qty}):" if enabled else "Pcs:")
 
     def _on_box_changed(self, val: int):
-        if self._current_pack_qty > 1:
+        if self._current_pack_qty > 1 and self._current_item:
             self._qty_spin.blockSignals(True)
             self._qty_spin.setValue(val * self._current_pack_qty)
             self._qty_spin.blockSignals(False)
+            # Update price: box cost when box > 0, pcs cost when box == 0
+            self._price_spin.blockSignals(True)
+            self._price_spin.setValue(
+                self._price_for_item(self._current_item, box_mode=(val > 0))
+            )
+            self._price_spin.blockSignals(False)
         self._recalc_total()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -701,12 +707,16 @@ class WarehouseTransferScreen(QWidget):
         else:
             QTimer.singleShot(0, lambda: (self._qty_spin.setFocus(), self._qty_spin.selectAll()))
 
-    def _price_for_item(self, item) -> float:
-        """Return the price matching the selected price type and currency."""
+    def _price_for_item(self, item, box_mode: bool = False) -> float:
+        """Return the price matching the selected price type and currency.
+        When box_mode=True and pack_qty>1, cost price is multiplied by pack_qty."""
         ptype = self._price_type_combo.currentData() or "cost"
         cur   = self._cur_combo.currentText()
         if ptype == "cost":
-            return item.last_cost
+            cost = item.last_cost
+            if box_mode and getattr(item, "pack_qty", 1) > 1:
+                cost = cost * item.pack_qty
+            return cost
         # Try exact type + currency match first
         for pt, amt, pcur in getattr(item, "sales_prices", []):
             if pt == ptype and pcur == cur:
