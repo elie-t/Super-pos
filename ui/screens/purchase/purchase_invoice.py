@@ -1464,10 +1464,10 @@ class PurchaseInvoiceScreen(QWidget):
                 line["pcs"] = val * line["pkg"]
         elif col == self.COL_PCS:
             line["pcs"] = val
-            # Pcs edited manually — reset box and clear price so user re-enters per-piece
+            # Pcs edited manually — reset box, convert price from per-box to per-piece
             if line["pkg"] > 1 and line.get("box", 0) > 0:
                 line["box"]   = 0
-                line["price"] = 0
+                line["price"] = round(line["price"] / line["pkg"], 4)
         elif col == self.COL_PRC:
             line["price"] = val
         elif col == self.COL_DSC:
