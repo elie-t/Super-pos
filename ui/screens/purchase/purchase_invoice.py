@@ -1103,32 +1103,28 @@ class PurchaseInvoiceScreen(QWidget):
             "font-weight:600;" if active else "font-weight:600;color:#aaa;"
         )
         self._pcs_lbl.setText(f"Pcs ({pack_qty}):" if active else "Pcs:")
-        # Unlock pcs when switching item — box will lock it again if needed
-        self._pcs_spin.setReadOnly(False)
         self._pcs_spin.setStyleSheet("")
         self._price_lbl.setText("Price:")
 
     def _on_box_changed(self, val):
         if self._current_pack_qty > 1:
-            # Lock pcs when boxes > 0; unlock when boxes cleared
-            locked = val > 0
-            self._pcs_spin.setReadOnly(locked)
+            # Grey out pcs to show it's auto-calculated (not hard-locked)
+            auto = val > 0
             self._pcs_spin.setStyleSheet(
-                "background:#e8e8e8;color:#555;" if locked else ""
+                "background:#e8e8e8;color:#555;" if auto else ""
             )
-            self._price_lbl.setText("Price/Box:" if locked else "Price:")
+            self._price_lbl.setText("Price/Box:" if auto else "Price:")
             self._pcs_spin.blockSignals(True)
             self._pcs_spin.setValue(val * self._current_pack_qty)
             self._pcs_spin.blockSignals(False)
         self._recalc_total()
 
     def _on_pcs_changed(self, val):
-        """User manually edited pcs — clear box count so they don't conflict."""
+        """User edited pcs — reset box to 0 so they don't conflict."""
         if self._current_pack_qty > 1 and self._box_spin.value() > 0:
             self._box_spin.blockSignals(True)
             self._box_spin.setValue(0)
             self._box_spin.blockSignals(False)
-            self._pcs_spin.setReadOnly(False)
             self._pcs_spin.setStyleSheet("")
             self._price_lbl.setText("Price:")
         self._recalc_total()
