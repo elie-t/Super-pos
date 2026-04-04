@@ -666,19 +666,21 @@ class SettingsScreen(QWidget):
         try:
             import sqlalchemy
             from database.engine import get_session, init_db
-            from sync.service import _state_set, dedupe_stock_movements
+            from sync.service import _state_set
             init_db()
             session = get_session()
             try:
-                # Clear the applied log so every movement gets re-evaluated
+                # Wipe all local stock movements — sync will rebuild from invoices/transfers
+                session.execute(sqlalchemy.text("DELETE FROM stock_movements"))
                 session.execute(sqlalchemy.text("DELETE FROM applied_central_movements"))
                 session.commit()
             finally:
                 session.close()
-            removed = dedupe_stock_movements()
             _state_set("movements_pull", "2000-01-01T00:00:00Z")
+            _state_set("purchase_invoices_pull", "2000-01-01T00:00:00Z")
+            _state_set("transfers_pull", "2000-01-01T00:00:00Z")
             self._sync_status.setText(
-                f"Cleaned {removed} duplicate movements. Re-pulling now…"
+                "All stock movements cleared. Re-pulling from Supabase now…"
             )
             self._result_lbl.hide()
             self._do_force_sync()
