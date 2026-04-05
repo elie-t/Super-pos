@@ -1135,6 +1135,14 @@ class POSScreen(QWidget):
         )
         lay.addWidget(self._cust_name_lbl)
 
+        self._delivery_lbl = QLabel("")
+        self._delivery_lbl.setStyleSheet(
+            "color:#80cbc4;font-size:10px;max-width:160px;"
+        )
+        self._delivery_lbl.setWordWrap(True)
+        self._delivery_lbl.setVisible(False)
+        lay.addWidget(self._delivery_lbl)
+
         change_cust = QPushButton("Change")
         change_cust.setFixedHeight(24)
         change_cust.setStyleSheet(
@@ -2352,12 +2360,23 @@ class POSScreen(QWidget):
         order = list_item.data(Qt.UserRole)
         if not order:
             return
-        name  = order.get("customer_name") or "Online Order"
-        total = order.get("total", 0)
+        name    = order.get("customer_name") or "Online Order"
+        phone   = order.get("customer_phone") or ""
+        address = order.get("address") or ""
+        notes   = order.get("notes") or ""
+        total   = order.get("total", 0)
+        n_items = len(order.get("items") or [])
+
+        details = f"Customer:  {name}"
+        if phone:   details += f"\nPhone:       {phone}"
+        if address: details += f"\nAddress:   {address}"
+        if notes:   details += f"\nNotes:       {notes}"
+        details += f"\n\nItems: {n_items}  —  Total: ل.ل {total:,.0f}"
+        details += "\n\nCurrent cart will be put on hold."
+
         reply = QMessageBox.question(
-            self, "Load Online Order",
-            f"Load order from {name}  (ل.ل {total:,.0f})?\n\n"
-            f"Current cart will be put on hold.",
+            self, "🛒  Online Order",
+            details,
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
@@ -2415,9 +2434,18 @@ class POSScreen(QWidget):
                 "total": round(price * qty, 2),
             })
 
-        # Set customer name
+        # Set customer name + delivery info
         self._customer_name = name
         self._cust_name_lbl.setText(name)
+        delivery_parts = []
+        if phone:   delivery_parts.append(f"📞 {phone}")
+        if address: delivery_parts.append(f"📍 {address}")
+        if notes:   delivery_parts.append(f"📝 {notes}")
+        if delivery_parts:
+            self._delivery_lbl.setText("\n".join(delivery_parts))
+            self._delivery_lbl.setVisible(True)
+        else:
+            self._delivery_lbl.setVisible(False)
 
         self._refresh_table()
         self._refresh_online_panel([])   # remove from panel immediately
@@ -2524,6 +2552,8 @@ class POSScreen(QWidget):
         self._customer_id   = PosService.get_walk_in_customer_id(self._warehouse_id)
         self._customer_name = self._resolve_customer_name(self._customer_id)
         self._cust_name_lbl.setText(self._customer_name)
+        self._delivery_lbl.setText("")
+        self._delivery_lbl.setVisible(False)
         self._refresh_table()
         self._scan_input.setFocus()
 
