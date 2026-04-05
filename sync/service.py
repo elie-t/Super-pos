@@ -2671,7 +2671,7 @@ def fetch_pending_online_orders(warehouse_id: str) -> list[dict]:
     # Fallback: fetch all unhandled orders (branch filter empty or column missing)
     try:
         r = requests.get(
-            f"{_url('orders')}?{pending_statuses}&order=created_at.asc",
+            f"{_url('orders')}?{pending_statuses}&acknowledged_at=is.null&order=created_at.asc",
             headers={**_headers(), "Prefer": ""},
             timeout=8,
         )
