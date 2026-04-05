@@ -2533,7 +2533,6 @@ class POSScreen(QWidget):
         wh_id = getattr(self, "_warehouse_id", "")
         dlg = OnlineOrdersDialog(wh_id, parent=self)
         dlg.load_order.connect(self._load_online_order_from_dict)
-        dlg.mark_finished.connect(self._manually_finish_online_order)
         dlg.exec()
 
     def _load_online_order_from_dict(self, order: dict):
