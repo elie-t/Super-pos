@@ -2721,25 +2721,21 @@ def update_online_order_status(order_id: str, status: str) -> bool:
 
 def fetch_branch_orders(warehouse_id: str, hours: int = 24) -> list[dict]:
     """Fetch all online orders for this branch from the last N hours."""
-    if not is_configured() or not warehouse_id:
+    if not is_configured():
         return []
     from datetime import timedelta
-    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
-    # Try with branch filter first
+    # Use Z suffix to avoid + being misinterpreted as space in URL
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat().replace("+00:00", "Z")
+    # Use or= filter: match this branch OR orders with no branch set
+    branch_filter = f"or=(branch_id.eq.{warehouse_id},branch_id.is.null)" if warehouse_id else ""
     try:
-        r = requests.get(
-            f"{_url('orders')}?branch_id=eq.{warehouse_id}"
-            f"&created_at=gte.{since}&order=created_at.desc",
-            headers={**_headers(), "Prefer": ""},
-            timeout=10,
-        )
+        url = f"{_url('orders')}?{branch_filter}&created_at=gte.{since}&order=created_at.desc"
+        r = requests.get(url, headers={**_headers(), "Prefer": ""}, timeout=10)
         if r.status_code == 200:
-            rows = r.json()
-            if rows:           # found orders for this branch — return them
-                return rows
+            return r.json()
     except Exception:
         pass
-    # Fallback: no branch match (old orders with null branch_id, or column missing)
+    # Fallback: fetch all recent orders without any filter
     try:
         r = requests.get(
             f"{_url('orders')}?created_at=gte.{since}&order=created_at.desc",

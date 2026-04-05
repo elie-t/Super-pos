@@ -2536,12 +2536,8 @@ class POSScreen(QWidget):
         dlg.exec()
 
     def _load_online_order_from_dict(self, order: dict):
-        """Load an online order from the dialog (same logic as panel click)."""
-        # Reuse panel click by wrapping in a fake QListWidgetItem
-        class _FakeItem:
-            def data(self, _role):
-                return order
-        self._load_online_order_from_panel(_FakeItem())
+        """Load an online order from the Online Orders dialog into the POS cart."""
+        self._load_online_order_to_cart(order)
 
     def _manually_finish_online_order(self, order_id: str):
         try:
@@ -2596,44 +2592,107 @@ class POSScreen(QWidget):
             )
 
     def _load_online_order_from_panel(self, list_item):
+        """Clicking a flashing order: acknowledge it (stop flash) and print a draft."""
         order = list_item.data(Qt.UserRole)
         if not order:
             return
-        name    = order.get("customer_name") or "Online Order"
-        phone   = order.get("customer_phone") or ""
-        address = order.get("address") or ""
-        notes   = order.get("notes") or ""
-        total   = order.get("total", 0)
-        n_items = len(order.get("items") or [])
 
-        details = f"Customer:  {name}"
-        if phone:   details += f"\nPhone:       {phone}"
-        if address: details += f"\nAddress:   {address}"
-        if notes:   details += f"\nNotes:       {notes}"
-        details += f"\n\nItems: {n_items}  —  Total: ل.ل {total:,.0f}"
-        details += "\n\nCurrent cart will be put on hold."
-
-        reply = QMessageBox.question(
-            self, "🛒  Online Order",
-            details,
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
-            return
-
-        # Put current cart on hold if it has items
-        if self._lines:
-            self._hold_sale()
-
-        # Acknowledge in Supabase (new → processing)
+        # Acknowledge in Supabase — stops flashing, status unchanged
         try:
             from sync.service import acknowledge_online_order
             acknowledge_online_order(order["id"])
         except Exception:
             pass
+
+        # Print draft receipt so cashier has the order details
+        self._print_online_order_draft(order)
+
+        # Remove from flashing panel; order now lives in Online Orders dialog
+        self._refresh_online_panel([])
+        self._poll_online_orders()
+        self._scan_input.setFocus()
+
+    def _print_online_order_draft(self, order: dict):
+        """Print the online order as a draft (no POS invoice created)."""
+        from utils.receipt_printer import print_receipt
+        from datetime import datetime as _dt
+
+        raw_items = order.get("items") or []
+        lines = []
+        for d in raw_items:
+            price = float(d.get("price") or d.get("unit_price", 0))
+            qty   = float(d.get("qty", 1))
+            lines.append({
+                "description": d.get("name") or d.get("description", ""),
+                "qty":         qty,
+                "unit_price":  price,
+                "disc_pct":    0.0,
+                "total":       round(price * qty, 2),
+            })
+
+        shop_name = ""
+        try:
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            _s = get_session()
+            try:
+                _r = _s.get(Setting, "shop_name")
+                shop_name = _r.value if _r else ""
+            finally:
+                _s.close()
+        except Exception:
+            pass
+
+        order_id  = (order.get("id") or "")[-8:].upper()
+        ts        = (order.get("created_at") or "")[:16].replace("T", " ")
+        dtype     = "Delivery" if order.get("delivery_type") == "delivery" else "Pickup"
+        customer  = order.get("customer_name") or "—"
+        phone     = order.get("customer_phone") or ""
+        address   = order.get("address") or ""
+        notes     = order.get("notes") or ""
+        total     = float(order.get("total", 0))
+
+        cust_line = customer
+        if phone:   cust_line += f"  |  {phone}"
+        if address: cust_line += f"\n{address}"
+
+        footer_parts = ["** ONLINE ORDER DRAFT **", f"Type: {dtype}"]
+        if notes:
+            footer_parts.append(f"Notes: {notes}")
+
+        data = {
+            "shop_name":      shop_name,
+            "invoice_number": f"ONL-{order_id}",
+            "date":           ts,
+            "cashier":        dtype,
+            "customer":       cust_line,
+            "lines":          lines,
+            "subtotal":       total,
+            "total":          total,
+            "amount_paid":    0.0,
+            "currency":       "LBP",
+            "receipt_footer": "\n".join(footer_parts),
+        }
+        try:
+            print_receipt(data, payment_method="cash", tendered=0.0,
+                          parent=self, show_preview=False)
+        except Exception:
+            pass
+
+    def _load_online_order_to_cart(self, order: dict):
+        """Load an online order's items into the POS cart (called from dialog)."""
+        name    = order.get("customer_name") or "Online Order"
+        phone   = order.get("customer_phone") or ""
+        address = order.get("address") or ""
+        notes   = order.get("notes") or ""
+
+        # Put current cart on hold if it has items
+        if self._lines:
+            self._hold_sale()
+
         self._active_online_order_id = order.get("id", "")
 
-        # Load items into POS cart
         raw_items = order.get("items") or []
         self._lines.clear()
         for d in raw_items:
@@ -2642,7 +2701,6 @@ class POSScreen(QWidget):
             desc    = d.get("name") or d.get("description", "")
             qty     = float(d.get("qty", 1))
             price   = float(d.get("price") or d.get("unit_price", 0))
-            # Try to enrich from local DB (vat, barcode)
             vat_pct = 0.0
             barcode = ""
             try:
@@ -2674,7 +2732,6 @@ class POSScreen(QWidget):
                 "total": round(price * qty, 2),
             })
 
-        # Set customer name + delivery info
         self._customer_name = name
         self._cust_name_lbl.setText(name)
         delivery_parts = []
@@ -2688,8 +2745,6 @@ class POSScreen(QWidget):
             self._delivery_lbl.setVisible(False)
 
         self._refresh_table()
-        self._refresh_online_panel([])   # remove from panel immediately
-        self._poll_online_orders()       # re-poll to update remaining
         self._scan_input.setFocus()
 
     # ── Line actions ───────────────────────────────────────────────────────────
