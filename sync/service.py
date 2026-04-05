@@ -2653,10 +2653,22 @@ def fetch_pending_online_orders(warehouse_id: str) -> list[dict]:
     """Return unacknowledged online orders placed for this branch (warehouse_id)."""
     if not is_configured() or not warehouse_id:
         return []
+    # Try with branch_id + acknowledged_at filter
     try:
         r = requests.get(
             f"{_url('orders')}?branch_id=eq.{warehouse_id}"
             f"&status=eq.new&acknowledged_at=is.null&order=created_at.asc",
+            headers={**_headers(), "Prefer": ""},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    # Fallback: columns may not exist yet — fetch all new orders
+    try:
+        r = requests.get(
+            f"{_url('orders')}?status=eq.new&order=created_at.asc",
             headers={**_headers(), "Prefer": ""},
             timeout=8,
         )
@@ -2696,12 +2708,24 @@ def fetch_branch_orders(warehouse_id: str, hours: int = 24) -> list[dict]:
     """Fetch all online orders for this branch from the last N hours."""
     if not is_configured() or not warehouse_id:
         return []
+    from datetime import timedelta
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    # Try with branch filter first
     try:
-        from datetime import timedelta
-        since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
         r = requests.get(
             f"{_url('orders')}?branch_id=eq.{warehouse_id}"
             f"&created_at=gte.{since}&order=created_at.desc",
+            headers={**_headers(), "Prefer": ""},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    # Fallback: branch_id column may not exist yet — fetch all recent orders
+    try:
+        r = requests.get(
+            f"{_url('orders')}?created_at=gte.{since}&order=created_at.desc",
             headers={**_headers(), "Prefer": ""},
             timeout=10,
         )
