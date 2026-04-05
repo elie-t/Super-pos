@@ -1240,12 +1240,18 @@ class OnlineOrdersDialog(QDialog):
         if not o:
             QMessageBox.information(self, "Select Order", "Select an order first.")
             return
+        order_id = o.get("id")
         try:
             from sync.service import update_online_order_status
-            update_online_order_status(o["id"], new_status)
+            update_online_order_status(order_id, new_status)
         except Exception:
             pass
-        o["status"] = new_status
+        # Update self._orders by ID — QTableWidgetItem stores a copy of the dict
+        # so mutating the returned object doesn't affect the source list
+        for order in self._orders:
+            if order.get("id") == order_id:
+                order["status"] = new_status
+                break
         self._fill_table()
 
     def _do_processing(self): self._set_status("processing")
