@@ -2683,8 +2683,20 @@ def fetch_pending_online_orders(warehouse_id: str) -> list[dict]:
 
 
 def acknowledge_online_order(order_id: str) -> bool:
-    """Mark an online order as acknowledged (in-processing) so it stops alerting."""
-    return update_online_order_status(order_id, "processing")
+    """Mark an online order as seen (stops flashing) without changing its status."""
+    if not is_configured():
+        return False
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        r = requests.patch(
+            f"{_url('orders')}?id=eq.{order_id}",
+            headers={**_headers(), "Prefer": "return=minimal"},
+            json={"acknowledged_at": now},
+            timeout=8,
+        )
+        return r.status_code in (200, 204)
+    except Exception:
+        return False
 
 
 def update_online_order_status(order_id: str, status: str) -> bool:
