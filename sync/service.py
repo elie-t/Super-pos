@@ -117,8 +117,18 @@ def push_item(item_id: str) -> tuple[bool, str]:
     session = get_session()
     try:
         item = session.get(Item, item_id)
-        if not item or not item.is_online:
+        if not item:
             return True, ""
+
+        # If not online, mark as inactive in products so app hides it
+        if not item.is_online or not item.is_active:
+            return upsert_rows("products", [{
+                "id":        item.id,
+                "code":      item.code,
+                "name":      item.name,
+                "is_active": False,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }])
 
         # Primary barcode
         primary_bc = next((b.barcode for b in item.barcodes if b.is_primary), "")
@@ -136,8 +146,8 @@ def push_item(item_id: str) -> tuple[bool, str]:
         # Total stock across all warehouses
         total_stock = sum(s.quantity for s in item.stock_entries)
 
-        cat_name = item.category.name if item.category else ""
-        brand_name = item.brand.name if item.brand else ""
+        cat_name   = item.category.name if item.category else ""
+        brand_name = item.brand.name    if item.brand    else ""
 
         row = {
             "id":          item.id,
@@ -153,7 +163,7 @@ def push_item(item_id: str) -> tuple[bool, str]:
             "unit":        item.unit,
             "is_featured": item.is_featured,
             "photo_url":   item.photo_url or "",
-            "is_active":   item.is_active and item.is_online,
+            "is_active":   True,
             "updated_at":  datetime.now(timezone.utc).isoformat(),
         }
         return upsert_rows("products", [row])
