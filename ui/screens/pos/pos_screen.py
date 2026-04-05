@@ -1057,8 +1057,11 @@ class OnlineOrdersDialog(QDialog):
     }
     STATUS_LABEL = {
         "new":        "🔴 Pending",
+        "confirmed":  "🔴 Pending",
         "processing": "🔵 Processing",
+        "preparing":  "🔵 Processing",
         "finished":   "✅ Finished",
+        "delivered":  "✅ Finished",
         "cancelled":  "✕ Cancelled",
     }
 
@@ -1214,7 +1217,7 @@ class OnlineOrdersDialog(QDialog):
 
     def _on_double_click(self, _idx):
         o = self._selected_order()
-        if o and o.get("status") == "new":
+        if o and o.get("status") in ("new", "confirmed"):
             self._do_load()
 
     def _do_load(self):
@@ -1222,9 +1225,9 @@ class OnlineOrdersDialog(QDialog):
         if not o:
             QMessageBox.information(self, "Select Order", "Select an order first.")
             return
-        if o.get("status") != "new":
+        if o.get("status") not in ("new", "confirmed"):
             QMessageBox.information(self, "Not Pending",
-                                    "Only 'Pending' orders can be loaded into the POS.")
+                                    "Only pending orders can be loaded into the POS.")
             return
         self.load_order.emit(o)
         self.accept()

@@ -2653,11 +2653,12 @@ def fetch_pending_online_orders(warehouse_id: str) -> list[dict]:
     """Return unacknowledged online orders placed for this branch (warehouse_id)."""
     if not is_configured() or not warehouse_id:
         return []
-    # Try with branch_id + acknowledged_at filter
+    pending_statuses = "or=(status.eq.new,status.eq.confirmed)"
+    # Try with branch filter first
     try:
         r = requests.get(
             f"{_url('orders')}?branch_id=eq.{warehouse_id}"
-            f"&status=eq.new&acknowledged_at=is.null&order=created_at.asc",
+            f"&{pending_statuses}&acknowledged_at=is.null&order=created_at.asc",
             headers={**_headers(), "Prefer": ""},
             timeout=8,
         )
@@ -2667,10 +2668,10 @@ def fetch_pending_online_orders(warehouse_id: str) -> list[dict]:
                 return rows
     except Exception:
         pass
-    # Fallback: no branch match or columns missing — fetch all new unacknowledged orders
+    # Fallback: fetch all unhandled orders (branch filter empty or column missing)
     try:
         r = requests.get(
-            f"{_url('orders')}?status=eq.new&order=created_at.asc",
+            f"{_url('orders')}?{pending_statuses}&order=created_at.asc",
             headers={**_headers(), "Prefer": ""},
             timeout=8,
         )
