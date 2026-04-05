@@ -21,6 +21,7 @@ class ItemRow:
     stock: float
     is_active: bool
     is_pos_featured: bool
+    is_featured: bool = False
 
 
 @dataclass
@@ -45,6 +46,7 @@ class ItemDetail:
     is_visible: bool
     notes: str
     show_on_touch: bool = False
+    photo_url: str = ""
     barcodes: list = field(default_factory=list)   # list of (id, barcode, is_primary, pack_qty)
     prices: list   = field(default_factory=list)   # list of (id, type, amount, currency, is_default)
     stock_entries: list = field(default_factory=list)  # list of (warehouse, qty)
@@ -63,6 +65,7 @@ class ItemService:
                 Item.id, Item.code, Item.name,
                 Item.cost_price, Item.cost_currency,
                 Item.is_active, Item.is_pos_featured,
+                Item.is_featured,
                 Category.name.label("category_name"),
             ).outerjoin(Category, Item.category_id == Category.id)
 
@@ -124,6 +127,7 @@ class ItemService:
                     price=pr, price_currency=pc,
                     stock=0.0,
                     is_active=r.is_active, is_pos_featured=r.is_pos_featured,
+                    is_featured=getattr(r, "is_featured", False) or False,
                 ))
             return result
         finally:
@@ -161,6 +165,7 @@ class ItemService:
                 is_active=item.is_active, is_pos_featured=item.is_pos_featured,
                 is_online=item.is_online, is_visible=item.is_visible,
                 show_on_touch=getattr(item, "show_on_touch", False),
+                photo_url=item.photo_url or "",
                 notes=item.notes or "",
                 barcodes=barcodes, prices=prices, stock_entries=stock_entries,
             )
@@ -168,12 +173,14 @@ class ItemService:
             session.close()
 
     @staticmethod
-    def get_categories() -> list[tuple[str, str, str | None, bool, bool]]:
-        """Returns list of (id, name, parent_id, show_in_daily, show_on_touch)."""
+    def get_categories() -> list[tuple[str, str, str | None, bool, bool, str, bool]]:
+        """Returns list of (id, name, parent_id, show_in_daily, show_on_touch, photo_url, show_on_home)."""
         init_db()
         session = get_session()
         try:
-            return [(c.id, c.name, c.parent_id, c.show_in_daily, getattr(c, "show_on_touch", False))
+            return [(c.id, c.name, c.parent_id, c.show_in_daily,
+                     getattr(c, "show_on_touch", False), getattr(c, "photo_url", "") or "",
+                     getattr(c, "show_on_home", False))
                     for c in session.query(Category).order_by(Category.name).all()]
         finally:
             session.close()
@@ -226,6 +233,7 @@ class ItemService:
             item.is_online    = detail.is_online
             item.is_visible   = detail.is_visible
             item.show_on_touch = detail.show_on_touch
+            item.photo_url    = detail.photo_url or None
             item.notes        = detail.notes or None
 
             session.flush()
@@ -298,6 +306,23 @@ class ItemService:
             except Exception:
                 pass
 
+            return True, ""
+        except Exception as exc:
+            session.rollback()
+            return False, str(exc)
+        finally:
+            session.close()
+
+    @staticmethod
+    def set_featured(item_id: str, featured: bool) -> tuple[bool, str]:
+        init_db()
+        session = get_session()
+        try:
+            item = session.query(Item).filter_by(id=item_id).first()
+            if not item:
+                return False, "Item not found."
+            item.is_featured = featured
+            session.commit()
             return True, ""
         except Exception as exc:
             session.rollback()
@@ -385,7 +410,9 @@ class ItemService:
     @staticmethod
     def save_category(cat_id: str, name: str, parent_id: str = "",
                       show_in_daily: bool = False,
-                      show_on_touch: bool = False) -> tuple[bool, str]:
+                      show_on_touch: bool = False,
+                      photo_url: str = "",
+                      show_on_home: bool = False) -> tuple[bool, str]:
         init_db()
         session = get_session()
         try:
@@ -398,15 +425,19 @@ class ItemService:
             cat.parent_id     = parent_id or None
             cat.show_in_daily = show_in_daily
             cat.show_on_touch = show_on_touch
+            cat.photo_url     = photo_url or None
+            cat.show_on_home  = show_on_home
             session.commit()
 
+            sync_err = ""
             try:
-                from sync.service import push_categories
-                push_categories()
-            except Exception:
-                pass
+                from sync.service import push_categories, is_configured
+                if is_configured():
+                    ok2, sync_err = push_categories()
+            except Exception as e:
+                sync_err = str(e)
 
-            return True, ""
+            return True, sync_err  # (saved locally; sync error surfaced as warning)
         except Exception as exc:
             session.rollback()
             return False, str(exc)

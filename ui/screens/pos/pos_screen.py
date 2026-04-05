@@ -1060,6 +1060,7 @@ class POSScreen(QWidget):
         self._setup_shortcuts()
         from PySide6.QtCore import QTimer
         QTimer.singleShot(0, self._scan_input.setFocus)
+        QTimer.singleShot(2000, self._poll_online_orders)  # first poll 2s after load
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1473,6 +1474,48 @@ class POSScreen(QWidget):
 
         lay.addWidget(held_frame)
         self._refresh_held_panel()
+
+        # ── Online Orders panel ────────────────────────────────────────────────
+        self._online_frame = QFrame()
+        self._online_frame.setStyleSheet(
+            "QFrame{background:#fff3f0;border:2px solid #e53935;border-radius:6px;}"
+            "QLabel{color:#c62828;}"
+        )
+        self._online_frame.setVisible(False)
+        ol = QVBoxLayout(self._online_frame)
+        ol.setContentsMargins(6, 4, 6, 4)
+        ol.setSpacing(3)
+
+        online_hdr = QHBoxLayout()
+        self._online_hdr_lbl = QLabel("🔴  Online Orders")
+        self._online_hdr_lbl.setStyleSheet(
+            "font-size:11px;font-weight:700;color:#c62828;letter-spacing:1px;"
+        )
+        online_hdr.addWidget(self._online_hdr_lbl)
+        online_hdr.addStretch()
+        ol.addLayout(online_hdr)
+
+        self._online_list = QListWidget()
+        self._online_list.setStyleSheet(
+            "QListWidget{font-size:12px;border:none;background:transparent;}"
+            "QListWidget::item{padding:6px 4px;border-bottom:1px solid #ffcdd2;color:#b71c1c;font-weight:600;}"
+            "QListWidget::item:hover{background:#ffebee;}"
+            "QListWidget::item:selected{background:#e53935;color:#fff;}"
+        )
+        self._online_list.setMaximumHeight(140)
+        self._online_list.itemClicked.connect(self._load_online_order_from_panel)
+        ol.addWidget(self._online_list)
+
+        lay.addWidget(self._online_frame)
+
+        # Flash timer for online orders alert
+        self._flash_on = True
+        self._flash_timer = QTimer(self)
+        self._flash_timer.timeout.connect(self._flash_online_panel)
+        # Poll timer — check for new online orders every 10 seconds
+        self._online_poll_timer = QTimer(self)
+        self._online_poll_timer.timeout.connect(self._poll_online_orders)
+        self._online_poll_timer.start(10_000)
 
         hints = QLabel(
             "F8=Pay · F9=Print · F10=Price · F2=Hold · F3=Recall · F4=New · +=Qty+ · −=Qty− · Del=Void"
@@ -2257,6 +2300,129 @@ class POSScreen(QWidget):
                 "total": d["total"],
             })
         self._refresh_table()
+
+    # ── Online Orders ──────────────────────────────────────────────────────────
+
+    def _poll_online_orders(self):
+        try:
+            from sync.service import fetch_pending_online_orders, is_configured
+            if not is_configured():
+                return
+            wh_id = getattr(self, "_warehouse_id", "")
+            if not wh_id:
+                return
+            orders = fetch_pending_online_orders(wh_id)
+            self._refresh_online_panel(orders)
+        except Exception:
+            pass
+
+    def _refresh_online_panel(self, orders: list):
+        self._online_list.clear()
+        if not orders:
+            self._online_frame.setVisible(False)
+            self._flash_timer.stop()
+            return
+        self._online_frame.setVisible(True)
+        self._flash_timer.start(600)
+        for o in orders:
+            name  = o.get("customer_name") or "Customer"
+            total = o.get("total", 0)
+            ts    = (o.get("created_at") or "")[:16].replace("T", " ")
+            n_items = len(o.get("items") or [])
+            it = QListWidgetItem(
+                f"  🛒 {name}  —  ل.ل {total:,.0f}  ({n_items} items)  [{ts}]"
+            )
+            it.setData(Qt.UserRole, o)
+            self._online_list.addItem(it)
+
+    def _flash_online_panel(self):
+        self._flash_on = not self._flash_on
+        if self._flash_on:
+            self._online_frame.setStyleSheet(
+                "QFrame{background:#fff3f0;border:2px solid #e53935;border-radius:6px;}"
+                "QLabel{color:#c62828;}"
+            )
+        else:
+            self._online_frame.setStyleSheet(
+                "QFrame{background:#e53935;border:2px solid #b71c1c;border-radius:6px;}"
+                "QLabel{color:#fff;}"
+            )
+
+    def _load_online_order_from_panel(self, list_item):
+        order = list_item.data(Qt.UserRole)
+        if not order:
+            return
+        name  = order.get("customer_name") or "Online Order"
+        total = order.get("total", 0)
+        reply = QMessageBox.question(
+            self, "Load Online Order",
+            f"Load order from {name}  (ل.ل {total:,.0f})?\n\n"
+            f"Current cart will be put on hold.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # Put current cart on hold if it has items
+        if self._lines:
+            self._hold_sale()
+
+        # Acknowledge in Supabase immediately
+        try:
+            from sync.service import acknowledge_online_order
+            acknowledge_online_order(order["id"])
+        except Exception:
+            pass
+
+        # Load items into POS cart
+        raw_items = order.get("items") or []
+        self._lines.clear()
+        for d in raw_items:
+            item_id = d.get("id") or d.get("item_id", "")
+            code    = d.get("code", "")
+            desc    = d.get("name") or d.get("description", "")
+            qty     = float(d.get("qty", 1))
+            price   = float(d.get("price") or d.get("unit_price", 0))
+            # Try to enrich from local DB (vat, barcode)
+            vat_pct = 0.0
+            barcode = ""
+            try:
+                detail = ItemService.get_item_detail(item_id)
+                if detail:
+                    vat_pct = getattr(detail, "vat_pct", 0.0) or 0.0
+                    barcode = getattr(detail, "barcode", "") or ""
+                    if not code:
+                        code = getattr(detail, "code", "") or ""
+            except Exception:
+                pass
+            it = PosLineItem(
+                item_id    = item_id,
+                code       = code,
+                barcode    = barcode,
+                description= desc,
+                qty        = qty,
+                unit_price = price,
+                disc_pct   = 0.0,
+                vat_pct    = vat_pct,
+                total      = round(price * qty, 2),
+                currency   = self._currency,
+            )
+            self._lines.append({
+                "item":  it,
+                "qty":   qty,
+                "price": price,
+                "disc":  0.0,
+                "total": round(price * qty, 2),
+            })
+
+        # Set customer name
+        self._customer_name = name
+        self._cust_name_lbl.setText(name)
+
+        self._refresh_table()
+        self._refresh_online_panel([])   # remove from panel immediately
+        self._poll_online_orders()       # re-poll to update remaining
+        self._scan_input.setFocus()
 
     # ── Line actions ───────────────────────────────────────────────────────────
 

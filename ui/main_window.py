@@ -194,6 +194,11 @@ class MainWindow(QMainWindow):
             w = SettingsScreen()
             w.back.connect(self._go_dashboard)
             return w
+        if key == "app_manager":
+            from ui.screens.app.app_manager_screen import AppManagerScreen
+            w = AppManagerScreen()
+            w.back.connect(self._go_dashboard)
+            return w
         # Other modules: placeholder until built
         w = QWidget()
         from PySide6.QtWidgets import QVBoxLayout as VL

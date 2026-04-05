@@ -1780,6 +1780,7 @@ def push_categories() -> tuple[bool, str]:
     session = get_session()
     try:
         now = datetime.now(timezone.utc).isoformat()
+        cats = session.query(Category).all()
         rows = [
             {
                 "id":            c.id,
@@ -1790,11 +1791,40 @@ def push_categories() -> tuple[bool, str]:
                 "show_in_daily": c.show_in_daily,
                 "updated_at":    now,
             }
-            for c in session.query(Category).all()
+            for c in cats
         ]
         if not rows:
             return True, ""
-        return upsert_rows("categories_central", rows)
+        ok, err = upsert_rows("categories_central", rows)
+        if not ok:
+            return False, err
+        # Push image URLs to app_categories for the mobile app
+        img_rows = [
+            {"name": c.name, "image_url": c.photo_url or None,
+             "show_on_home": bool(getattr(c, "show_on_home", False)), "updated_at": now}
+            for c in cats if c.photo_url or getattr(c, "show_on_home", False)
+        ]
+        if img_rows:
+            upsert_rows("app_categories", img_rows)
+        # Remove entries for categories that no longer have an image
+        live_names = {c.name for c in cats if c.photo_url or getattr(c, "show_on_home", False)}
+        try:
+            r_existing = requests.get(
+                f"{_url('app_categories')}?select=name",
+                headers={**_headers(), "Prefer": ""},
+                timeout=10,
+            )
+            if r_existing.status_code == 200:
+                for row in r_existing.json():
+                    if row["name"] not in live_names:
+                        requests.delete(
+                            f"{_url('app_categories')}?name=eq.{row['name']}",
+                            headers=_headers(),
+                            timeout=10,
+                        )
+        except Exception:
+            pass
+        return True, ""
     finally:
         session.close()
 
@@ -2560,6 +2590,98 @@ def dedupe_stock_movements() -> int:
         return 0
     finally:
         session.close()
+
+
+# ── Supabase Storage upload ───────────────────────────────────────────────────
+
+def upload_to_storage(bucket: str, path: str, data: bytes, content_type: str = "image/jpeg") -> tuple[bool, str]:
+    """
+    Upload bytes to Supabase Storage.
+    Returns (ok, public_url_or_error).
+    """
+    if not is_configured():
+        return False, "Supabase not configured"
+    url = f"{SUPABASE_URL}/storage/v1/object/{bucket}/{path}"
+    headers = {
+        "apikey":        SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type":  content_type,
+        "x-upsert":      "true",
+    }
+    try:
+        r = requests.post(url, headers=headers, data=data, timeout=30)
+        if r.status_code not in (200, 201):
+            return False, f"HTTP {r.status_code}: {r.text[:200]}"
+        public_url = f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}"
+        return True, public_url
+    except Exception as e:
+        return False, str(e)
+
+
+# ── App Banners CRUD ──────────────────────────────────────────────────────────
+
+def fetch_banners_remote() -> tuple[list, str]:
+    """Fetch all rows from app_banners ordered by sort_order."""
+    if not is_configured():
+        return [], "Supabase not configured"
+    try:
+        r = requests.get(
+            f"{_url('app_banners')}?order=sort_order.asc",
+            headers={**_headers(), "Prefer": ""},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return [], f"HTTP {r.status_code}: {r.text[:200]}"
+        return r.json(), ""
+    except Exception as e:
+        return [], str(e)
+
+
+def upsert_banner(banner: dict) -> tuple[bool, str]:
+    """Insert or update a banner row."""
+    return upsert_rows("app_banners", [banner])
+
+
+def delete_banner(banner_id: str) -> tuple[bool, str]:
+    """Delete a banner by id."""
+    return delete_row("app_banners", banner_id)
+
+
+# ── Online orders (app → POS) ─────────────────────────────────────────────────
+
+def fetch_pending_online_orders(warehouse_id: str) -> list[dict]:
+    """Return unacknowledged online orders placed for this branch (warehouse_id)."""
+    if not is_configured() or not warehouse_id:
+        return []
+    try:
+        r = requests.get(
+            f"{_url('orders')}?branch_id=eq.{warehouse_id}"
+            f"&status=eq.new&acknowledged_at=is.null&order=created_at.asc",
+            headers={**_headers(), "Prefer": ""},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return []
+
+
+def acknowledge_online_order(order_id: str) -> bool:
+    """Mark an online order as acknowledged (in-processing) so it stops alerting."""
+    if not is_configured():
+        return False
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        r = requests.patch(
+            f"{_url('orders')}?id=eq.{order_id}",
+            headers={**_headers(), "Prefer": "return=minimal"},
+            json={"acknowledged_at": now, "status": "processing"},
+            timeout=8,
+        )
+        return r.status_code in (200, 204)
+    except Exception:
+        return False
 
 
 # ── Enqueue helper (called from services) ────────────────────────────────────

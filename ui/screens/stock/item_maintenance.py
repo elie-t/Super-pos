@@ -27,7 +27,8 @@ from PySide6.QtWidgets import (
     QMessageBox, QCheckBox,
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QPixmap
+from PySide6.QtWidgets import QFileDialog
 from services.item_service import ItemService, ItemDetail
 from database.models.base import new_uuid
 
@@ -44,6 +45,7 @@ class ItemMaintenanceScreen(QWidget):
         self._item_id = item_id or new_uuid()
         self._is_new  = not item_id
         self._detail: ItemDetail | None = None
+        self._photo_url: str = ""
         self._lbp_rate = self._get_lbp_rate()
         self._build_ui()
         if item_id:
@@ -440,25 +442,47 @@ class ItemMaintenanceScreen(QWidget):
         sup_row.addWidget(self._supplier_combo, 1)
         layout.addLayout(sup_row)
 
-        # Image placeholder
+        # Item photo (Browse → upload to Supabase Storage)
         img_frame = QFrame()
         img_frame.setStyleSheet(
             "background:#f8f8f8; border:1px solid #c0ccd8; border-radius:3px;"
         )
-        img_frame.setFixedHeight(80)
+        img_frame.setFixedHeight(100)
         img_layout = QVBoxLayout(img_frame)
-        img_lbl = QLabel("[ Image ]")
-        img_lbl.setAlignment(Qt.AlignCenter)
-        img_lbl.setStyleSheet("color:#aaaaaa;")
-        img_layout.addWidget(img_lbl)
+        img_layout.setContentsMargins(4, 4, 4, 4)
+        self._img_preview = QLabel("[ No Image ]")
+        self._img_preview.setAlignment(Qt.AlignCenter)
+        self._img_preview.setStyleSheet("color:#aaaaaa;")
+        self._img_preview.setScaledContents(False)
+        img_layout.addWidget(self._img_preview)
         layout.addWidget(img_frame)
 
+        # URL input row
+        url_row = QHBoxLayout()
+        self._photo_url_edit = QLineEdit()
+        self._photo_url_edit.setPlaceholderText("Paste image URL…")
+        self._photo_url_edit.setFixedHeight(24)
+        self._photo_url_edit.setStyleSheet("font-size:10px;")
+        self._photo_url_edit.editingFinished.connect(self._refresh_photo_preview)
+        url_set_btn = QPushButton("Set")
+        url_set_btn.setObjectName("secondaryBtn")
+        url_set_btn.setFixedSize(36, 24)
+        url_set_btn.clicked.connect(self._set_photo_from_url)
+        url_row.addWidget(self._photo_url_edit, 1)
+        url_row.addWidget(url_set_btn)
+        layout.addLayout(url_row)
+
         img_btn_row = QHBoxLayout()
-        for btn_text in ("Browse…", "+ Add", "Clear"):
-            btn = QPushButton(btn_text)
-            btn.setObjectName("secondaryBtn")
-            btn.setFixedHeight(26)
-            img_btn_row.addWidget(btn)
+        browse_btn = QPushButton("Browse…")
+        browse_btn.setObjectName("secondaryBtn")
+        browse_btn.setFixedHeight(26)
+        browse_btn.clicked.connect(self._browse_photo)
+        self._clear_photo_btn = QPushButton("Clear")
+        self._clear_photo_btn.setObjectName("secondaryBtn")
+        self._clear_photo_btn.setFixedHeight(26)
+        self._clear_photo_btn.clicked.connect(self._clear_photo)
+        img_btn_row.addWidget(browse_btn)
+        img_btn_row.addWidget(self._clear_photo_btn)
         layout.addLayout(img_btn_row)
 
         layout.addStretch()
@@ -776,6 +800,10 @@ class ItemMaintenanceScreen(QWidget):
         self._chk_online.setChecked(bool(detail.is_online))
         self._chk_featured.setChecked(bool(detail.is_pos_featured))
         self._chk_touch.setChecked(bool(getattr(detail, "show_on_touch", False)))
+
+        # Photo
+        self._photo_url_edit.setText(detail.photo_url or "")
+        self._refresh_photo_preview()
 
         # Dates
         if detail.id:
@@ -1325,6 +1353,7 @@ class ItemMaintenanceScreen(QWidget):
             is_pos_featured=self._chk_featured.isChecked(),
             is_online=self._chk_online.isChecked(),
             show_on_touch=self._chk_touch.isChecked(),
+            photo_url=self._photo_url_edit.text().strip(),
             is_visible=True,
             notes=self._notes_edit.toPlainText(),
             barcodes=barcodes,
@@ -1339,6 +1368,68 @@ class ItemMaintenanceScreen(QWidget):
             self.saved.emit(self._item_id)
         else:
             self._show_error(err)
+
+    # ── Photo helpers ─────────────────────────────────────────────────────────
+
+    def _set_photo_from_url(self):
+        self._refresh_photo_preview()
+
+    def _refresh_photo_preview(self):
+        url = self._photo_url_edit.text().strip()
+        if url:
+            # Try to show a thumbnail from the URL
+            try:
+                import requests as _req
+                data = _req.get(url, timeout=5).content
+                pix = QPixmap()
+                pix.loadFromData(data)
+                if not pix.isNull():
+                    scaled = pix.scaled(90, 90, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    self._img_preview.setPixmap(scaled)
+                    self._img_preview.setText("")
+                    return
+            except Exception:
+                pass
+            self._img_preview.setPixmap(QPixmap())
+            self._img_preview.setText("🖼 Image set")
+            self._img_preview.setStyleSheet("color:#1a6cb5;")
+        else:
+            self._img_preview.setPixmap(QPixmap())
+            self._img_preview.setText("[ No Image ]")
+            self._img_preview.setStyleSheet("color:#aaaaaa;")
+
+    def _browse_photo(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Item Photo", "",
+            "Images (*.png *.jpg *.jpeg *.webp)"
+        )
+        if not path:
+            return
+        from sync.service import is_configured, upload_to_storage
+        if not is_configured():
+            QMessageBox.warning(self, "Not configured", "Supabase sync is not configured.")
+            return
+
+        import mimetypes, os
+        mime = mimetypes.guess_type(path)[0] or "image/jpeg"
+        ext  = os.path.splitext(path)[1].lower()
+        remote_path = f"items/{self._item_id}{ext}"
+
+        with open(path, "rb") as f:
+            data = f.read()
+
+        ok, result = upload_to_storage("product-images", remote_path, data, mime)
+        if ok:
+            self._photo_url_edit.setText(result)
+            self._refresh_photo_preview()
+            self._status_lbl.setStyleSheet("color:#2e7d32;")
+            self._status_lbl.setText("Photo uploaded — save to persist.")
+        else:
+            QMessageBox.warning(self, "Upload failed", result)
+
+    def _clear_photo(self):
+        self._photo_url_edit.clear()
+        self._refresh_photo_preview()
 
     def _confirm_delete(self):
         if self._is_new:

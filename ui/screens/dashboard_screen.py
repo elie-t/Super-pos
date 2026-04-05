@@ -22,6 +22,7 @@ DASHBOARD_TILES = [
     ("📊", "Reports",     "Sales & stock reports",  "reports",   False),
     ("💰", "Financials",  "Payments & balances",    "financials",False),
     ("⚙️", "Settings",    "System configuration",   "settings",  False),
+    ("📱", "App Manager", "Mobile app control",     "app_manager", False),
     ("👤", "Users",       "Manage cashier accounts","users",     True),
 ]
 

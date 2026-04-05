@@ -18,6 +18,8 @@ class Category(Base, TimestampMixin, SyncMixin):
     is_active:      Mapped[bool]       = mapped_column(Boolean, default=True)
     show_in_daily:  Mapped[bool]       = mapped_column(Boolean, default=False)
     show_on_touch:  Mapped[bool]       = mapped_column(Boolean, default=False)
+    show_on_home:   Mapped[bool]       = mapped_column(Boolean, default=False)
+    photo_url:      Mapped[str | None] = mapped_column(Text, nullable=True)
 
     parent:   Mapped["Category | None"]     = relationship("Category", remote_side="Category.id", back_populates="children")
     children: Mapped[list["Category"]]      = relationship("Category", back_populates="parent")
