@@ -2662,10 +2662,12 @@ def fetch_pending_online_orders(warehouse_id: str) -> list[dict]:
             timeout=8,
         )
         if r.status_code == 200:
-            return r.json()
+            rows = r.json()
+            if rows:
+                return rows
     except Exception:
         pass
-    # Fallback: columns may not exist yet — fetch all new orders
+    # Fallback: no branch match or columns missing — fetch all new unacknowledged orders
     try:
         r = requests.get(
             f"{_url('orders')}?status=eq.new&order=created_at.asc",
@@ -2719,10 +2721,12 @@ def fetch_branch_orders(warehouse_id: str, hours: int = 24) -> list[dict]:
             timeout=10,
         )
         if r.status_code == 200:
-            return r.json()
+            rows = r.json()
+            if rows:           # found orders for this branch — return them
+                return rows
     except Exception:
         pass
-    # Fallback: branch_id column may not exist yet — fetch all recent orders
+    # Fallback: no branch match (old orders with null branch_id, or column missing)
     try:
         r = requests.get(
             f"{_url('orders')}?created_at=gte.{since}&order=created_at.desc",
