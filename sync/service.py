@@ -2669,19 +2669,47 @@ def fetch_pending_online_orders(warehouse_id: str) -> list[dict]:
 
 def acknowledge_online_order(order_id: str) -> bool:
     """Mark an online order as acknowledged (in-processing) so it stops alerting."""
+    return update_online_order_status(order_id, "processing")
+
+
+def update_online_order_status(order_id: str, status: str) -> bool:
+    """Update the status of an online order in Supabase."""
     if not is_configured():
         return False
     try:
         now = datetime.now(timezone.utc).isoformat()
+        payload: dict = {"status": status}
+        if status == "processing":
+            payload["acknowledged_at"] = now
         r = requests.patch(
             f"{_url('orders')}?id=eq.{order_id}",
             headers={**_headers(), "Prefer": "return=minimal"},
-            json={"acknowledged_at": now, "status": "processing"},
+            json=payload,
             timeout=8,
         )
         return r.status_code in (200, 204)
     except Exception:
         return False
+
+
+def fetch_branch_orders(warehouse_id: str, hours: int = 24) -> list[dict]:
+    """Fetch all online orders for this branch from the last N hours."""
+    if not is_configured() or not warehouse_id:
+        return []
+    try:
+        from datetime import timedelta
+        since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        r = requests.get(
+            f"{_url('orders')}?branch_id=eq.{warehouse_id}"
+            f"&created_at=gte.{since}&order=created_at.desc",
+            headers={**_headers(), "Prefer": ""},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return []
 
 
 # ── Enqueue helper (called from services) ────────────────────────────────────

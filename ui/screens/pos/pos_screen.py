@@ -1037,6 +1037,217 @@ class SalesListDialog(QDialog):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# Online Orders Dialog
+# ──────────────────────────────────────────────────────────────────────────────
+
+class OnlineOrdersDialog(QDialog):
+    """Shows all online orders for this branch (last 24 h) with status tabs."""
+
+    # Emitted when cashier wants to load an order into the POS cart
+    load_order = Signal(dict)
+    # Emitted when cashier manually marks an order finished
+    mark_finished = Signal(str)   # order_id
+
+    STATUS_COLOR = {
+        "new":        "#f57c00",
+        "processing": "#1a6cb5",
+        "finished":   "#2e7d32",
+        "cancelled":  "#c62828",
+    }
+    STATUS_LABEL = {
+        "new":        "🔴 Pending",
+        "processing": "🔵 Processing",
+        "finished":   "✅ Finished",
+        "cancelled":  "✕ Cancelled",
+    }
+
+    def __init__(self, warehouse_id: str, parent=None):
+        super().__init__(parent)
+        self._wh_id   = warehouse_id
+        self._orders: list[dict] = []
+        self._filter  = "all"
+        self.setWindowTitle("🌐  Online Orders")
+        self.resize(900, 520)
+        self._build()
+        self._load()
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(8)
+
+        # ── Filter tabs ──────────────────────────────────────────────────────
+        tab_row = QHBoxLayout()
+        self._tab_btns = {}
+        for key, label in [("all", "All"), ("new", "🔴 Pending"),
+                            ("processing", "🔵 Processing"), ("finished", "✅ Finished")]:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setChecked(key == "all")
+            btn.setFixedHeight(28)
+            btn.clicked.connect(lambda _=False, k=key: self._set_filter(k))
+            btn.setStyleSheet(
+                "QPushButton{background:#eef2f7;color:#1a3a5c;border:1px solid #c0ccd8;"
+                "border-radius:4px;padding:0 12px;font-size:12px;font-weight:600;}"
+                "QPushButton:checked{background:#1a3a5c;color:#fff;border-color:#1a3a5c;}"
+            )
+            self._tab_btns[key] = btn
+            tab_row.addWidget(btn)
+        tab_row.addStretch()
+        refresh_btn = QPushButton("↺  Refresh")
+        refresh_btn.setFixedHeight(28)
+        refresh_btn.setStyleSheet(
+            "QPushButton{background:#e8f0fb;color:#1a6cb5;border:1px solid #b0c8e8;"
+            "border-radius:4px;padding:0 12px;font-size:12px;font-weight:600;}"
+        )
+        refresh_btn.clicked.connect(self._load)
+        tab_row.addWidget(refresh_btn)
+        lay.addLayout(tab_row)
+
+        # ── Table ────────────────────────────────────────────────────────────
+        self._table = QTableWidget()
+        self._table.setColumnCount(7)
+        self._table.setHorizontalHeaderLabels(
+            ["Time", "Customer", "Phone", "Address / Type", "Items", "Total (ل.ل)", "Status"]
+        )
+        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self._table.horizontalHeader().setDefaultSectionSize(110)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setStyleSheet("font-size:13px;")
+        self._table.doubleClicked.connect(self._on_double_click)
+        lay.addWidget(self._table)
+
+        # ── Action buttons ───────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        self._load_btn = QPushButton("📥  Load into POS")
+        self._load_btn.setFixedHeight(34)
+        self._load_btn.setStyleSheet(
+            "QPushButton{background:#1a3a5c;color:#fff;border:none;border-radius:6px;"
+            "padding:0 20px;font-size:13px;font-weight:700;}"
+            "QPushButton:hover{background:#0d2a48;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._load_btn.clicked.connect(self._do_load)
+        btn_row.addWidget(self._load_btn)
+
+        self._finish_btn = QPushButton("✅  Mark Finished")
+        self._finish_btn.setFixedHeight(34)
+        self._finish_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;border:none;border-radius:6px;"
+            "padding:0 20px;font-size:13px;font-weight:700;}"
+            "QPushButton:hover{background:#1b5e20;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._finish_btn.clicked.connect(self._do_finish)
+        btn_row.addWidget(self._finish_btn)
+        btn_row.addStretch()
+
+        close_btn = QPushButton("Close")
+        close_btn.setFixedHeight(34)
+        close_btn.setStyleSheet(
+            "QPushButton{background:#eee;color:#333;border:1px solid #ccc;"
+            "border-radius:6px;padding:0 20px;font-size:13px;}"
+        )
+        close_btn.clicked.connect(self.accept)
+        btn_row.addWidget(close_btn)
+        lay.addLayout(btn_row)
+
+    def _set_filter(self, key: str):
+        self._filter = key
+        for k, btn in self._tab_btns.items():
+            btn.setChecked(k == key)
+        self._fill_table()
+
+    def _load(self):
+        try:
+            from sync.service import fetch_branch_orders
+            self._orders = fetch_branch_orders(self._wh_id, hours=24)
+        except Exception:
+            self._orders = []
+        self._fill_table()
+
+    def _fill_table(self):
+        rows = self._orders if self._filter == "all" \
+               else [o for o in self._orders if o.get("status") == self._filter]
+        self._table.setRowCount(0)
+        for o in rows:
+            r = self._table.rowCount()
+            self._table.insertRow(r)
+            ts = (o.get("created_at") or "")[:16].replace("T", " ")
+            addr = o.get("address") or ""
+            dtype = "🚚 Delivery" if o.get("delivery_type") == "delivery" else "🏪 Pickup"
+            addr_cell = f"{addr}  {dtype}" if addr else dtype
+            n_items = len(o.get("items") or [])
+            status  = o.get("status") or "new"
+            color   = self.STATUS_COLOR.get(status, "#666")
+            label   = self.STATUS_LABEL.get(status, status)
+
+            cells = [
+                ts,
+                o.get("customer_name") or "—",
+                o.get("customer_phone") or "—",
+                addr_cell,
+                str(n_items),
+                f"{o.get('total', 0):,.0f}",
+                label,
+            ]
+            for c, val in enumerate(cells):
+                item = QTableWidgetItem(val)
+                item.setData(Qt.UserRole, o)
+                if c == 6:
+                    item.setForeground(QColor(color))
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+                self._table.setItem(r, c, item)
+
+    def _selected_order(self) -> dict | None:
+        row = self._table.currentRow()
+        if row < 0:
+            return None
+        item = self._table.item(row, 0)
+        return item.data(Qt.UserRole) if item else None
+
+    def _on_double_click(self, _idx):
+        o = self._selected_order()
+        if o and o.get("status") == "new":
+            self._do_load()
+
+    def _do_load(self):
+        o = self._selected_order()
+        if not o:
+            QMessageBox.information(self, "Select Order", "Select an order first.")
+            return
+        if o.get("status") != "new":
+            QMessageBox.information(self, "Not Pending",
+                                    "Only 'Pending' orders can be loaded into the POS.")
+            return
+        self.load_order.emit(o)
+        self.accept()
+
+    def _do_finish(self):
+        o = self._selected_order()
+        if not o:
+            QMessageBox.information(self, "Select Order", "Select an order first.")
+            return
+        if o.get("status") not in ("new", "processing"):
+            QMessageBox.information(self, "Already Done", "Order is already finished or cancelled.")
+            return
+        reply = QMessageBox.question(
+            self, "Mark Finished",
+            f"Mark order from {o.get('customer_name', '?')} as Finished?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self.mark_finished.emit(o["id"])
+            o["status"] = "finished"   # update local copy so table refreshes
+            self._fill_table()
+
+
 # Main POS Screen
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -1053,7 +1264,8 @@ class POSScreen(QWidget):
         self._last_invoice_id      = ""
         self._last_payment_method  = "cash"
         self._last_tendered        = 0.0
-        self._forced_warehouse_id = forced_warehouse_id
+        self._forced_warehouse_id  = forced_warehouse_id
+        self._active_online_order_id = ""   # set when an online order is loaded into cart
 
         self._build_ui()
         self._load_defaults()
@@ -1421,7 +1633,7 @@ class POSScreen(QWidget):
         fn_btn("⏸  Hold  [F2]",      "#e65100", "#bf360c", self._hold_sale,      0, 0)
         fn_btn("▶  Recall  [F3]",   "#1a6cb5", "#1a3a5c", self._recall_sale,    0, 1)
         fn_btn("📋  Invoices",       "#37474f", "#263238", self._open_invoices,  1, 0)
-        fn_btn("↩  Refund",          "#c62828", "#a01010", self._placeholder,    1, 1)
+        fn_btn("🌐  Online Orders", "#1a6cb5", "#0d4a8a", self._open_online_orders, 1, 1)
         self._touch_mode_btn = fn_btn(
             "⊞  Touch Mode", "#00838f", "#006064", self._toggle_touch_mode, 2, 0)
         fn_btn("👤  Customer",     "#5c6bc0", "#3949ab", self._change_customer, 2, 1)
@@ -2238,6 +2450,14 @@ class POSScreen(QWidget):
             change = max(0.0, dlg.tendered - total) if dlg.method == "cash" else 0.0
             change_txt = f"  Change ل.ل {change:,.0f}" if change > 0 else ""
             self._last_inv_amt_lbl.setText(f"ل.ل {total:,.0f}{change_txt}")
+            # Auto-finish linked online order
+            if self._active_online_order_id:
+                try:
+                    from sync.service import update_online_order_status
+                    update_online_order_status(self._active_online_order_id, "finished")
+                except Exception:
+                    pass
+                self._active_online_order_id = ""
             if self._print_enabled:
                 self._print_receipt(result, dlg.method, dlg.tendered)
             self._new_sale()
@@ -2310,6 +2530,28 @@ class POSScreen(QWidget):
         self._refresh_table()
 
     # ── Online Orders ──────────────────────────────────────────────────────────
+
+    def _open_online_orders(self):
+        wh_id = getattr(self, "_warehouse_id", "")
+        dlg = OnlineOrdersDialog(wh_id, parent=self)
+        dlg.load_order.connect(self._load_online_order_from_dict)
+        dlg.mark_finished.connect(self._manually_finish_online_order)
+        dlg.exec()
+
+    def _load_online_order_from_dict(self, order: dict):
+        """Load an online order from the dialog (same logic as panel click)."""
+        # Reuse panel click by wrapping in a fake QListWidgetItem
+        class _FakeItem:
+            def data(self, _role):
+                return order
+        self._load_online_order_from_panel(_FakeItem())
+
+    def _manually_finish_online_order(self, order_id: str):
+        try:
+            from sync.service import update_online_order_status
+            update_online_order_status(order_id, "finished")
+        except Exception:
+            pass
 
     def _poll_online_orders(self):
         try:
@@ -2386,12 +2628,13 @@ class POSScreen(QWidget):
         if self._lines:
             self._hold_sale()
 
-        # Acknowledge in Supabase immediately
+        # Acknowledge in Supabase (new → processing)
         try:
             from sync.service import acknowledge_online_order
             acknowledge_online_order(order["id"])
         except Exception:
             pass
+        self._active_online_order_id = order.get("id", "")
 
         # Load items into POS cart
         raw_items = order.get("items") or []
@@ -2554,6 +2797,7 @@ class POSScreen(QWidget):
         self._cust_name_lbl.setText(self._customer_name)
         self._delivery_lbl.setText("")
         self._delivery_lbl.setVisible(False)
+        self._active_online_order_id = ""
         self._refresh_table()
         self._scan_input.setFocus()
 
