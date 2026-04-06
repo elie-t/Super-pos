@@ -36,7 +36,7 @@ def main():
     app.setApplicationName("TannouryMarket")
 
     window = MainWindow()
-    window.show()
+    window.showMaximized()
 
     # Start background sync worker (only if Supabase is configured)
     from sync.service import is_configured
