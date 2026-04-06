@@ -3054,21 +3054,8 @@ class POSScreen(QWidget):
         ctrl_held = bool(QApplication.keyboardModifiers() & Qt.ControlModifier)
 
         if ctrl_held or force_delete:
-            # Manager-only delete — ask for PIN
-            user = AuthService.current_user()
-            if user and user.role not in ("admin", "manager"):
-                from PySide6.QtWidgets import QInputDialog
-                pin, ok = QInputDialog.getText(
-                    self, "Manager Override",
-                    "Enter manager PIN to delete line:",
-                    QLineEdit.Password,
-                )
-                if not ok:
-                    return
-                # Simple PIN check — "0000" as default; replace with real auth if needed
-                if pin != "0000":
-                    QMessageBox.warning(self, "Access Denied", "Incorrect PIN.")
-                    return
+            if not self._require_elevated("Delete Line"):
+                return
             del self._lines[row]
         else:
             # Void: append a negative-qty copy
