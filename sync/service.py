@@ -2369,45 +2369,77 @@ def pull_inventory_sessions() -> tuple[int, str]:
 def push_branch_reset() -> tuple[bool, str]:
     """
     Called after reset_transactions.py clears the local DB.
-    Deletes this branch's transaction data from all Supabase central tables
+    Deletes this branch's transaction data from ALL Supabase central tables
     so other machines will remove their local copies on next sync.
     """
     if not is_configured():
         return True, ""
     try:
-        hdrs = _headers()
+        hdrs  = _headers()
+        bid   = BRANCH_ID
+        errors = []
 
-        # Collect invoice IDs first (needed to delete line items — no cascade in REST)
-        r = requests.get(
-            f"{_url('sales_invoices_central')}?branch_id=eq.{BRANCH_ID}&select=id",
-            headers={**hdrs, "Prefer": ""},
-            timeout=20,
-        )
-        if r.status_code == 200:
-            ids = [row["id"] for row in r.json()]
-            if ids:
-                ids_filter = ",".join(f'"{i}"' for i in ids)
-                requests.delete(
-                    f"{_url('sales_invoice_items_central')}?invoice_id=in.({ids_filter})",
-                    headers=hdrs,
-                    timeout=20,
+        def _delete(table: str, filter_: str):
+            try:
+                r = requests.delete(
+                    f"{_url(table)}?{filter_}",
+                    headers=hdrs, timeout=20,
                 )
+                if r.status_code not in (200, 204):
+                    errors.append(f"{table}: HTTP {r.status_code}")
+            except Exception as ex:
+                errors.append(f"{table}: {ex}")
 
-        requests.delete(
-            f"{_url('sales_invoices_central')}?branch_id=eq.{BRANCH_ID}",
-            headers=hdrs,
-            timeout=20,
-        )
-        requests.delete(
-            f"{_url('stock_movements_central')}?branch_id=eq.{BRANCH_ID}",
-            headers=hdrs,
-            timeout=20,
-        )
+        def _get_ids(table: str, filter_: str) -> list[str]:
+            try:
+                r = requests.get(
+                    f"{_url(table)}?{filter_}&select=id",
+                    headers={**hdrs, "Prefer": ""}, timeout=20,
+                )
+                if r.status_code == 200:
+                    return [row["id"] for row in r.json()]
+            except Exception:
+                pass
+            return []
 
-        # Reset the state timestamps so a full re-pull doesn't re-create deleted records
-        _state_set("sales_invoices_pull", "2000-01-01T00:00:00Z")
-        _state_set("movements_pull",      "2000-01-01T00:00:00Z")
+        # ── Sales invoices + line items ───────────────────────────────────────
+        sale_ids = _get_ids("sales_invoices_central", f"branch_id=eq.{bid}")
+        if sale_ids:
+            ids_f = ",".join(f'"{i}"' for i in sale_ids)
+            _delete("sales_invoice_items_central", f"invoice_id=in.({ids_f})")
+        _delete("sales_invoices_central", f"branch_id=eq.{bid}")
 
+        # ── Purchase invoices + line items ────────────────────────────────────
+        pur_ids = _get_ids("purchase_invoices_central", f"branch_id=eq.{bid}")
+        if pur_ids:
+            ids_f = ",".join(f'"{i}"' for i in pur_ids)
+            _delete("purchase_invoice_items_central", f"invoice_id=in.({ids_f})")
+        _delete("purchase_invoices_central", f"branch_id=eq.{bid}")
+
+        # ── Warehouse transfers + items ───────────────────────────────────────
+        tr_ids = _get_ids("warehouse_transfers_central", f"from_warehouse_id=eq.{bid}")
+        if tr_ids:
+            ids_f = ",".join(f'"{i}"' for i in tr_ids)
+            _delete("warehouse_transfer_items_central", f"transfer_id=in.({ids_f})")
+        _delete("warehouse_transfers_central", f"from_warehouse_id=eq.{bid}")
+
+        # ── Inventory sessions + items ────────────────────────────────────────
+        inv_ids = _get_ids("inventory_sessions_central", f"warehouse_id=eq.{bid}")
+        if inv_ids:
+            ids_f = ",".join(f'"{i}"' for i in inv_ids)
+            _delete("inventory_session_items_central", f"session_id=in.({ids_f})")
+        _delete("inventory_sessions_central", f"warehouse_id=eq.{bid}")
+
+        # ── Stock movements ───────────────────────────────────────────────────
+        _delete("stock_movements_central", f"branch_id=eq.{bid}")
+
+        # Reset pull timestamps so re-sync starts fresh
+        for key in ("sales_invoices_pull", "movements_pull", "purchase_invoices_pull",
+                    "transfers_pull", "inventory_sessions_pull"):
+            _state_set(key, "2000-01-01T00:00:00Z")
+
+        if errors:
+            return False, "; ".join(errors)
         return True, ""
     except Exception as e:
         return False, str(e)
