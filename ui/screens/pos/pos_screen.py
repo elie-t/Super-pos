@@ -14,7 +14,7 @@ Del = Void line  Esc = Scan focus
 """
 import json
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
     QLineEdit, QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QDialog, QSplitter, QGridLayout,
     QListWidget, QListWidgetItem, QDialogButtonBox, QMessageBox,
