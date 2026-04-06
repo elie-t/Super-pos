@@ -157,7 +157,7 @@ try:
     from pathlib import Path as _Path
     _env = _Path(__file__).parent / ".env"
     if _env.exists():
-        for _line in _env.read_text().splitlines():
+        for _line in _env.read_text(encoding='utf-8', errors='ignore').splitlines():
             if "=" in _line and not _line.startswith("#"):
                 _k, _, _v = _line.partition("=")
                 _os.environ.setdefault(_k.strip(), _v.strip())
