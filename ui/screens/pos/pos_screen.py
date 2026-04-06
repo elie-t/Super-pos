@@ -1277,6 +1277,8 @@ class POSScreen(QWidget):
         self._last_tendered        = 0.0
         self._forced_warehouse_id  = forced_warehouse_id
         self._active_online_order_id = ""   # set when an online order is loaded into cart
+        self._alert_sound = None            # QSoundEffect, created lazily
+        self._alert_playing = False
 
         self._build_ui()
         self._load_defaults()
@@ -2565,14 +2567,64 @@ class POSScreen(QWidget):
         except Exception:
             pass
 
+    def _start_alert_sound(self):
+        if self._alert_playing:
+            return
+        try:
+            from PySide6.QtMultimedia import QSoundEffect
+            from PySide6.QtCore import QUrl
+            import struct, wave, math
+            from pathlib import Path
+
+            wav_path = Path(__file__).parent.parent.parent / "assets" / "sounds" / "alert.wav"
+            wav_path.parent.mkdir(parents=True, exist_ok=True)
+            if not wav_path.exists():
+                # Generate a short two-tone alert beep (700 Hz, 0.35 s)
+                sample_rate = 44100
+                duration    = 0.35
+                freq        = 700
+                n_samples   = int(sample_rate * duration)
+                with wave.open(str(wav_path), "w") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(sample_rate)
+                    for i in range(n_samples):
+                        t   = i / sample_rate
+                        env = min(t / 0.02, 1.0, (duration - t) / 0.02)
+                        val = int(32767 * env * math.sin(2 * math.pi * freq * t))
+                        wf.writeframes(struct.pack("<h", val))
+
+            if self._alert_sound is None:
+                self._alert_sound = QSoundEffect(self)
+                self._alert_sound.setSource(QUrl.fromLocalFile(str(wav_path)))
+                self._alert_sound.setVolume(0.9)
+                self._alert_sound.setLoopCount(QSoundEffect.Infinite)
+
+            self._alert_sound.play()
+            self._alert_playing = True
+        except Exception:
+            pass
+
+    def _stop_alert_sound(self):
+        if not self._alert_playing:
+            return
+        try:
+            if self._alert_sound is not None:
+                self._alert_sound.stop()
+        except Exception:
+            pass
+        self._alert_playing = False
+
     def _refresh_online_panel(self, orders: list):
         self._online_list.clear()
         if not orders:
             self._online_frame.setVisible(False)
             self._flash_timer.stop()
+            self._stop_alert_sound()
             return
         self._online_frame.setVisible(True)
         self._flash_timer.start(600)
+        self._start_alert_sound()
         for o in orders:
             name  = o.get("customer_name") or "Customer"
             total = o.get("total", 0)
