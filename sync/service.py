@@ -604,21 +604,25 @@ def pull_all_stock_levels() -> tuple[int, str]:
         updated = 0
         for item_id, warehouse_id, total in rows:
             qty = float(total or 0)
-            stock = session.query(ItemStock).filter_by(
-                item_id=item_id, warehouse_id=warehouse_id
-            ).first()
-            if stock:
-                if stock.quantity != qty:
-                    stock.quantity = qty
+            try:
+                stock = session.query(ItemStock).filter_by(
+                    item_id=item_id, warehouse_id=warehouse_id
+                ).first()
+                if stock:
+                    if stock.quantity != qty:
+                        stock.quantity = qty
+                        updated += 1
+                else:
+                    session.add(ItemStock(
+                        id=new_uuid(),
+                        item_id=item_id,
+                        warehouse_id=warehouse_id,
+                        quantity=qty,
+                    ))
                     updated += 1
-            else:
-                session.add(ItemStock(
-                    id=new_uuid(),
-                    item_id=item_id,
-                    warehouse_id=warehouse_id,
-                    quantity=qty,
-                ))
-                updated += 1
+                session.flush()
+            except Exception:
+                session.rollback()
 
         session.commit()
         return updated, ""
@@ -744,6 +748,7 @@ def pull_master_items() -> tuple[int, str]:
 
             for ri in remote_items:
                 if ri.get("pushed_by") == BRANCH_ID:
+                    seen_codes.add(ri.get("code") or ri["id"][:12])
                     latest_ts = ri.get("updated_at", latest_ts)
                     continue
 
@@ -828,7 +833,10 @@ def pull_master_items() -> tuple[int, str]:
                 latest_ts = ri.get("updated_at", latest_ts)
                 total_updated += 1
 
-            session.commit()
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
 
             if full_sync_mode:
                 last_id = remote_items[-1]["id"]
