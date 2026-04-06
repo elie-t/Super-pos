@@ -511,10 +511,9 @@ class DailySalesDialog(QDialog):
 
     def _on_mode(self, idx: int):
         is_old = (idx == 1)
-        # In Daily Sales mode, date pickers are optional filters
-        # In Old Sales mode, date pickers are required
-        self._from_lbl.setText("From:" if is_old else "From (opt):")
-        self._to_lbl.setText("To:" if is_old else "To (opt):")
+        # In Daily Sales mode hide date pickers — always shows ALL unarchived invoices
+        for w in (self._from_lbl, self._from_dt, self._to_lbl, self._to_dt):
+            w.setVisible(is_old)
         # End of Shift only makes sense in Daily Sales mode
         self._shift_btn.setEnabled(not is_old)
         self._shift_btn.setToolTip(
@@ -533,13 +532,11 @@ class DailySalesDialog(QDialog):
         wh_id     = self._wh.currentData() or ""
         is_old    = self._is_old_mode()
 
-        # In Daily Sales mode, dates are optional: only apply if user changed from default
         if not is_old:
-            # Show all non-archived (ignore date pickers — they're "optional" filters)
-            # Only apply if the user explicitly changes dates
+            # Daily Sales: always show ALL unarchived invoices, no date filter
             self._report = DailySalesService.get_report(
-                date_from=from_text,
-                date_to=to_text,
+                date_from="",
+                date_to="",
                 warehouse_id=wh_id,
                 archived=False,
             )
@@ -595,12 +592,22 @@ class DailySalesDialog(QDialog):
             self._hl_layout.addWidget(card, 1)
             self._hl_cards.append(card)
 
-        # Period label
-        mode = "Daily Sales (open shift)" if not self._is_old_mode() else "Old Sales"
+        # Period label — show actual date range from data
         inv_count = s.get("invoice_count", 0)
-        self._period_lbl.setText(
-            f"{mode}  ·  {inv_count:,} invoice{'s' if inv_count != 1 else ''}"
-        )
+        if not self._is_old_mode():
+            dates = [row["date"] for row in r.get("by_cashier_date", []) if row.get("date")]
+            if dates:
+                d_min, d_max = min(dates), max(dates)
+                date_range = d_min if d_min == d_max else f"{d_min}  →  {d_max}"
+            else:
+                date_range = "no invoices"
+            self._period_lbl.setText(
+                f"Open shift  ·  {date_range}  ·  {inv_count:,} invoice{'s' if inv_count != 1 else ''}"
+            )
+        else:
+            self._period_lbl.setText(
+                f"Old Sales  ·  {inv_count:,} invoice{'s' if inv_count != 1 else ''}"
+            )
 
         # By category
         cats = r.get("by_category", [])
