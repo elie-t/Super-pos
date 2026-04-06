@@ -1038,6 +1038,109 @@ class SalesListDialog(QDialog):
 
 # ──────────────────────────────────────────────────────────────────────────────
 # ──────────────────────────────────────────────────────────────────────────────
+# Elevation / Manager-override Dialog
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _ElevationDialog(QDialog):
+    """Ask for a manager / power-user's username + password to authorise a restricted action."""
+
+    def __init__(self, action: str = "this action", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Manager Authorisation Required")
+        self.setFixedWidth(360)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(12)
+
+        icon = QLabel("🔒")
+        icon.setAlignment(Qt.AlignCenter)
+        icon.setStyleSheet("font-size:36px;")
+        lay.addWidget(icon)
+
+        msg = QLabel(f"<b>{action}</b> requires manager authorisation.<br>Enter a manager or power-user's credentials.")
+        msg.setAlignment(Qt.AlignCenter)
+        msg.setWordWrap(True)
+        msg.setStyleSheet("font-size:13px;color:#1a3a5c;")
+        lay.addWidget(msg)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+        self._user_edit = QLineEdit()
+        self._user_edit.setFixedHeight(34)
+        self._user_edit.setPlaceholderText("Username")
+        form.addRow("Username:", self._user_edit)
+
+        self._pass_edit = QLineEdit()
+        self._pass_edit.setEchoMode(QLineEdit.Password)
+        self._pass_edit.setFixedHeight(34)
+        self._pass_edit.setPlaceholderText("Password")
+        form.addRow("Password:", self._pass_edit)
+        lay.addLayout(form)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color:#c62828;font-size:12px;")
+        self._err.hide()
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.setFixedHeight(34)
+        cancel.setStyleSheet("QPushButton{background:#eceff1;color:#37474f;border:none;border-radius:5px;}")
+        cancel.clicked.connect(self.reject)
+        btn_row.addWidget(cancel)
+
+        ok_btn = QPushButton("Authorise")
+        ok_btn.setFixedHeight(34)
+        ok_btn.setStyleSheet(
+            "QPushButton{background:#1a3a5c;color:#fff;border:none;border-radius:5px;font-weight:700;}"
+            "QPushButton:hover{background:#1a6cb5;}"
+        )
+        ok_btn.clicked.connect(self._verify)
+        btn_row.addWidget(ok_btn)
+        lay.addLayout(btn_row)
+
+        self._pass_edit.returnPressed.connect(self._verify)
+
+    def _verify(self):
+        import bcrypt
+        username = self._user_edit.text().strip()
+        password = self._pass_edit.text()
+        if not username or not password:
+            self._show_err("Enter username and password.")
+            return
+        try:
+            from database.engine import get_session, init_db
+            from database.models.users import User
+            init_db()
+            session = get_session()
+            try:
+                user = session.query(User).filter_by(username=username, is_active=True).first()
+                if not user:
+                    self._show_err("Invalid credentials.")
+                    return
+                if not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
+                    self._show_err("Invalid credentials.")
+                    return
+                is_elevated = (
+                    user.role in ("admin", "manager")
+                    or bool(getattr(user, "is_power_user", False))
+                )
+                if not is_elevated:
+                    self._show_err("That user does not have manager privileges.")
+                    return
+            finally:
+                session.close()
+        except Exception as e:
+            self._show_err(f"Error: {e}")
+            return
+        self.accept()
+
+    def _show_err(self, msg: str):
+        self._err.setText(msg)
+        self._err.show()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Online Orders Dialog
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -2911,11 +3014,30 @@ class POSScreen(QWidget):
         self._refresh_table()
         self._scan_input.setFocus()
 
+    # ── Elevation guard ────────────────────────────────────────────────────────
+
+    def _require_elevated(self, action: str = "this action") -> bool:
+        """
+        Returns True if the current user may perform a restricted action.
+        - admin / manager / power_user  → True immediately (no prompt)
+        - cashier                       → show manager login dialog; True if verified
+        """
+        user = AuthService.current_user()
+        if user and (user.role in ("admin", "manager") or user.is_power_user):
+            return True
+        # Ask for a manager / power-user's credentials
+        dlg = _ElevationDialog(action, parent=self)
+        return dlg.exec() == QDialog.Accepted
+
     def _clear_all(self):
+        if not self._require_elevated("Clear All"):
+            return
         self._new_sale()
 
     def _void_line(self):
         """Del key — void the selected line (adds negative entry)."""
+        if not self._require_elevated("Void Line"):
+            return
         row = self._table.currentRow()
         if 0 <= row < len(self._lines):
             self._void_or_delete(row)
@@ -3270,6 +3392,8 @@ class POSScreen(QWidget):
         print_receipt(data, payment_method, tendered, parent=self, show_preview=show_preview)
 
     def _open_daily_sales(self):
+        if not self._require_elevated("Daily Sales / End of Shift"):
+            return
         from ui.screens.pos.daily_sales_dialog import DailySalesDialog
         wh_id = getattr(self, "_warehouse_id", "")
         dlg = DailySalesDialog(warehouse_id=wh_id, parent=self)

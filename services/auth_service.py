@@ -16,7 +16,8 @@ class OperatorInfo:
     username: str
     full_name: str
     role: str
-    warehouse_id: str = ""   # branch assigned to this user (cashiers)
+    warehouse_id: str  = ""    # branch assigned to this user (cashiers)
+    is_power_user: bool = False  # can perform restricted POS actions without password
 
 
 class AuthService:
@@ -48,6 +49,7 @@ class AuthService:
                 full_name=user.full_name,
                 role=user.role,
                 warehouse_id=user.warehouse_id or "",
+                is_power_user=bool(getattr(user, "is_power_user", False)),
             )
 
             # Record session start

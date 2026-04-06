@@ -65,9 +65,9 @@ class UserManagementScreen(QWidget):
 
         # Table
         self._table = QTableWidget()
-        self._table.setColumnCount(6)
+        self._table.setColumnCount(7)
         self._table.setHorizontalHeaderLabels([
-            "Full Name", "Username", "Role", "Branch / Warehouse", "Active", "Actions"
+            "Full Name", "Username", "Role", "Branch / Warehouse", "Active", "Power", "Actions"
         ])
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -83,8 +83,9 @@ class UserManagementScreen(QWidget):
         th.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         th.setSectionResizeMode(3, QHeaderView.Stretch)
         th.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        th.setSectionResizeMode(5, QHeaderView.Fixed)
-        self._table.setColumnWidth(5, 160)
+        th.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        th.setSectionResizeMode(6, QHeaderView.Fixed)
+        self._table.setColumnWidth(6, 160)
         th.setStyleSheet(
             "QHeaderView::section{background:#1a3a5c;color:#fff;font-weight:700;"
             "border:none;padding:4px;}"
@@ -142,6 +143,13 @@ class UserManagementScreen(QWidget):
                 )
                 self._table.setItem(r, 4, active_item)
 
+                is_power = bool(getattr(u, "is_power_user", False))
+                power_item = QTableWidgetItem("⚡ Yes" if is_power else "—")
+                power_item.setForeground(QColor("#b71c1c") if is_power else QColor("#aaa"))
+                if is_power:
+                    power_item.setFont(QFont("", -1, QFont.Bold))
+                self._table.setItem(r, 5, power_item)
+
                 # Action buttons in a widget
                 cell = QWidget()
                 cl = QHBoxLayout(cell)
@@ -176,7 +184,7 @@ class UserManagementScreen(QWidget):
                     lambda _=False, uid=u.id, active=u.is_active: self._toggle_active(uid, active)
                 )
                 cl.addWidget(toggle_btn)
-                self._table.setCellWidget(r, 5, cell)
+                self._table.setCellWidget(r, 6, cell)
         finally:
             session.close()
 
@@ -202,11 +210,12 @@ class UserManagementScreen(QWidget):
             if not user:
                 return
             existing = {
-                "full_name":    user.full_name,
-                "username":     user.username,
-                "role":         user.role,
-                "warehouse_id": user.warehouse_id or "",
-                "is_active":    user.is_active,
+                "full_name":     user.full_name,
+                "username":      user.username,
+                "role":          user.role,
+                "warehouse_id":  user.warehouse_id or "",
+                "is_active":     user.is_active,
+                "is_power_user": bool(getattr(user, "is_power_user", False)),
             }
         finally:
             session.close()
@@ -271,6 +280,7 @@ class UserManagementScreen(QWidget):
                 role=data["role"],
                 warehouse_id=data["warehouse_id"] or None,
                 is_active=data["is_active"],
+                is_power_user=data.get("is_power_user", False),
             )
             session.add(user)
             session.commit()
@@ -302,11 +312,12 @@ class UserManagementScreen(QWidget):
             if clash:
                 return False, f"Username '{data['username']}' is already taken."
 
-            user.full_name    = data["full_name"]
-            user.username     = data["username"]
-            user.role         = data["role"]
-            user.warehouse_id = data["warehouse_id"] or None
-            user.is_active    = data["is_active"]
+            user.full_name     = data["full_name"]
+            user.username      = data["username"]
+            user.role          = data["role"]
+            user.warehouse_id  = data["warehouse_id"] or None
+            user.is_active     = data["is_active"]
+            user.is_power_user = data.get("is_power_user", False)
             if data.get("password"):
                 user.password_hash = bcrypt.hashpw(
                     data["password"].encode(), bcrypt.gensalt()
@@ -382,6 +393,10 @@ class _UserDialog(QDialog):
         self._active.setChecked(True)
         form.addRow("", self._active)
 
+        self._power_user = QCheckBox("Power user (can void/clear/end-shift without password)")
+        self._power_user.setStyleSheet("color:#b71c1c;font-weight:600;")
+        form.addRow("", self._power_user)
+
         lay.addLayout(form)
 
         # Pre-fill if editing
@@ -397,6 +412,7 @@ class _UserDialog(QDialog):
                     self._warehouse.setCurrentIndex(i)
                     break
             self._active.setChecked(self._existing.get("is_active", True))
+            self._power_user.setChecked(self._existing.get("is_power_user", False))
 
         self._err = QLabel("")
         self._err.setStyleSheet("color:#c62828;font-size:12px;")
@@ -446,10 +462,11 @@ class _UserDialog(QDialog):
 
     def get_data(self) -> dict:
         return {
-            "full_name":    self._full_name.text().strip(),
-            "username":     self._username.text().strip(),
-            "password":     self._password.text(),
-            "role":         self._role.currentText(),
-            "warehouse_id": self._warehouse.currentData() or "",
-            "is_active":    self._active.isChecked(),
+            "full_name":     self._full_name.text().strip(),
+            "username":      self._username.text().strip(),
+            "password":      self._password.text(),
+            "role":          self._role.currentText(),
+            "warehouse_id":  self._warehouse.currentData() or "",
+            "is_active":     self._active.isChecked(),
+            "is_power_user": self._power_user.isChecked(),
         }

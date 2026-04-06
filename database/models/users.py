@@ -15,6 +15,7 @@ class User(Base, TimestampMixin, SyncMixin):
     full_name:     Mapped[str]  = mapped_column(String(100), nullable=False)
     role:          Mapped[str]  = mapped_column(String(20),  nullable=False)   # admin | manager | cashier
     is_active:     Mapped[bool] = mapped_column(Boolean, default=True)
+    is_power_user: Mapped[bool] = mapped_column(Boolean, default=False)
     pin:           Mapped[str | None] = mapped_column(String(10), nullable=True)
     # Branch assignment — cashiers are locked to this warehouse when opening POS
     warehouse_id:  Mapped[str | None] = mapped_column(

@@ -183,6 +183,13 @@ def init_db() -> None:
         except Exception:
             pass
         try:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE users ADD COLUMN is_power_user INTEGER NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+        try:
             # Propagate show_on_touch from category to items that are missing it.
             # Runs on every startup but is a no-op when already correct.
             conn.execute(__import__("sqlalchemy").text(
