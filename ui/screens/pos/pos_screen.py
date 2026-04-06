@@ -1483,13 +1483,13 @@ class POSScreen(QWidget):
 
         lay.addSpacing(16)
 
-        self._print_enabled = True
-        self._print_toggle_btn = QPushButton("🖨 Print: ON")
+        self._print_enabled = False
+        self._print_toggle_btn = QPushButton("🖨 Print: OFF")
         self._print_toggle_btn.setFixedHeight(24)
         self._print_toggle_btn.setStyleSheet(
-            "QPushButton{background:#2e7d32;color:#fff;border:none;"
+            "QPushButton{background:#546e7a;color:#cfd8dc;border:none;"
             "border-radius:3px;padding:0 10px;font-size:11px;font-weight:700;}"
-            "QPushButton:hover{background:#1b5e20;}"
+            "QPushButton:hover{background:#37474f;}"
         )
         self._print_toggle_btn.setCursor(Qt.PointingHandCursor)
         self._print_toggle_btn.clicked.connect(self._toggle_print)
