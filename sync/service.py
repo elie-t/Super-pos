@@ -604,25 +604,17 @@ def pull_all_stock_levels() -> tuple[int, str]:
         updated = 0
         for item_id, warehouse_id, total in rows:
             qty = float(total or 0)
-            try:
-                stock = session.query(ItemStock).filter_by(
-                    item_id=item_id, warehouse_id=warehouse_id
-                ).first()
-                if stock:
-                    if stock.quantity != qty:
-                        stock.quantity = qty
-                        updated += 1
-                else:
-                    session.add(ItemStock(
-                        id=new_uuid(),
-                        item_id=item_id,
-                        warehouse_id=warehouse_id,
-                        quantity=qty,
-                    ))
-                    updated += 1
-                session.flush()
-            except Exception:
-                session.rollback()
+            # UPDATE existing row, or INSERT OR IGNORE if new — no exceptions on duplicates
+            affected = session.execute(sqlalchemy.text(
+                "UPDATE item_stock SET quantity=:qty, updated_at=datetime('now')"
+                " WHERE item_id=:iid AND warehouse_id=:wid"
+            ), {"qty": qty, "iid": item_id, "wid": warehouse_id}).rowcount
+            if affected == 0:
+                session.execute(sqlalchemy.text(
+                    "INSERT OR IGNORE INTO item_stock (id, item_id, warehouse_id, quantity)"
+                    " VALUES (:id, :iid, :wid, :qty)"
+                ), {"id": new_uuid(), "iid": item_id, "wid": warehouse_id, "qty": qty})
+            updated += 1
 
         session.commit()
         return updated, ""
