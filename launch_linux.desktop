@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=TannouryMarket POS
+Comment=Tannoury Market Point of Sale
+Exec=bash -c "cd ~/Super-pos && source venv/bin/activate && python main.py"
+Icon=~/Super-pos/icon.png
+Terminal=false
+Categories=Office;Finance;
+StartupWMClass=TannouryMarket
