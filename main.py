@@ -37,6 +37,7 @@ def main():
 
     window = MainWindow()
     window.showMaximized()
+    window.setWindowState(window.windowState() | __import__('PySide6.QtCore', fromlist=['Qt']).Qt.WindowMaximized)
 
     # Start background sync worker (only if Supabase is configured)
     from sync.service import is_configured
