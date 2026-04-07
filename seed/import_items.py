@@ -208,6 +208,25 @@ def import_items(xlsx_path: str, batch_size: int = 500, do_clear: bool = False) 
                 item.is_online    = is_active_flag
                 item.is_visible   = is_visible_flag
                 item.is_featured  = is_featured_flag
+
+                # Update prices for existing items
+                if price_val > 0:
+                    for ptype in ("retail", "individual"):
+                        existing_price = session.query(ItemPrice).filter_by(
+                            item_id=item.id, price_type=ptype, currency=price_currency
+                        ).first()
+                        if existing_price:
+                            existing_price.amount = price_val
+                        else:
+                            session.add(ItemPrice(
+                                id=str(uuid.uuid4()),
+                                item_id=item.id,
+                                price_type=ptype,
+                                amount=price_val,
+                                currency=price_currency,
+                                is_default=True,
+                            ))
+
                 session.flush()
                 updated += 1
             else:
