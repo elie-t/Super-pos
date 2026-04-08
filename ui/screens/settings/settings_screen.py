@@ -160,6 +160,7 @@ class _SyncAllWorker(QThread):
             push_categories,
             drain_sync_queue,
             pull_all_stock_levels,
+            push_all_items_to_central,
         )
         from sync.push_all import push_all_online_items
 
@@ -185,6 +186,10 @@ class _SyncAllWorker(QThread):
 
         # ── Main branch only: push catalog to app & Supabase ─────────────────
         if IS_MAIN_BRANCH:
+            self.progress.emit("Pushing all items to central…")
+            ok, fail = push_all_items_to_central()
+            results.append(f"Items pushed to central: {ok}" + (f" ⚠ {fail} failed" if fail else ""))
+
             self.progress.emit("Pushing online catalog…")
             ok, fail, errs = push_all_online_items()
             results.append(f"Online catalog: {ok} items")

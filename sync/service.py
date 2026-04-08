@@ -441,6 +441,78 @@ def push_item_master(item_id: str) -> tuple[bool, str]:
         session.close()
 
 
+def push_all_items_to_central(progress_cb=None) -> tuple[int, int]:
+    """
+    Push every local active item to items_central in batches.
+    Used on the main branch to ensure all items (including Excel imports)
+    are in Supabase so other branches can pull them.
+    Returns (ok_count, fail_count).
+    """
+    from database.engine import get_session, init_db
+    from database.models.items import Item
+
+    if not is_configured():
+        return 0, 0
+
+    init_db()
+    session = get_session()
+    try:
+        items = session.query(Item).filter_by(is_active=True).all()
+        total = len(items)
+        ok_count = fail_count = 0
+        now = datetime.now(timezone.utc).isoformat()
+
+        BATCH = 200
+        for batch_start in range(0, total, BATCH):
+            batch = items[batch_start: batch_start + BATCH]
+
+            item_rows, price_rows, bc_rows = [], [], []
+            for item in batch:
+                cat_name   = item.category.name if item.category else ""
+                brand_name = item.brand.name    if item.brand    else ""
+                item_rows.append({
+                    "id": item.id, "code": item.code, "name": item.name,
+                    "name_ar": item.name_ar or "", "category": cat_name,
+                    "brand": brand_name, "unit": item.unit,
+                    "cost_price": item.cost_price,
+                    "cost_currency": item.cost_currency or "USD",
+                    "vat_rate": item.vat_rate, "is_active": item.is_active,
+                    "is_online": item.is_online,
+                    "is_pos_featured": item.is_pos_featured,
+                    "photo_url": item.photo_url or "",
+                    "notes": item.notes or "",
+                    "updated_at": now, "pushed_by": BRANCH_ID,
+                })
+                for p in item.prices:
+                    price_rows.append({
+                        "id": p.id, "item_id": item.id,
+                        "price_type": p.price_type, "amount": p.amount,
+                        "currency": p.currency, "updated_at": now,
+                    })
+                for b in item.barcodes:
+                    bc_rows.append({
+                        "id": b.id, "item_id": item.id,
+                        "barcode": b.barcode, "is_primary": b.is_primary,
+                        "pack_qty": b.pack_qty or 1, "updated_at": now,
+                    })
+
+            ok1, _ = upsert_rows("items_central",       item_rows)
+            ok2, _ = upsert_rows("item_prices_central",  price_rows) if price_rows else (True, "")
+            ok3, _ = upsert_rows("item_barcodes_central", bc_rows)   if bc_rows   else (True, "")
+
+            if ok1 and ok2 and ok3:
+                ok_count += len(batch)
+            else:
+                fail_count += len(batch)
+
+            if progress_cb:
+                progress_cb(batch_start + len(batch), total)
+
+        return ok_count, fail_count
+    finally:
+        session.close()
+
+
 def push_invoice(invoice_id: str) -> tuple[bool, str]:
     """Push a finalized sales invoice + line items to Supabase central."""
     from database.engine import get_session, init_db
