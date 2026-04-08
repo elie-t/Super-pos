@@ -177,6 +177,12 @@ class _SyncAllWorker(QThread):
         ok, fail, errs = push_all_online_items()
         results.append(f"Online catalog: {ok} items")
 
+        # Reset items_pull so the next pull does a full sync from the beginning
+        # (incremental mode misses items that were imported before this branch's last pull)
+        from sync.service import _state_set
+        _state_set("items_pull", "2000-01-01T00:00:00Z")
+        _state_set("items_pull_last_id", "")
+
         self.progress.emit("Pulling item master data…")
         n, err = pull_master_items()
         results.append(f"Items pulled: {n}" + (f" ⚠ {err}" if err else ""))
