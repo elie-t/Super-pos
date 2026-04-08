@@ -149,6 +149,14 @@ def push_item(item_id: str) -> tuple[bool, str]:
              if p.price_type == "individual" and p.currency == "USD"), 0.0
         )
 
+        # If item has no LBP price but has a USD price, convert using the stored rate
+        if not price_lbp and price_usd:
+            from database.models.items import Setting
+            _s = session.get(Setting, "lbp_rate")
+            _rate = int(_s.value) if _s and _s.value else 90_000
+            raw = price_usd * _rate
+            price_lbp = round(raw / 1000) * 1000  # round to nearest 1,000 LBP
+
         # Total stock across all warehouses
         total_stock = sum(s.quantity for s in item.stock_entries)
 
