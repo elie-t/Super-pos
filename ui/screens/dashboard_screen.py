@@ -8,22 +8,23 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 from PySide6.QtCore import Qt, Signal
+from config import IS_MAIN_BRANCH
 from services.auth_service import AuthService
 
 
-# (icon_text, title, subtitle, module_key, admin_only)
+# (icon_text, title, subtitle, module_key, admin_only, main_only)
 DASHBOARD_TILES = [
-    ("🛒", "Purchase",    "Suppliers & invoices",   "purchase",  False),
-    ("🧾", "Sales",       "Invoices & receipts",    "sales",     False),
-    ("🖥️", "POS",         "Fast cashier screen",    "pos",       False),
-    ("📦", "Stock",       "Items & movements",      "stock",     False),
-    ("👥", "Customers",   "Client management",      "customers", False),
-    ("🏭", "Suppliers",   "Supplier management",    "suppliers", False),
-    ("📊", "Reports",     "Sales & stock reports",  "reports",   False),
-    ("💰", "Financials",  "Payments & balances",    "financials",False),
-    ("⚙️", "Settings",    "System configuration",   "settings",  False),
-    ("📱", "App Manager", "Mobile app control",     "app_manager", False),
-    ("👤", "Users",       "Manage cashier accounts","users",     True),
+    ("🛒", "Purchase",    "Suppliers & invoices",   "purchase",    False, True),
+    ("🧾", "Sales",       "Invoices & receipts",    "sales",       False, False),
+    ("🖥️", "POS",         "Fast cashier screen",    "pos",         False, False),
+    ("📦", "Stock",       "Items & movements",      "stock",       False, True),
+    ("👥", "Customers",   "Client management",      "customers",   False, False),
+    ("🏭", "Suppliers",   "Supplier management",    "suppliers",   False, True),
+    ("📊", "Reports",     "Sales & stock reports",  "reports",     False, False),
+    ("💰", "Financials",  "Payments & balances",    "financials",  False, False),
+    ("⚙️", "Settings",    "System configuration",   "settings",    False, False),
+    ("📱", "App Manager", "Mobile app control",     "app_manager", False, True),
+    ("👤", "Users",       "Manage cashier accounts","users",       True,  False),
 ]
 
 
@@ -102,8 +103,11 @@ class DashboardScreen(QWidget):
         grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
         is_admin = user and user.role in ("admin", "manager")
-        visible_tiles = [t for t in DASHBOARD_TILES if not t[4] or is_admin]
-        for i, (icon, title, subtitle, key, _) in enumerate(visible_tiles):
+        visible_tiles = [
+            t for t in DASHBOARD_TILES
+            if (not t[4] or is_admin) and (not t[5] or IS_MAIN_BRANCH)
+        ]
+        for i, (icon, title, subtitle, key, _admin, _main) in enumerate(visible_tiles):
             tile = DashboardTile(icon, title, subtitle, key)
             tile.clicked.connect(lambda checked=False, k=key: self.module_requested.emit(k))
             row, col = divmod(i, 5)
@@ -120,7 +124,7 @@ class DashboardScreen(QWidget):
             self._sync_lbl.setStyleSheet("font-size:11px;color:#2e7d32;font-weight:600;")
             sync_bar.addWidget(self._sync_lbl)
             sync_bar.addStretch()
-            if is_configured():
+            if is_configured() and IS_MAIN_BRANCH:
                 sync_btn = QPushButton("☁  Sync Online Catalog Now")
                 sync_btn.setFixedHeight(28)
                 sync_btn.setStyleSheet(
