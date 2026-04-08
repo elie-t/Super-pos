@@ -364,208 +364,202 @@ class ItemMaintenanceScreen(QWidget):
 
     def _build_middle_panel(self) -> QWidget:
         w = QWidget()
-        w.setMinimumWidth(380)
+        w.setMinimumWidth(360)
         layout = QVBoxLayout(w)
         layout.setContentsMargins(8, 0, 8, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
 
-        # LBP rate
+        # Rate + title row
         rate_row = QHBoxLayout()
         rate_lbl = QLabel(f"$ = {self._lbp_rate:,}")
-        rate_lbl.setStyleSheet("color:#c62828; font-size:14px; font-weight:700;")
+        rate_lbl.setStyleSheet("color:#c62828; font-size:13px; font-weight:700;")
         title_lbl = QLabel("Edit Item" if not self._is_new else "New Item")
-        title_lbl.setStyleSheet("color:#e65100; font-size:22px; font-weight:700;")
+        title_lbl.setStyleSheet("color:#e65100; font-size:20px; font-weight:700;")
         rate_row.addWidget(rate_lbl)
         rate_row.addStretch()
         rate_row.addWidget(title_lbl)
         layout.addLayout(rate_row)
 
-        # Last updated item (info box)
-        self._last_updated = QLabel("Last Updated Item\n—")
-        self._last_updated.setStyleSheet(
-            "color:#c62828; font-size:11px; background:#fff8f8; "
-            "border:1px solid #f0c0c0; border-radius:3px; padding:4px 8px;"
-        )
-        layout.addWidget(self._last_updated)
-
-        # Cost panel
+        # Cost panel (compact 2-row grid)
         cost_grp = QGroupBox("Cost")
         cost_form = QGridLayout(cost_grp)
-        cost_form.setSpacing(6)
-        cost_form.setContentsMargins(8, 4, 8, 8)
-        cost_form.setColumnStretch(0, 0)
-        cost_form.setColumnStretch(1, 3)
-        cost_form.setColumnStretch(2, 0)
-        cost_form.setColumnStretch(3, 3)
-        cost_form.setColumnMinimumWidth(0, 68)
-        cost_form.setColumnMinimumWidth(1, 110)
-        cost_form.setColumnMinimumWidth(2, 68)
-        cost_form.setColumnMinimumWidth(3, 110)
-        cost_grp.setMinimumHeight(110)
+        cost_form.setSpacing(4)
+        cost_form.setContentsMargins(8, 2, 8, 6)
+        cost_form.setColumnStretch(1, 1)
+        cost_form.setColumnStretch(3, 1)
 
-        cost_form.addWidget(QLabel("Brut Cost:"), 0, 0)
         self._brut_cost = QDoubleSpinBox()
         self._brut_cost.setRange(0, 9999999); self._brut_cost.setDecimals(4)
+        self._brut_cost.setFixedHeight(26)
         self._brut_cost.valueChanged.connect(self._recalc_margins)
-        cost_form.addWidget(self._brut_cost, 0, 1)
 
-        cost_form.addWidget(QLabel("Discount:"), 0, 2)
         self._discount_spin = QDoubleSpinBox()
         self._discount_spin.setRange(0, 100); self._discount_spin.setSuffix("%")
+        self._discount_spin.setFixedHeight(26)
         self._discount_spin.valueChanged.connect(self._recalc_margins)
-        cost_form.addWidget(self._discount_spin, 0, 3)
 
-        cost_form.addWidget(QLabel("Net Cost:"), 1, 0)
         self._net_cost_lbl = QLabel("0.0000")
         self._net_cost_lbl.setStyleSheet("font-weight:600;")
-        cost_form.addWidget(self._net_cost_lbl, 1, 1)
-
-        cost_form.addWidget(QLabel("Avg Cost:"), 1, 2)
         self._avg_cost_lbl = QLabel("0.0000")
         self._avg_cost_lbl.setStyleSheet("font-weight:600;")
-        cost_form.addWidget(self._avg_cost_lbl, 1, 3)
 
-        cost_form.addWidget(QLabel("VAT%:"), 2, 0)
         self._vat_spin = QDoubleSpinBox()
         self._vat_spin.setRange(0, 100); self._vat_spin.setSuffix("%")
         self._vat_spin.setValue(11.0)
-        cost_form.addWidget(self._vat_spin, 2, 1)
+        self._vat_spin.setFixedHeight(26)
 
         self._cost_currency = QComboBox()
         self._cost_currency.addItems(["USD", "LBP"])
-        cost_form.addWidget(QLabel("Currency:"), 2, 2)
-        cost_form.addWidget(self._cost_currency, 2, 3)
+        self._cost_currency.setFixedHeight(26)
 
+        cost_form.addWidget(QLabel("Brut Cost:"), 0, 0)
+        cost_form.addWidget(self._brut_cost,      0, 1)
+        cost_form.addWidget(QLabel("Discount:"),  0, 2)
+        cost_form.addWidget(self._discount_spin,  0, 3)
+        cost_form.addWidget(QLabel("Net Cost:"),  1, 0)
+        cost_form.addWidget(self._net_cost_lbl,   1, 1)
+        cost_form.addWidget(QLabel("Avg Cost:"),  1, 2)
+        cost_form.addWidget(self._avg_cost_lbl,   1, 3)
+        cost_form.addWidget(QLabel("VAT%:"),      2, 0)
+        cost_form.addWidget(self._vat_spin,       2, 1)
+        cost_form.addWidget(QLabel("Currency:"),  2, 2)
+        cost_form.addWidget(self._cost_currency,  2, 3)
         layout.addWidget(cost_grp)
 
         # Supplier row
         sup_row = QHBoxLayout()
-        sup_row.addWidget(QLabel("Supplier:"))
-        add_sup_btn = QPushButton("Add")
-        add_sup_btn.setObjectName("secondaryBtn")
-        add_sup_btn.setFixedSize(40, 24)
+        sup_lbl = QLabel("Supplier:")
+        sup_lbl.setFixedWidth(58)
         self._supplier_lbl = QLabel("—")
-        self._supplier_lbl.setStyleSheet("color:#1a6cb5; text-decoration:underline; cursor:pointer;")
+        self._supplier_lbl.setStyleSheet("color:#1a6cb5;")
         self._supplier_combo = QComboBox()
-        self._supplier_combo.setMinimumWidth(160)
-        sup_row.addWidget(add_sup_btn)
+        self._supplier_combo.setFixedHeight(26)
+        add_sup_btn = QPushButton("+")
+        add_sup_btn.setObjectName("secondaryBtn")
+        add_sup_btn.setFixedSize(26, 26)
+        sup_row.addWidget(sup_lbl)
         sup_row.addWidget(self._supplier_combo, 1)
+        sup_row.addWidget(add_sup_btn)
         layout.addLayout(sup_row)
 
-        # Item photo (Browse → upload to Supabase Storage)
+        # Image — 150×150 square, centered
         img_frame = QFrame()
         img_frame.setStyleSheet(
-            "background:#f8f8f8; border:1px solid #c0ccd8; border-radius:3px;"
+            "background:#f0f4fa; border:2px solid #c0ccd8; border-radius:6px;"
         )
-        img_frame.setFixedSize(200, 200)
-        img_layout = QVBoxLayout(img_frame)
-        img_layout.setContentsMargins(4, 4, 4, 4)
-        self._img_preview = QLabel("[ No Image ]")
+        img_frame.setFixedSize(150, 150)
+        img_inner = QVBoxLayout(img_frame)
+        img_inner.setContentsMargins(3, 3, 3, 3)
+        self._img_preview = QLabel("No Image")
         self._img_preview.setAlignment(Qt.AlignCenter)
-        self._img_preview.setStyleSheet("color:#aaaaaa;")
+        self._img_preview.setStyleSheet("color:#aaa; font-size:11px;")
         self._img_preview.setScaledContents(True)
-        img_layout.addWidget(self._img_preview)
-        # Center the square frame horizontally
-        img_row = QHBoxLayout()
-        img_row.addStretch()
-        img_row.addWidget(img_frame)
-        img_row.addStretch()
-        layout.addLayout(img_row)
+        img_inner.addWidget(self._img_preview)
 
-        # URL input row
-        url_row = QHBoxLayout()
+        img_center = QHBoxLayout()
+        img_center.addStretch()
+        img_center.addWidget(img_frame)
+        img_center.addStretch()
+        layout.addLayout(img_center)
+
+        # URL + Browse/Clear in one compact block
         self._photo_url_edit = QLineEdit()
         self._photo_url_edit.setPlaceholderText("Paste image URL…")
-        self._photo_url_edit.setFixedHeight(24)
-        self._photo_url_edit.setStyleSheet("font-size:10px;")
+        self._photo_url_edit.setFixedHeight(26)
+        self._photo_url_edit.setStyleSheet("font-size:11px;")
         self._photo_url_edit.editingFinished.connect(self._refresh_photo_preview)
+
         url_set_btn = QPushButton("Set")
         url_set_btn.setObjectName("secondaryBtn")
-        url_set_btn.setFixedSize(36, 24)
+        url_set_btn.setFixedSize(38, 26)
         url_set_btn.clicked.connect(self._set_photo_from_url)
-        url_row.addWidget(self._photo_url_edit, 1)
-        url_row.addWidget(url_set_btn)
-        layout.addLayout(url_row)
 
-        img_btn_row = QHBoxLayout()
         browse_btn = QPushButton("Browse…")
         browse_btn.setObjectName("secondaryBtn")
         browse_btn.setFixedHeight(26)
         browse_btn.clicked.connect(self._browse_photo)
+
         self._clear_photo_btn = QPushButton("Clear")
         self._clear_photo_btn.setObjectName("secondaryBtn")
         self._clear_photo_btn.setFixedHeight(26)
         self._clear_photo_btn.clicked.connect(self._clear_photo)
-        img_btn_row.addWidget(browse_btn)
-        img_btn_row.addWidget(self._clear_photo_btn)
-        layout.addLayout(img_btn_row)
+
+        url_row = QHBoxLayout()
+        url_row.addWidget(self._photo_url_edit, 1)
+        url_row.addWidget(url_set_btn)
+        layout.addLayout(url_row)
+
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(browse_btn, 1)
+        btn_row.addWidget(self._clear_photo_btn, 1)
+        layout.addLayout(btn_row)
 
         layout.addStretch()
         return w
 
-    # ── Right panel: notes / dates / action buttons ───────────────────────────
+    # ── Right panel: notes / dates / flags / action buttons ──────────────────
 
     def _build_right_panel(self) -> QWidget:
         w = QWidget()
         w.setStyleSheet("background:#f0f4f8; border-left:1px solid #c0ccd8;")
-        w.setMinimumWidth(130)
+        w.setMinimumWidth(155)
+        w.setMaximumWidth(180)
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(3)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
 
+        # Notes
         notes_lbl = QLabel("Notes:")
-        notes_lbl.setStyleSheet("font-weight:600; font-size:11px;")
+        notes_lbl.setStyleSheet("font-weight:600; font-size:11px; color:#333;")
         layout.addWidget(notes_lbl)
-
         self._notes_edit = QTextEdit()
-        self._notes_edit.setFixedHeight(36)
+        self._notes_edit.setFixedHeight(48)
         layout.addWidget(self._notes_edit)
 
+        # Dates
         self._date_created_lbl = QLabel("Created: —")
-        self._date_created_lbl.setStyleSheet("color:#c62828; font-size:10px;")
+        self._date_created_lbl.setStyleSheet("color:#888; font-size:10px;")
         layout.addWidget(self._date_created_lbl)
-
         self._date_modified_lbl = QLabel("Modified: —")
-        self._date_modified_lbl.setStyleSheet("color:#c62828; font-size:10px;")
+        self._date_modified_lbl.setStyleSheet("color:#888; font-size:10px;")
         layout.addWidget(self._date_modified_lbl)
 
-        layout.addSpacing(2)
+        # Separator
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color:#c0ccd8;")
+        layout.addWidget(sep)
 
         # Online flags
         online_lbl = QLabel("Online Shop:")
-        online_lbl.setStyleSheet("font-weight:600; font-size:10px;")
+        online_lbl.setStyleSheet("font-weight:700; font-size:11px; color:#1a3a5c;")
         layout.addWidget(online_lbl)
-
         self._chk_online = QCheckBox("Active Online")
-        self._chk_online.setStyleSheet("font-size:10px;")
+        self._chk_online.setStyleSheet("font-size:11px;")
         layout.addWidget(self._chk_online)
-
         self._chk_featured = QCheckBox("Featured")
-        self._chk_featured.setStyleSheet("font-size:10px;")
+        self._chk_featured.setStyleSheet("font-size:11px;")
         layout.addWidget(self._chk_featured)
-
         self._chk_touch = QCheckBox("Touch Screen")
-        self._chk_touch.setStyleSheet("font-size:10px; color:#00695c; font-weight:600;")
+        self._chk_touch.setStyleSheet("font-size:11px; color:#00695c; font-weight:600;")
         layout.addWidget(self._chk_touch)
 
-        layout.addSpacing(2)
+        layout.addStretch()
 
-        # Action buttons
+        # Action buttons — full width, generous height
         btns = [
-            ("✖  Delete",     "#c62828", "#e53935", self._confirm_delete),
-            ("🔍  Search",     "#1a6cb5", "#1a80d4", self._go_search),
-            ("📊  Stock Card", "#1a6cb5", "#1a80d4", self._open_stock_card),
             ("💾  Save",       "#2e7d32", "#388e3c", self._save),
-            ("✖  Close",      "#555555", "#777777", self.back.emit),
+            ("📊  Stock Card", "#1565c0", "#1976d2", self._open_stock_card),
+            ("🔍  Search",     "#5c6bc0", "#7986cb", self._go_search),
+            ("✖  Delete",     "#c62828", "#e53935", self._confirm_delete),
+            ("←  Close",      "#546e7a", "#78909c", self.back.emit),
         ]
-
         for label, bg, hover, slot in btns:
             btn = QPushButton(label)
-            btn.setFixedHeight(28)
+            btn.setFixedHeight(34)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(
-                f"QPushButton {{ background:{bg}; color:#fff; border:none; border-radius:4px; "
-                f"font-weight:600; font-size:11px; }}"
+                f"QPushButton {{ background:{bg}; color:#fff; border:none; border-radius:5px; "
+                f"font-weight:700; font-size:12px; margin-top:2px; }}"
                 f"QPushButton:hover {{ background:{hover}; }}"
             )
             btn.clicked.connect(slot)
@@ -573,9 +567,8 @@ class ItemMaintenanceScreen(QWidget):
 
         self._status_lbl = QLabel("")
         self._status_lbl.setWordWrap(True)
-        self._status_lbl.setStyleSheet("font-size:10px; color:#c62828;")
+        self._status_lbl.setStyleSheet("font-size:10px; color:#c62828; margin-top:4px;")
         layout.addWidget(self._status_lbl)
-        layout.addStretch()
         return w
 
     # ── Bottom: barcode entry + stock summary row ─────────────────────────────
