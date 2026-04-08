@@ -739,7 +739,7 @@ def pull_master_items() -> tuple[int, str]:
             prices_by_item: dict[str, list] = {}
             rp = requests.get(
                 f"{_url('item_prices_central')}?item_id=in.({ids_filter})",
-                headers={**_headers(), "Prefer": ""}, timeout=20,
+                headers={**_headers(), "Prefer": ""}, timeout=60,
             )
             if rp.status_code == 200:
                 for p in rp.json():
@@ -748,7 +748,7 @@ def pull_master_items() -> tuple[int, str]:
             barcodes_by_item: dict[str, list] = {}
             rb = requests.get(
                 f"{_url('item_barcodes_central')}?item_id=in.({ids_filter})",
-                headers={**_headers(), "Prefer": ""}, timeout=20,
+                headers={**_headers(), "Prefer": ""}, timeout=60,
             )
             if rb.status_code == 200:
                 for b in rb.json():
