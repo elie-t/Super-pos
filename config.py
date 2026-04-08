@@ -4,6 +4,9 @@ Values here are defaults; runtime overrides come from the `settings` DB table.
 """
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR   = Path(__file__).parent
