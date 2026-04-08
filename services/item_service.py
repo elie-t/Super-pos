@@ -298,10 +298,11 @@ class ItemService:
 
             session.commit()
 
-            # Enqueue sync to central (non-blocking — worker picks it up)
+            # Enqueue sync to central (main branch only — branches don't push items)
             try:
+                from config import IS_MAIN_BRANCH
                 from sync.service import enqueue, is_configured
-                if is_configured():
+                if IS_MAIN_BRANCH and is_configured():
                     enqueue("item", item.id, "upsert", {})
             except Exception:
                 pass
@@ -433,8 +434,9 @@ class ItemService:
 
             sync_err = ""
             try:
+                from config import IS_MAIN_BRANCH
                 from sync.service import push_categories, is_configured
-                if is_configured():
+                if IS_MAIN_BRANCH and is_configured():
                     ok2, sync_err = push_categories()
             except Exception as e:
                 sync_err = str(e)

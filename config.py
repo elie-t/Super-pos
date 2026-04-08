@@ -38,3 +38,9 @@ DEFAULT_WAREHOUSE  = "Main Warehouse"
 SYNC_INTERVAL_SEC  = 60            # background sync interval
 SYNC_API_BASE_URL  = os.getenv("SYNC_API_BASE_URL", "")
 SYNC_API_KEY       = os.getenv("SYNC_API_KEY", "")
+
+# ── Branch role ───────────────────────────────────────────────────────────────
+# True  → Main warehouse: manages items, prices, categories, purchases, transfers.
+#         Pushes to Supabase products/items_central/app_categories.
+# False → Branch POS: sells only. Pulls catalog, pushes sales invoices.
+IS_MAIN_BRANCH = os.getenv("IS_MAIN_BRANCH", "false").lower() == "true"

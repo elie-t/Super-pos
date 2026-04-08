@@ -167,26 +167,32 @@ class _SyncAllWorker(QThread):
             self.finished.emit("Supabase not configured — check .env")
             return
 
+        from config import IS_MAIN_BRANCH
+        from sync.service import _state_set
         results = []
 
+        # ── Always: drain the local queue (push queued sales, etc.) ──────────
         self.progress.emit("Draining local sync queue…")
         synced, failed = drain_sync_queue()
         results.append(f"Queue: {synced} pushed, {failed} failed")
 
-        # Pull items FIRST so stale local UUIDs are deactivated in products
-        # before push_all_online_items runs — prevents duplicates on the app.
-        from sync.service import _state_set
+        # ── Always: pull fresh item catalog ───────────────────────────────────
         _state_set("items_pull", "2000-01-01T00:00:00Z")
         _state_set("items_pull_last_id", "")
-
         self.progress.emit("Pulling item master data…")
         n, err = pull_master_items()
         results.append(f"Items pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
-        self.progress.emit("Pushing online catalog…")
-        ok, fail, errs = push_all_online_items()
-        results.append(f"Online catalog: {ok} items")
+        # ── Main branch only: push catalog to app & Supabase ─────────────────
+        if IS_MAIN_BRANCH:
+            self.progress.emit("Pushing online catalog…")
+            ok, fail, errs = push_all_online_items()
+            results.append(f"Online catalog: {ok} items")
 
+            self.progress.emit("Pushing categories…")
+            push_categories()
+
+        # ── Always: pull everything else ──────────────────────────────────────
         self.progress.emit("Pulling customers…")
         n, err = pull_master_customers()
         results.append(f"Customers pulled: {n}" + (f" ⚠ {err}" if err else ""))
@@ -219,9 +225,6 @@ class _SyncAllWorker(QThread):
         self.progress.emit("Pulling purchase invoices…")
         n, err = pull_purchase_invoices()
         results.append(f"Purchase invoices pulled: {n}" + (f" ⚠ {err}" if err else ""))
-
-        self.progress.emit("Pushing categories…")
-        push_categories()
 
         self.progress.emit("Pulling categories…")
         n, err = pull_categories()
