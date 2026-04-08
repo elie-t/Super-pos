@@ -84,6 +84,17 @@ def clear_items(session: Session):
     session.commit()
     session.execute(text("PRAGMA foreign_keys=ON"))
     print("  Done.\n")
+    # Wipe Supabase products table so no orphan rows remain after IDs change
+    try:
+        from sync.service import is_configured, _url, _headers
+        import requests as _req
+        if is_configured():
+            print("Clearing Supabase products table…")
+            r = _req.delete(f"{_url('products')}?id=neq.00000000-0000-0000-0000-000000000000",
+                            headers=_headers(), timeout=30)
+            print(f"  Supabase products cleared (HTTP {r.status_code})\n")
+    except Exception as e:
+        print(f"  Warning: could not clear Supabase products: {e}\n")
 
 
 def load_xlsx(xlsx_path: str):
@@ -97,9 +108,12 @@ def load_xlsx(xlsx_path: str):
     return rows
 
 
-def import_items(xlsx_path: str, batch_size: int = 500, do_clear: bool = False) -> None:
-    print(f"Opening: {xlsx_path}")
-    raw_rows = load_xlsx(xlsx_path)
+def import_items(xlsx_path: str, batch_size: int = 500, do_clear: bool = False, progress_callback=None, _preloaded_rows=None) -> None:
+    if _preloaded_rows is not None:
+        raw_rows = _preloaded_rows
+    else:
+        print(f"Opening: {xlsx_path}")
+        raw_rows = load_xlsx(xlsx_path)
     print(f"  Total rows in file: {len(raw_rows):,}")
 
     init_db()
@@ -129,14 +143,22 @@ def import_items(xlsx_path: str, batch_size: int = 500, do_clear: bool = False) 
     cat_cache: dict = {}
     sup_cache: dict = {}
 
-    # Pre-load existing titles and codes into memory for upsert
+    # Pre-load existing titles, barcodes and prices into memory for fast upsert
     existing_by_title: dict[str, str] = {}  # normalised title → item.id
+    used_item_codes: set[str] = set()       # codes already assigned as item.code
     for item in session.query(Item).all():
         existing_by_title[item.name.upper()] = item.id
+        if item.code:
+            used_item_codes.add(item.code)
 
     existing_barcodes: set = {
         b.barcode for b in session.query(ItemBarcode.barcode).all()
     }
+
+    # price cache: item_id → {(price_type, currency): ItemPrice}
+    price_cache: dict[str, dict] = {}
+    for p in session.query(ItemPrice).all():
+        price_cache.setdefault(p.item_id, {})[(p.price_type, p.currency)] = p
 
     inserted = 0
     updated  = 0
@@ -198,14 +220,14 @@ def import_items(xlsx_path: str, batch_size: int = 500, do_clear: bool = False) 
                 if not item:
                     skipped += 1
                     continue
-                # Update modifiable fields
+                # Update modifiable fields — preserve is_online so already-active items stay visible
                 item.category_id  = category.id
                 item.default_supplier_id = supplier.id
                 item.cost_price   = cost_val
                 item.cost_currency = cost_currency
                 item.is_active    = True
                 item.is_pos_featured = is_active_flag
-                item.is_online    = is_active_flag
+                # is_online intentionally NOT touched — preserve whatever was set
                 item.is_visible   = is_visible_flag
                 item.is_featured  = is_featured_flag
 
@@ -230,9 +252,12 @@ def import_items(xlsx_path: str, batch_size: int = 500, do_clear: bool = False) 
                 session.flush()
                 updated += 1
             else:
+                item_id = str(uuid.uuid4())
+                safe_code = code_str if code_str not in used_item_codes else item_id[:8]
+                used_item_codes.add(safe_code)
                 item = Item(
-                    id=str(uuid.uuid4()),
-                    code=code_str,
+                    id=item_id,
+                    code=safe_code,
                     name=title_str,
                     category_id=category.id,
                     default_supplier_id=supplier.id,
@@ -243,7 +268,7 @@ def import_items(xlsx_path: str, batch_size: int = 500, do_clear: bool = False) 
                     vat_rate=0.0,
                     is_active=True,
                     is_pos_featured=is_active_flag,
-                    is_online=is_active_flag,
+                    is_online=False,
                     is_visible=is_visible_flag,
                     is_featured=is_featured_flag,
                 )
@@ -291,6 +316,8 @@ def import_items(xlsx_path: str, batch_size: int = 500, do_clear: bool = False) 
             if total % batch_size == 0:
                 session.commit()
                 print(f"  {total:,} / {len(groups):,} | inserted {inserted:,} | updated {updated:,} | skipped {skipped:,}")
+                if progress_callback:
+                    progress_callback(total, len(groups))
 
         session.commit()
         print(f"\n✓ Import complete.")

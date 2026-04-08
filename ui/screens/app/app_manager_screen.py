@@ -380,7 +380,7 @@ class AppManagerScreen(QWidget):
         self._cat_tbl.setRowCount(0)
         cats = ItemService.get_categories()
         has_img = 0
-        for cid, name, pid, sid, sot, photo_url, soh in cats:
+        for cid, name, pid, sid, sot, photo_url, soh, ia in cats:
             row = self._cat_tbl.rowCount()
             self._cat_tbl.insertRow(row)
             self._cat_tbl.setItem(row, 0, QTableWidgetItem(name))

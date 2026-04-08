@@ -1151,7 +1151,7 @@ class OnlineOrdersDialog(QDialog):
 
     PENDING_STATUSES    = ("new", "confirmed")
     PROCESSING_STATUSES = ("processing", "preparing")
-    DONE_STATUSES       = ("delivered", "finished")
+    DONE_STATUSES       = ("delivered", "finished", "cancelled")
 
     STATUS_COLOR = {
         "new":        "#f57c00",
@@ -1249,6 +1249,8 @@ class OnlineOrdersDialog(QDialog):
         btn_row.addWidget(_action_btn("🔵  Mark Processing", "#1a6cb5", "#0d4a8a", self._do_processing))
         btn_row.addWidget(_action_btn("🚚  Mark Delivered",  "#2e7d32", "#1b5e20", self._do_delivered))
         btn_row.addWidget(_action_btn("✅  Mark Finished",   "#4a148c", "#311b92", self._do_finished))
+        btn_row.addWidget(_action_btn("✖  Cancel Order",    "#c62828", "#b71c1c", self._do_cancel))
+        btn_row.addWidget(_action_btn("🚫  Blacklist",       "#4a0000", "#2d0000", self._do_blacklist))
         btn_row.addStretch()
 
         close_btn = QPushButton("Close")
@@ -1360,6 +1362,44 @@ class OnlineOrdersDialog(QDialog):
     def _do_processing(self): self._set_status("processing")
     def _do_delivered(self):  self._set_status("delivered")
     def _do_finished(self):   self._set_status("finished")
+
+    def _do_cancel(self):
+        o = self._selected_order()
+        if not o:
+            QMessageBox.information(self, "Select Order", "Select an order first.")
+            return
+        reply = QMessageBox.question(
+            self, "Cancel Order",
+            f"Cancel order from {o.get('customer_name') or 'customer'}?\n"
+            "The customer will be notified.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self._set_status("cancelled")
+
+    def _do_blacklist(self):
+        o = self._selected_order()
+        if not o:
+            QMessageBox.information(self, "Select Order", "Select an order first.")
+            return
+        phone = o.get("customer_phone") or ""
+        name  = o.get("customer_name")  or "customer"
+        if not phone:
+            QMessageBox.warning(self, "No Phone", "This order has no phone number to blacklist.")
+            return
+        reason, ok = __import__('PySide6.QtWidgets', fromlist=['QInputDialog']).QInputDialog.getText(
+            self, "Blacklist Reason",
+            f"Blacklist {phone} ({name})?\nOptional reason:",
+        )
+        if not ok:
+            return
+        from sync.service import blacklist_phone
+        if blacklist_phone(phone, reason):
+            self._set_status("cancelled")
+            QMessageBox.information(self, "Blacklisted",
+                f"{phone} has been blacklisted.\nFuture orders from this number will be rejected.")
+        else:
+            QMessageBox.warning(self, "Error", "Could not blacklist phone. Check connection.")
 
 
 # Main POS Screen
@@ -2728,6 +2768,13 @@ class POSScreen(QWidget):
         self._online_frame.setVisible(True)
         self._flash_timer.start(600)
         self._start_alert_sound()
+        # Auto-register customers from new orders
+        try:
+            from services.customer_service import CustomerService
+            for o in orders:
+                CustomerService.upsert_from_online_order(o)
+        except Exception:
+            pass
         for o in orders:
             name  = o.get("customer_name") or "Customer"
             total = o.get("total", 0)

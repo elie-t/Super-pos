@@ -154,3 +154,65 @@ class CustomerService:
             }
         finally:
             session.close()
+
+    @staticmethod
+    def upsert_from_online_order(order: dict) -> str:
+        """
+        Create or update a customer from an online order.
+        Phone number is the unique key. If phone matches an existing customer,
+        the new name is added to notes (so multiple names per phone are preserved).
+        Returns the customer id.
+        """
+        phone = (order.get("customer_phone") or "").strip()
+        name  = (order.get("customer_name")  or "Online Customer").strip()
+        addr  = (order.get("address")        or "").strip()
+        if not phone:
+            return ""
+
+        init_db()
+        session = get_session()
+        try:
+            from database.models.parties import Customer
+            from database.models.base import new_uuid
+
+            existing = session.query(Customer).filter(
+                Customer.phone == phone,
+                Customer.is_cash_client == False,
+            ).first()
+
+            if existing:
+                # Add new name to notes if different from current name
+                if name and name.lower() != existing.name.lower():
+                    current_notes = existing.notes or ""
+                    alias_marker  = f"[aka: {name}]"
+                    if alias_marker not in current_notes:
+                        existing.notes = (current_notes + f"\n{alias_marker}").strip()
+                # Update address if we have one and current is empty
+                if addr and not existing.address:
+                    existing.address = addr
+                session.commit()
+                return existing.id
+            else:
+                c = Customer(
+                    id      = new_uuid(),
+                    name    = name,
+                    phone   = phone,
+                    address = addr or None,
+                    notes   = "[online customer]",
+                    is_active      = True,
+                    is_cash_client = False,
+                )
+                session.add(c)
+                session.commit()
+                try:
+                    from sync.service import push_customer_master, is_configured
+                    if is_configured():
+                        push_customer_master(c.id)
+                except Exception:
+                    pass
+                return c.id
+        except Exception:
+            session.rollback()
+            return ""
+        finally:
+            session.close()

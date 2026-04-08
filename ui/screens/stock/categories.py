@@ -81,6 +81,10 @@ class CategoriesScreen(QWidget):
         self._show_home_chk = QCheckBox("Show on App Home Screen")
         self._show_home_chk.setStyleSheet("font-size:12px;color:#1a6cb5;font-weight:600;")
 
+        self._active_chk = QCheckBox("Active (visible in app category list)")
+        self._active_chk.setChecked(True)
+        self._active_chk.setStyleSheet("font-size:12px;color:#2e7d32;font-weight:600;")
+
         # Photo URL
         self._photo_url_edit = QLineEdit()
         self._photo_url_edit.setPlaceholderText("Paste image URL or upload…")
@@ -111,6 +115,7 @@ class CategoriesScreen(QWidget):
         form.addRow("", self._show_daily_chk)
         form.addRow("", self._show_touch_chk)
         form.addRow("", self._show_home_chk)
+        form.addRow("", self._active_chk)
         form.addRow("App Image:", url_row)
         form.addRow("", self._img_preview)
 
@@ -154,28 +159,32 @@ class CategoriesScreen(QWidget):
     def _load_tree(self):
         self._tree.clear()
         cats = ItemService.get_categories()
-        # tuple: (id, name, parent_id, show_in_daily, show_on_touch, photo_url, show_on_home)
-        roots    = {cid: (cname, sid, sot, pu, soh) for cid, cname, pid, sid, sot, pu, soh in cats if not pid}
-        children = [(cid, cname, pid, sid, sot, pu, soh) for cid, cname, pid, sid, sot, pu, soh in cats if pid]
+        # tuple: (id, name, parent_id, show_in_daily, show_on_touch, photo_url, show_on_home, is_active)
+        roots    = {cid: (cname, sid, sot, pu, soh, ia) for cid, cname, pid, sid, sot, pu, soh, ia in cats if not pid}
+        children = [(cid, cname, pid, sid, sot, pu, soh, ia) for cid, cname, pid, sid, sot, pu, soh, ia in cats if pid]
 
         self._parent_combo.clear()
         self._parent_combo.addItem("— None (top level) —", "")
-        for cid, (cname, _, _sot, _pu, _soh) in sorted(roots.items(), key=lambda x: x[1][0]):
+        for cid, (cname, _, _sot, _pu, _soh, _ia) in sorted(roots.items(), key=lambda x: x[1][0]):
             self._parent_combo.addItem(cname, cid)
 
         node_map = {}
-        for cid, (cname, sid, sot, pu, soh) in sorted(roots.items(), key=lambda x: x[1][0]):
+        for cid, (cname, sid, sot, pu, soh, ia) in sorted(roots.items(), key=lambda x: x[1][0]):
             label = f"★ {cname}" if sid else cname
+            if not ia:
+                label = f"○ {cname}"
             item  = QTreeWidgetItem([label])
-            item.setData(0, Qt.UserRole, (cid, sid, sot, pu, soh))
+            item.setData(0, Qt.UserRole, (cid, sid, sot, pu, soh, ia))
             self._tree.addTopLevelItem(item)
             node_map[cid] = item
 
-        for cid, cname, pid, sid, sot, pu, soh in sorted(children, key=lambda x: x[1]):
+        for cid, cname, pid, sid, sot, pu, soh, ia in sorted(children, key=lambda x: x[1]):
             parent_node = node_map.get(pid)
             label = f"★ {cname}" if sid else cname
+            if not ia:
+                label = f"○ {cname}"
             item  = QTreeWidgetItem([label])
-            item.setData(0, Qt.UserRole, (cid, sid, sot, pu, soh))
+            item.setData(0, Qt.UserRole, (cid, sid, sot, pu, soh, ia))
             if parent_node:
                 parent_node.addChild(item)
             else:
@@ -184,19 +193,20 @@ class CategoriesScreen(QWidget):
         self._tree.expandAll()
 
     def _on_select(self, item: QTreeWidgetItem, _col):
-        cid, sid, sot, pu, soh = item.data(0, Qt.UserRole)
+        cid, sid, sot, pu, soh, ia = item.data(0, Qt.UserRole)
         self._selected_id = cid
-        raw_name = item.text(0).lstrip("★ ")
+        raw_name = item.text(0).lstrip("★○ ")
         self._name_edit.setText(raw_name)
         self._show_daily_chk.setChecked(bool(sid))
         self._show_touch_chk.setChecked(bool(sot))
         self._show_home_chk.setChecked(bool(soh))
+        self._active_chk.setChecked(bool(ia))
         self._photo_url = pu or ""
         self._photo_url_edit.setText(self._photo_url)
         self._refresh_preview()
         parent = item.parent()
         if parent:
-            pid, _, _sot, _pu = parent.data(0, Qt.UserRole)
+            pid, _, _sot, _pu, _soh, _ia = parent.data(0, Qt.UserRole)
             for i in range(self._parent_combo.count()):
                 if self._parent_combo.itemData(i) == pid:
                     self._parent_combo.setCurrentIndex(i)
@@ -214,6 +224,7 @@ class CategoriesScreen(QWidget):
         self._show_daily_chk.setChecked(False)
         self._show_touch_chk.setChecked(False)
         self._show_home_chk.setChecked(False)
+        self._active_chk.setChecked(True)
         self._status_lbl.setText("")
         self._name_edit.setFocus()
 
@@ -327,6 +338,7 @@ class CategoriesScreen(QWidget):
             show_on_touch=self._show_touch_chk.isChecked(),
             photo_url=self._photo_url_edit.text().strip(),
             show_on_home=self._show_home_chk.isChecked(),
+            is_active=self._active_chk.isChecked(),
         )
         if ok:
             if err:

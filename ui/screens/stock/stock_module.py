@@ -88,7 +88,7 @@ class StockModule(QWidget):
     def _show_item_maintenance(self, item_id: str):
         """Always create a fresh maintenance screen (new or existing item)."""
         screen = ItemMaintenanceScreen(item_id=item_id)
-        screen.back.connect(self._go_hub)
+        screen.back.connect(lambda: self._show("items_list", ItemsListScreen))
         screen.saved.connect(lambda iid: self._after_item_save(iid))
         self._stack.addWidget(screen)
         self._stack.setCurrentWidget(screen)
@@ -168,8 +168,10 @@ class StockModule(QWidget):
 
         # Run in a background thread so the UI stays responsive
         class Worker(QObject):
-            finished = Sig(str)   # summary text
+            finished = Sig(str)        # summary text
             error    = Sig(str)
+            progress = Sig(int, int)   # current, total
+            status   = Sig(str)        # label text
 
             def __init__(self, p, c):
                 super().__init__()
@@ -180,16 +182,26 @@ class StockModule(QWidget):
                 try:
                     import sys, pathlib
                     sys.path.insert(0, str(pathlib.Path(__file__).parents[3]))
-                    from seed.import_items import import_items as do_import
+                    from seed.import_items import load_xlsx, import_items as do_import
                     import io, contextlib
+
+                    self.status.emit("Reading Excel file…")
+                    raw_rows = load_xlsx(self._path)
+                    self.status.emit(f"Grouping {len(raw_rows):,} rows by title…")
+
                     buf = io.StringIO()
                     with contextlib.redirect_stdout(buf):
-                        do_import(self._path, batch_size=500, do_clear=self._clear)
+                        do_import(self._path, batch_size=500, do_clear=self._clear,
+                                  _preloaded_rows=raw_rows,
+                                  progress_callback=lambda cur, tot: (
+                                      self.progress.emit(cur, tot),
+                                      self.status.emit(f"Importing items…  {cur:,} / {tot:,}")
+                                  ))
                     self.finished.emit(buf.getvalue())
                 except Exception as exc:
                     self.error.emit(str(exc))
 
-        progress = QProgressDialog("Importing items…", None, 0, 0, self)
+        progress = QProgressDialog("Preparing import…", None, 0, 100, self)
         progress.setWindowModality(Qt.ApplicationModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
@@ -215,8 +227,15 @@ class StockModule(QWidget):
             progress.close()
             QMessageBox.critical(self, "Import failed", msg)
 
+        def on_progress(cur, tot):
+            if tot > 0:
+                progress.setMaximum(tot)
+                progress.setValue(cur)
+
         worker.finished.connect(on_done)
         worker.error.connect(on_error)
+        worker.progress.connect(on_progress)
+        worker.status.connect(progress.setLabelText)
         thread.started.connect(worker.run)
         thread.start()
         self._import_thread = thread   # keep alive

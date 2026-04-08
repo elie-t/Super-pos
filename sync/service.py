@@ -133,12 +133,18 @@ def push_item(item_id: str) -> tuple[bool, str]:
         # Primary barcode
         primary_bc = next((b.barcode for b in item.barcodes if b.is_primary), "")
 
-        # Individual price (LBP preferred)
+        # Online price (retail) — shown in mobile app; fallback to individual
         price_lbp = next(
+            (p.amount for p in item.prices
+             if p.price_type == "retail" and p.currency == "LBP"), 0.0
+        ) or next(
             (p.amount for p in item.prices
              if p.price_type == "individual" and p.currency == "LBP"), 0.0
         )
         price_usd = next(
+            (p.amount for p in item.prices
+             if p.price_type == "retail" and p.currency == "USD"), 0.0
+        ) or next(
             (p.amount for p in item.prices
              if p.price_type == "individual" and p.currency == "USD"), 0.0
         )
@@ -598,6 +604,8 @@ def pull_all_stock_levels() -> tuple[int, str]:
             FROM stock_movements
             WHERE item_id IS NOT NULL AND item_id != ''
               AND warehouse_id IS NOT NULL AND warehouse_id != ''
+              AND item_id IN (SELECT id FROM items)
+              AND warehouse_id IN (SELECT id FROM warehouses)
             GROUP BY item_id, warehouse_id
         """)).fetchall()
 
@@ -1798,32 +1806,22 @@ def push_categories() -> tuple[bool, str]:
         ok, err = upsert_rows("categories_central", rows)
         if not ok:
             return False, err
-        # Push image URLs to app_categories for the mobile app
-        img_rows = [
-            {"name": c.name, "image_url": c.photo_url or None,
-             "show_on_home": bool(getattr(c, "show_on_home", False)), "updated_at": now}
-            for c in cats if c.photo_url or getattr(c, "show_on_home", False)
-        ]
-        if img_rows:
-            upsert_rows("app_categories", img_rows)
-        # Remove entries for categories that no longer have an image
-        live_names = {c.name for c in cats if c.photo_url or getattr(c, "show_on_home", False)}
-        try:
-            r_existing = requests.get(
-                f"{_url('app_categories')}?select=name",
-                headers={**_headers(), "Prefer": ""},
-                timeout=10,
-            )
-            if r_existing.status_code == 200:
-                for row in r_existing.json():
-                    if row["name"] not in live_names:
-                        requests.delete(
-                            f"{_url('app_categories')}?name=eq.{row['name']}",
-                            headers=_headers(),
-                            timeout=10,
-                        )
-        except Exception:
-            pass
+        # Push ALL categories to app_categories for the mobile app
+        # Deduplicate by name (keep the one with show_on_home=True or first seen)
+        seen_names: dict = {}
+        for c in cats:
+            name = c.name
+            if name not in seen_names or getattr(c, "show_on_home", False):
+                seen_names[name] = {
+                    "name":         name,
+                    "image_url":    c.photo_url or None,
+                    "show_on_home": bool(getattr(c, "show_on_home", False)),
+                    "is_active":    bool(getattr(c, "is_active", True)),
+                    "updated_at":   now,
+                }
+        app_rows = list(seen_names.values())
+        if app_rows:
+            upsert_rows("app_categories", app_rows)
         return True, ""
     finally:
         session.close()
@@ -2731,6 +2729,37 @@ def acknowledge_online_order(order_id: str) -> bool:
         return False
 
 
+def blacklist_phone(phone: str, reason: str = "") -> bool:
+    """Add a phone number to the blacklist."""
+    if not is_configured() or not phone:
+        return False
+    try:
+        r = requests.post(
+            _url("blacklisted_phones"),
+            headers=_headers(),
+            json={"phone": phone.strip(), "reason": reason or None},
+            timeout=8,
+        )
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
+
+
+def unblacklist_phone(phone: str) -> bool:
+    """Remove a phone number from the blacklist."""
+    if not is_configured() or not phone:
+        return False
+    try:
+        r = requests.delete(
+            f"{_url('blacklisted_phones')}?phone=eq.{phone.strip()}",
+            headers=_headers(),
+            timeout=8,
+        )
+        return r.status_code in (200, 204)
+    except Exception:
+        return False
+
+
 def update_online_order_status(order_id: str, status: str) -> bool:
     """Update the status of an online order in Supabase."""
     if not is_configured():
@@ -2764,10 +2793,12 @@ def fetch_branch_orders(warehouse_id: str, hours: int = 24) -> list[dict]:
         url = f"{_url('orders')}?{branch_filter}&created_at=gte.{since}&order=created_at.desc"
         r = requests.get(url, headers={**_headers(), "Prefer": ""}, timeout=10)
         if r.status_code == 200:
-            return r.json()
+            rows = r.json()
+            if rows:
+                return rows
     except Exception:
         pass
-    # Fallback: fetch all recent orders without any filter
+    # Fallback: fetch all recent orders without branch filter
     try:
         r = requests.get(
             f"{_url('orders')}?created_at=gte.{since}&order=created_at.desc",

@@ -33,7 +33,7 @@ from services.item_service import ItemService, ItemDetail
 from database.models.base import new_uuid
 
 # Price columns in the grid
-PRICE_TYPES = ["Individual", "Retail", "Whole Sale", "Semi-Wholesale"]
+PRICE_TYPES = ["Individual", "Online", "Whole Sale", "Semi-Wholesale"]
 
 
 class ItemMaintenanceScreen(QWidget):
@@ -364,6 +364,7 @@ class ItemMaintenanceScreen(QWidget):
 
     def _build_middle_panel(self) -> QWidget:
         w = QWidget()
+        w.setMinimumWidth(380)
         layout = QVBoxLayout(w)
         layout.setContentsMargins(8, 0, 8, 0)
         layout.setSpacing(6)
@@ -390,7 +391,16 @@ class ItemMaintenanceScreen(QWidget):
         # Cost panel
         cost_grp = QGroupBox("Cost")
         cost_form = QGridLayout(cost_grp)
-        cost_form.setSpacing(4)
+        cost_form.setSpacing(6)
+        cost_form.setContentsMargins(8, 12, 8, 8)
+        cost_form.setColumnStretch(0, 0)
+        cost_form.setColumnStretch(1, 3)
+        cost_form.setColumnStretch(2, 0)
+        cost_form.setColumnStretch(3, 3)
+        cost_form.setColumnMinimumWidth(0, 72)
+        cost_form.setColumnMinimumWidth(1, 100)
+        cost_form.setColumnMinimumWidth(2, 72)
+        cost_form.setColumnMinimumWidth(3, 100)
 
         cost_form.addWidget(QLabel("Brut Cost:"), 0, 0)
         self._brut_cost = QDoubleSpinBox()
@@ -417,12 +427,11 @@ class ItemMaintenanceScreen(QWidget):
         cost_form.addWidget(QLabel("VAT%:"), 2, 0)
         self._vat_spin = QDoubleSpinBox()
         self._vat_spin.setRange(0, 100); self._vat_spin.setSuffix("%")
-        self._vat_spin.setValue(11.0); self._vat_spin.setFixedWidth(80)
+        self._vat_spin.setValue(11.0)
         cost_form.addWidget(self._vat_spin, 2, 1)
 
         self._cost_currency = QComboBox()
         self._cost_currency.addItems(["USD", "LBP"])
-        self._cost_currency.setFixedWidth(70)
         cost_form.addWidget(QLabel("Currency:"), 2, 2)
         cost_form.addWidget(self._cost_currency, 2, 3)
 
@@ -727,11 +736,11 @@ class ItemMaintenanceScreen(QWidget):
         layout.addLayout(curr_row)
 
         # Price table
-        # Columns: ▶ | Barcode | Pkg | Cost | %ind | Individual | %ret | Retail | %who | WholeSale | %semi | Semi-W | Created | Modified | F1% | F2% | F3% | F4%
+        # Columns: ▶ | Barcode | Pkg | Cost | %ind | Individual | %ret | Online | %who | WholeSale | %semi | Semi-W | Created | Modified | F1% | F2% | F3% | F4%
         col_headers = [
             "", "Barcode", "Pkg", "Cost",
             "%", "Individual",
-            "%", "Retail",
+            "%", "Online",
             "%", "Whole Sale",
             "%", "Semi-Wholesale",
             "Created", "Modified",

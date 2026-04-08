@@ -173,14 +173,14 @@ class ItemService:
             session.close()
 
     @staticmethod
-    def get_categories() -> list[tuple[str, str, str | None, bool, bool, str, bool]]:
-        """Returns list of (id, name, parent_id, show_in_daily, show_on_touch, photo_url, show_on_home)."""
+    def get_categories() -> list[tuple[str, str, str | None, bool, bool, str, bool, bool]]:
+        """Returns list of (id, name, parent_id, show_in_daily, show_on_touch, photo_url, show_on_home, is_active)."""
         init_db()
         session = get_session()
         try:
             return [(c.id, c.name, c.parent_id, c.show_in_daily,
                      getattr(c, "show_on_touch", False), getattr(c, "photo_url", "") or "",
-                     getattr(c, "show_on_home", False))
+                     getattr(c, "show_on_home", False), getattr(c, "is_active", True))
                     for c in session.query(Category).order_by(Category.name).all()]
         finally:
             session.close()
@@ -412,7 +412,8 @@ class ItemService:
                       show_in_daily: bool = False,
                       show_on_touch: bool = False,
                       photo_url: str = "",
-                      show_on_home: bool = False) -> tuple[bool, str]:
+                      show_on_home: bool = False,
+                      is_active: bool = True) -> tuple[bool, str]:
         init_db()
         session = get_session()
         try:
@@ -427,6 +428,7 @@ class ItemService:
             cat.show_on_touch = show_on_touch
             cat.photo_url     = photo_url or None
             cat.show_on_home  = show_on_home
+            cat.is_active     = is_active
             session.commit()
 
             sync_err = ""
