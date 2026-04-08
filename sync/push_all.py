@@ -17,12 +17,14 @@ def push_all_online_items() -> tuple[int, int, list[str]]:
         return 0, 0, ["Supabase not configured — check .env"]
 
     from database.engine import get_session, init_db
-    from database.models.items import Item
+    from database.models.items import Item, Setting
     init_db()
     session = get_session()
     try:
+        s = session.get(Setting, "lbp_rate")
+        lbp_rate = int(s.value) if s and s.value else 90_000
         items = session.query(Item).filter_by(is_online=True, is_active=True).all()
-        rows = [_build_row(item) for item in items]
+        rows = [_build_row(item, lbp_rate) for item in items]
     finally:
         session.close()
 
@@ -44,16 +46,25 @@ def push_all_online_items() -> tuple[int, int, list[str]]:
     return ok_count, fail_count, errors
 
 
-def _build_row(item) -> dict:
+def _build_row(item, lbp_rate: int = 0) -> dict:
     primary_bc = next((b.barcode for b in item.barcodes if b.is_primary), "")
     price_lbp = next(
+        (p.amount for p in item.prices
+         if p.price_type == "retail" and p.currency == "LBP"), 0.0
+    ) or next(
         (p.amount for p in item.prices
          if p.price_type == "individual" and p.currency == "LBP"), 0.0
     )
     price_usd = next(
         (p.amount for p in item.prices
+         if p.price_type == "retail" and p.currency == "USD"), 0.0
+    ) or next(
+        (p.amount for p in item.prices
          if p.price_type == "individual" and p.currency == "USD"), 0.0
     )
+    # Convert USD price to LBP if no LBP price exists
+    if not price_lbp and price_usd and lbp_rate:
+        price_lbp = round(price_usd * lbp_rate / 1000) * 1000
     total_stock = sum(s.quantity for s in item.stock_entries)
     return {
         "id":          item.id,
