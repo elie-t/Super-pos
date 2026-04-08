@@ -37,80 +37,15 @@ class SyncWorker(QThread):
     def _tick(self):
         from sync.service import (
             drain_sync_queue, pull_new_orders,
-            pull_master_items, pull_master_customers,
-            pull_stock_movements, pull_users,
-            pull_purchase_invoices, pull_suppliers,
-            pull_sales_invoices, pull_warehouses, push_warehouses,
-            pull_categories, pull_transfers, pull_inventory_sessions,
-            pull_invoice_deletes, pull_purchase_invoice_deletes,
-            pull_all_stock_levels,
-            dedupe_stock_movements,
             is_configured,
         )
         if not is_configured():
             return
         try:
-            # Push queued local changes up
+            # Push queued local changes (item saves, invoices, etc.)
             synced, failed = drain_sync_queue()
             if synced or failed:
                 self.sync_done.emit(synced, failed)
-
-            # Pull master data down (items + customers)
-            items_updated, err = pull_master_items()
-            if err:
-                self.error.emit(f"Items pull: {err}")
-            elif items_updated > 0:
-                self.items_updated.emit(items_updated)
-
-            cust_updated, err = pull_master_customers()
-            if err:
-                self.error.emit(f"Customers pull: {err}")
-
-            # Pull stock movements from other branches
-            mv_applied, err = pull_stock_movements()
-            if err:
-                self.error.emit(f"Stock movements pull: {err}")
-
-            # Pull users (central user management)
-            users_pulled, err = pull_users()
-            if err:
-                self.error.emit(f"Users pull: {err}")
-            elif users_pulled > 0:
-                self.users_changed.emit()
-
-            # Push local warehouses, then pull all from central
-            push_warehouses()
-            pull_warehouses()
-
-            # Rebuild ItemStock from local movements (keeps quantities in sync)
-            pull_all_stock_levels()
-
-            # Remove any duplicate stock movements (self-healing)
-            dedupe_stock_movements()
-
-            # Pull suppliers
-            pull_suppliers()
-
-            # Pull sales invoices from other branches; remove any deleted ones
-            pull_sales_invoices()
-            pull_invoice_deletes()
-
-            # Pull purchase invoices from other branches
-            pinv_pulled, err = pull_purchase_invoices()
-            if err:
-                self.error.emit(f"Purchase inv pull: {err}")
-
-            # Remove locally any purchase invoices deleted from Supabase
-            pull_purchase_invoice_deletes()
-
-            # Pull categories (full sync)
-            pull_categories()
-
-            # Pull warehouse transfers from other branches
-            pull_transfers()
-
-            # Pull inventory sessions from other branches
-            pull_inventory_sessions()
 
             # Pull new online orders
             count, err = pull_new_orders()
