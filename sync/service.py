@@ -770,6 +770,15 @@ def pull_master_items() -> tuple[int, str]:
                         continue
                     existing = session.query(Item).filter_by(code=code_str).first()
                     if existing:
+                        # Local item has same code but different UUID — stale local UUID.
+                        # Deactivate the old UUID in products so it doesn't duplicate on app.
+                        if existing.is_online:
+                            upsert_rows("products", [{
+                                "id": existing.id,
+                                "is_active": False,
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            }])
+                            existing.is_online = False
                         seen_codes.add(code_str)
                         latest_ts = ri.get("updated_at", latest_ts)
                         total_updated += 1
