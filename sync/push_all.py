@@ -56,6 +56,7 @@ def _deactivate_stale_products(valid_ids: set) -> None:
     """
     Fetch all active product IDs from Supabase and deactivate any that are
     not in valid_ids. Safe only when IS_MAIN_BRANCH=True (single catalog owner).
+    Uses PATCH (not upsert) for reliable updates.
     """
     import requests
     from sync.service import _url, _headers, SUPABASE_URL, SUPABASE_KEY
@@ -78,10 +79,16 @@ def _deactivate_stale_products(valid_ids: set) -> None:
             return
 
         now = datetime.now(timezone.utc).isoformat()
-        for i in range(0, len(stale), BATCH_SIZE):
-            batch = [{"id": oid, "is_active": False, "updated_at": now}
-                     for oid in stale[i: i + BATCH_SIZE]]
-            upsert_rows("products", batch)
+        # PATCH in batches using id=in.(...)
+        for i in range(0, len(stale), 100):
+            chunk = stale[i: i + 100]
+            ids_filter = ",".join(chunk)
+            requests.patch(
+                f"{_url('products')}?id=in.({ids_filter})",
+                headers=_headers(),
+                json={"is_active": False, "updated_at": now},
+                timeout=30,
+            )
     except Exception:
         pass
 
