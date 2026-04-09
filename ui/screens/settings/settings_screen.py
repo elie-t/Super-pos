@@ -253,6 +253,10 @@ class _SyncAllWorker(QThread):
         n, err = pull_suppliers()
         results.append(f"Suppliers pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
+        # Always re-pull last 30 days of invoices on a manual force sync
+        from datetime import datetime, timezone, timedelta
+        _state_set("sales_invoices_pull",
+                   (datetime.now(timezone.utc) - timedelta(days=30)).isoformat())
         self.progress.emit("Pulling sales invoices…")
         n, err = pull_sales_invoices()
         results.append(f"Sales invoices pulled: {n}" + (f" ⚠ {err}" if err else ""))
