@@ -563,25 +563,36 @@ class ItemMaintenanceScreen(QWidget):
 
         layout.addStretch()
 
-        # Action buttons — full width, generous height
-        btns = [
-            ("💾  Save",       "#2e7d32", "#388e3c", self._save),
-            ("📊  Stock Card", "#1565c0", "#1976d2", self._open_stock_card),
-            ("🔍  Search",     "#5c6bc0", "#7986cb", self._go_search),
-            ("✖  Delete",     "#c62828", "#e53935", self._confirm_delete),
-            ("←  Close",      "#546e7a", "#78909c", self.back.emit),
-        ]
-        for label, bg, hover, slot in btns:
+        # Action buttons — each in its own container frame
+        def _action_btn(label, bg, hover, slot, border_top=False):
+            frame = QFrame()
+            if border_top:
+                frame.setStyleSheet(
+                    f"QFrame {{ border-top:1px solid #c0ccd8; background:transparent; }}"
+                )
+            else:
+                frame.setStyleSheet("QFrame { background:transparent; }")
+            fl = QVBoxLayout(frame)
+            fl.setContentsMargins(0, 4, 0, 0)
+            fl.setSpacing(0)
             btn = QPushButton(label)
-            btn.setFixedHeight(34)
+            btn.setFixedHeight(40)
             btn.setCursor(Qt.PointingHandCursor)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             btn.setStyleSheet(
-                f"QPushButton {{ background:{bg}; color:#fff; border:none; border-radius:5px; "
-                f"font-weight:700; font-size:12px; margin-top:2px; }}"
+                f"QPushButton {{ background:{bg}; color:#fff; border:none; border-radius:6px; "
+                f"font-weight:700; font-size:13px; }}"
                 f"QPushButton:hover {{ background:{hover}; }}"
             )
             btn.clicked.connect(slot)
-            layout.addWidget(btn)
+            fl.addWidget(btn)
+            return frame
+
+        layout.addWidget(_action_btn("💾  Save",       "#2e7d32", "#388e3c", self._save))
+        layout.addWidget(_action_btn("📊  Stock Card", "#1565c0", "#1976d2", self._open_stock_card))
+        layout.addWidget(_action_btn("🔍  Search",     "#5c6bc0", "#7986cb", self._go_search))
+        layout.addWidget(_action_btn("✖  Delete",     "#c62828", "#e53935", self._confirm_delete, border_top=True))
+        layout.addWidget(_action_btn("←  Close",      "#546e7a", "#78909c", self.back.emit))
 
         self._status_lbl = QLabel("")
         self._status_lbl.setWordWrap(True)
@@ -644,41 +655,7 @@ class ItemMaintenanceScreen(QWidget):
         bc_layout.addWidget(del_bc_btn)
 
         row.addWidget(bc_grp)
-
-        # Stock summary table
-        stk_grp = QGroupBox("Stock Summary")
-        stk_layout = QGridLayout(stk_grp)
-        stk_layout.setSpacing(4)
-
-        headers = ["Opening", "In", "Out", "Stock Units", "Stock Pack"]
-        for c, h in enumerate(headers):
-            lbl = QLabel(h)
-            lbl.setAlignment(Qt.AlignCenter)
-            lbl.setStyleSheet("font-weight:600; font-size:11px;")
-            stk_layout.addWidget(lbl, 0, c + 1)
-
-        for r, row_lbl in enumerate(["Qty", "Value"]):
-            lbl = QLabel(row_lbl)
-            lbl.setStyleSheet("font-weight:600; font-size:11px;")
-            stk_layout.addWidget(lbl, r + 1, 0)
-
-        self._stk_labels = {}
-        keys = ["opening_qty", "in_qty", "out_qty", "units", "pack",
-                "opening_val", "in_val", "out_val", "", ""]
-        for r in range(2):
-            for c in range(5):
-                key = keys[r * 5 + c]
-                lbl = QLabel("0")
-                lbl.setAlignment(Qt.AlignCenter)
-                lbl.setStyleSheet(
-                    "background:#ffffff; border:1px solid #d0d8e4; "
-                    "border-radius:2px; padding:2px 6px; font-size:12px;"
-                )
-                stk_layout.addWidget(lbl, r + 1, c + 1)
-                if key:
-                    self._stk_labels[key] = lbl
-
-        row.addWidget(stk_grp, 1)
+        row.addStretch()
         return row
 
     # ── Price grid ────────────────────────────────────────────────────────────
@@ -835,11 +812,6 @@ class ItemMaintenanceScreen(QWidget):
         if detail.id:
             self._date_created_lbl.setText("Created: —")
             self._date_modified_lbl.setText("Modified: —")
-
-        # Stock summary
-        total_stock = sum(qty for _, qty in detail.stock_entries)
-        if "units" in self._stk_labels:
-            self._stk_labels["units"].setText(f"{total_stock:,.0f}")
 
         # Populate price table from barcodes
         self._rebuild_price_table(detail)
