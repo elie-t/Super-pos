@@ -37,7 +37,7 @@ class SyncWorker(QThread):
     def _tick(self):
         from sync.service import (
             drain_sync_queue, pull_new_orders,
-            pull_sales_invoices, is_configured,
+            pull_sales_invoices, pull_master_items, is_configured,
         )
         if not is_configured():
             return
@@ -57,6 +57,14 @@ class SyncWorker(QThread):
             # Pull sales invoices from other branches
             try:
                 pull_sales_invoices()
+            except Exception:
+                pass
+
+            # Pull item master data from Supabase
+            try:
+                count, _ = pull_master_items()
+                if count > 0:
+                    self.items_updated.emit(count)
             except Exception:
                 pass
 
