@@ -1577,18 +1577,19 @@ def pull_sales_invoices() -> tuple[int, str]:
                         ).delete()
                         session.flush()
                 else:
-                    # Skip if invoice_number already taken by a local invoice
+                    # If invoice_number already taken by a different local invoice,
+                    # suffix with branch prefix to avoid collision
+                    inv_number = ri["invoice_number"]
                     clash = session.query(SalesInvoice).filter_by(
-                        invoice_number=ri["invoice_number"]
+                        invoice_number=inv_number
                     ).first()
-                    if clash:
-                        latest_ts = ri["synced_at"]
-                        pulled += 1
-                        continue
+                    if clash and clash.id != ri["id"]:
+                        branch_prefix = (ri.get("branch_id") or "br")[:6]
+                        inv_number = f"{inv_number}-{branch_prefix}"
 
                     inv = SalesInvoice(
                         id=ri["id"],
-                        invoice_number=ri["invoice_number"],
+                        invoice_number=inv_number,
                         customer_id=ri.get("customer_id") or "",
                         operator_id=ri.get("operator_id") or "",
                         warehouse_id=wh_id,
