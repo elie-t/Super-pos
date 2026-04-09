@@ -247,7 +247,7 @@ class LoginScreen(QWidget):
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Error", f"Failed to pull users:\n{err}")
         else:
-            self._refresh_user_grid()
+            self._load_users()
 
     def _fetch_active_users(self) -> list[tuple]:
         """Returns list of (id, username, full_name, role) for all active users."""
