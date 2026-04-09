@@ -488,7 +488,7 @@ class ItemMaintenanceScreen(QWidget):
         sup_row.addWidget(add_sup_btn)
         layout.addLayout(sup_row)
 
-        # Image + URL/Browse all together, no extra spacing
+        # Image (right) + URL/Browse (left) side by side
         img_frame = QFrame()
         img_frame.setStyleSheet(
             "background:#f0f4fa; border:2px solid #c0ccd8; border-radius:6px;"
@@ -502,14 +502,6 @@ class ItemMaintenanceScreen(QWidget):
         self._img_preview.setScaledContents(True)
         img_inner.addWidget(self._img_preview)
 
-        img_center = QHBoxLayout()
-        img_center.setSpacing(0)
-        img_center.addStretch()
-        img_center.addWidget(img_frame)
-        img_center.addStretch()
-        layout.addLayout(img_center)
-
-        # URL + Browse/Clear
         self._photo_url_edit = QLineEdit()
         self._photo_url_edit.setPlaceholderText("Paste image URL…")
         self._photo_url_edit.setFixedHeight(22)
@@ -533,15 +525,24 @@ class ItemMaintenanceScreen(QWidget):
         self._clear_photo_btn.setStyleSheet("font-size:10px;")
         self._clear_photo_btn.clicked.connect(self._clear_photo)
 
+        # Left: URL + buttons stacked; Right: image
+        img_left = QVBoxLayout()
+        img_left.setSpacing(4)
+        img_left.setContentsMargins(0, 0, 0, 0)
         url_row = QHBoxLayout()
+        url_row.setSpacing(3)
         url_row.addWidget(self._photo_url_edit, 1)
         url_row.addWidget(url_set_btn)
-        layout.addLayout(url_row)
+        img_left.addLayout(url_row)
+        img_left.addWidget(browse_btn)
+        img_left.addWidget(self._clear_photo_btn)
+        img_left.addStretch()
 
-        btn_row = QHBoxLayout()
-        btn_row.addWidget(browse_btn, 1)
-        btn_row.addWidget(self._clear_photo_btn, 1)
-        layout.addLayout(btn_row)
+        img_row = QHBoxLayout()
+        img_row.setSpacing(6)
+        img_row.addLayout(img_left, 1)
+        img_row.addWidget(img_frame, 0, Qt.AlignRight | Qt.AlignTop)
+        layout.addLayout(img_row)
 
         return w
 
