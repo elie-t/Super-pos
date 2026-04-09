@@ -206,17 +206,15 @@ class _SyncAllWorker(QThread):
         synced, failed = drain_sync_queue()
         results.append(f"Queue: {synced} pushed, {failed} failed")
 
-        # ── Always: pull fresh item catalog ───────────────────────────────────
-        _state_set("items_pull", "2000-01-01T00:00:00Z")
-        _state_set("items_pull_last_id", "")
+        # ── Always: pull incremental item changes ─────────────────────────────
         self.progress.emit("Pulling item master data…")
         n, err = pull_master_items()
         results.append(f"Items pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
-        # ── Main branch only: push catalog to app & Supabase ─────────────────
+        # ── Main branch only: push only recently-changed items ────────────────
         if IS_MAIN_BRANCH:
-            self.progress.emit("Pushing all items to central…")
-            ok, fail = push_all_items_to_central()
+            self.progress.emit("Pushing changed items to central…")
+            ok, fail = push_all_items_to_central(incremental=True)
             results.append(f"Items pushed to central: {ok}" + (f" ⚠ {fail} failed" if fail else ""))
 
             self.progress.emit("Pushing online catalog…")

@@ -450,11 +450,11 @@ def push_item_master(item_id: str) -> tuple[bool, str]:
         session.close()
 
 
-def push_all_items_to_central(progress_cb=None) -> tuple[int, int]:
+def push_all_items_to_central(progress_cb=None, incremental: bool = False) -> tuple[int, int]:
     """
-    Push every local active item to items_central in batches.
-    Used on the main branch to ensure all items (including Excel imports)
-    are in Supabase so other branches can pull them.
+    Push local active items to items_central in batches.
+    incremental=True: only push items updated in the last 24 hours (fast).
+    incremental=False: push all items (full sync, slow).
     Returns (ok_count, fail_count).
     """
     from database.engine import get_session, init_db
@@ -466,7 +466,13 @@ def push_all_items_to_central(progress_cb=None) -> tuple[int, int]:
     init_db()
     session = get_session()
     try:
-        items = session.query(Item).filter_by(is_active=True).all()
+        q = session.query(Item).filter_by(is_active=True)
+        if incremental:
+            import sqlalchemy
+            q = q.filter(sqlalchemy.text(
+                "updated_at >= datetime('now', '-1 day')"
+            ))
+        items = q.all()
         total = len(items)
         ok_count = fail_count = 0
         now = datetime.now(timezone.utc).isoformat()
