@@ -34,6 +34,7 @@ def push_all_online_items() -> tuple[int, int, list[str]]:
     ok_count = fail_count = 0
     errors: list[str] = []
 
+    # Push the correct items first
     for i in range(0, len(rows), BATCH_SIZE):
         batch = rows[i: i + BATCH_SIZE]
         ok, err = upsert_rows("products", batch)
@@ -43,7 +44,46 @@ def push_all_online_items() -> tuple[int, int, list[str]]:
             fail_count += len(batch)
             errors.append(err)
 
+    # PC is the sole owner of products — deactivate anything not in our catalog
+    from config import IS_MAIN_BRANCH
+    if IS_MAIN_BRANCH:
+        _deactivate_stale_products({r["id"] for r in rows})
+
     return ok_count, fail_count, errors
+
+
+def _deactivate_stale_products(valid_ids: set) -> None:
+    """
+    Fetch all active product IDs from Supabase and deactivate any that are
+    not in valid_ids. Safe only when IS_MAIN_BRANCH=True (single catalog owner).
+    """
+    import requests
+    from sync.service import _url, _headers, SUPABASE_URL, SUPABASE_KEY
+    from datetime import datetime, timezone
+
+    if not (SUPABASE_URL and SUPABASE_KEY):
+        return
+    try:
+        # Fetch all active product IDs
+        r = requests.get(
+            f"{_url('products')}?is_active=eq.true&select=id",
+            headers={**_headers(), "Prefer": ""},
+            timeout=30,
+        )
+        if r.status_code != 200:
+            return
+
+        stale = [row["id"] for row in r.json() if row["id"] not in valid_ids]
+        if not stale:
+            return
+
+        now = datetime.now(timezone.utc).isoformat()
+        for i in range(0, len(stale), BATCH_SIZE):
+            batch = [{"id": oid, "is_active": False, "updated_at": now}
+                     for oid in stale[i: i + BATCH_SIZE]]
+            upsert_rows("products", batch)
+    except Exception:
+        pass
 
 
 def _build_row(item, lbp_rate: int = 0) -> dict:
