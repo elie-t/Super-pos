@@ -72,7 +72,7 @@ class ItemMaintenanceScreen(QWidget):
         # Top section — fixed height so it never steals space from the price grid
         top_widget = QWidget()
         top_widget.setStyleSheet("background:#ffffff; border-bottom:1px solid #c0ccd8;")
-        top_widget.setFixedHeight(480)
+        top_widget.setFixedHeight(440)
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 8, 10, 8)
         top_layout.setSpacing(10)
@@ -157,7 +157,21 @@ class ItemMaintenanceScreen(QWidget):
         new_btn.clicked.connect(self._start_new_item)
         layout.addWidget(new_btn)
 
-        layout.addStretch()
+        # Rate + mode badge — updated when item loads
+        self._bar_rate_lbl = QLabel(f"$ = {self._lbp_rate:,}")
+        self._bar_rate_lbl.setStyleSheet(
+            "color:#f9ca24; font-size:13px; font-weight:700; "
+            "background:rgba(255,255,255,0.08); border-radius:4px; padding:2px 10px;"
+        )
+        layout.addWidget(self._bar_rate_lbl)
+
+        self._bar_mode_lbl = QLabel("")
+        self._bar_mode_lbl.setStyleSheet(
+            "color:#fff; font-size:13px; font-weight:700; "
+            "background:rgba(255,255,255,0.12); border-radius:4px; padding:2px 10px;"
+        )
+        self._bar_mode_lbl.hide()
+        layout.addWidget(self._bar_mode_lbl)
 
         back_btn = QPushButton("← Back")
         back_btn.setFixedHeight(34)
@@ -288,6 +302,12 @@ class ItemMaintenanceScreen(QWidget):
             "background:#ffffff; border:1px solid #4a7aac; border-radius:4px; "
             "padding:4px 10px; font-size:13px;"
         )
+        self._bar_mode_lbl.setText("✚  New Item")
+        self._bar_mode_lbl.setStyleSheet(
+            "color:#fff; font-size:13px; font-weight:700; "
+            "background:#2e7d32; border-radius:4px; padding:2px 10px;"
+        )
+        self._bar_mode_lbl.show()
 
     def _clear_fields(self):
         self._code_edit.clear()
@@ -386,17 +406,6 @@ class ItemMaintenanceScreen(QWidget):
         layout = QVBoxLayout(w)
         layout.setContentsMargins(8, 0, 8, 0)
         layout.setSpacing(4)
-
-        # Rate + title row
-        rate_row = QHBoxLayout()
-        rate_lbl = QLabel(f"$ = {self._lbp_rate:,}")
-        rate_lbl.setStyleSheet("color:#c62828; font-size:13px; font-weight:700;")
-        title_lbl = QLabel("Edit Item" if not self._is_new else "New Item")
-        title_lbl.setStyleSheet("color:#e65100; font-size:20px; font-weight:700;")
-        rate_row.addWidget(rate_lbl)
-        rate_row.addStretch()
-        rate_row.addWidget(title_lbl)
-        layout.addLayout(rate_row)
 
         # Cost panel (compact 2-row grid)
         cost_grp = QGroupBox("Cost")
@@ -783,6 +792,12 @@ class ItemMaintenanceScreen(QWidget):
         self._card_widget.show()
         self._lookup_input.setText(detail.code)
         self._lookup_status("", error=False)
+        self._bar_mode_lbl.setText("✏  Edit Item")
+        self._bar_mode_lbl.setStyleSheet(
+            "color:#fff; font-size:13px; font-weight:700; "
+            "background:#e65100; border-radius:4px; padding:2px 10px;"
+        )
+        self._bar_mode_lbl.show()
 
         self._code_edit.setText(detail.code)
         self._name_edit.setText(detail.name)
