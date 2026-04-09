@@ -37,7 +37,8 @@ class SyncWorker(QThread):
     def _tick(self):
         from sync.service import (
             drain_sync_queue, pull_new_orders,
-            pull_sales_invoices, pull_master_items, is_configured,
+            pull_sales_invoices, pull_master_items,
+            pull_stock_movements, is_configured,
         )
         if not is_configured():
             return
@@ -65,6 +66,12 @@ class SyncWorker(QThread):
                 count, _ = pull_master_items()
                 if count > 0:
                     self.items_updated.emit(count)
+            except Exception:
+                pass
+
+            # Pull stock movements from other branches (deducts their sales from local stock)
+            try:
+                pull_stock_movements()
             except Exception:
                 pass
 
