@@ -649,7 +649,6 @@ class SalesInvoiceListScreen(QWidget):
         try:
             q = session.query(SalesInvoice).filter(
                 SalesInvoice.source == "pos_shift",
-                SalesInvoice.status != "cancelled",
                 SalesInvoice.invoice_date <= before_date,
             )
             if wh_id:
@@ -679,16 +678,29 @@ class SalesInvoiceListScreen(QWidget):
 
         ok_count = fail_count = 0
         errors = []
+        from database.engine import get_session, init_db
+        from database.models.invoices import SalesInvoice, SalesInvoiceItem
+        init_db()
         for i, inv_id in enumerate(ids):
             if prog.wasCanceled():
                 break
             prog.setValue(i)
-            ok, err = SalesInvoiceService.delete_invoice(inv_id, restore_stock=False)
-            if ok:
-                ok_count += 1
-            else:
+            try:
+                s = get_session()
+                try:
+                    s.query(SalesInvoiceItem).filter_by(invoice_id=inv_id).delete()
+                    s.query(SalesInvoice).filter_by(id=inv_id).delete()
+                    s.commit()
+                    ok_count += 1
+                except Exception as e:
+                    s.rollback()
+                    fail_count += 1
+                    errors.append(str(e))
+                finally:
+                    s.close()
+            except Exception as e:
                 fail_count += 1
-                errors.append(err)
+                errors.append(str(e))
         prog.setValue(len(ids))
 
         self._load()
