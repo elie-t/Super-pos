@@ -528,7 +528,7 @@ class ItemMaintenanceScreen(QWidget):
         # Left: URL + buttons stacked; Right: image
         img_left = QVBoxLayout()
         img_left.setSpacing(4)
-        img_left.setContentsMargins(0, 14, 0, 0)
+        img_left.setContentsMargins(0, 4, 0, 0)
         url_row = QHBoxLayout()
         url_row.setSpacing(3)
         url_row.addWidget(self._photo_url_edit, 1)
