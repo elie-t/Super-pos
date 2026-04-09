@@ -69,10 +69,10 @@ class ItemMaintenanceScreen(QWidget):
         card_layout.setContentsMargins(0, 0, 0, 0)
         card_layout.setSpacing(0)
 
-        # Top section
+        # Top section — fixed height so it never steals space from the price grid
         top_widget = QWidget()
         top_widget.setStyleSheet("background:#ffffff; border-bottom:1px solid #c0ccd8;")
-        top_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        top_widget.setFixedHeight(420)
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 8, 10, 8)
         top_layout.setSpacing(10)
@@ -81,7 +81,7 @@ class ItemMaintenanceScreen(QWidget):
         top_layout.addWidget(self._build_right_panel(),  1)
         card_layout.addWidget(top_widget)
 
-        # Bottom section
+        # Bottom section — stretches to fill the rest
         bottom_widget = QWidget()
         bottom_widget.setStyleSheet("background:#f8f9fa;")
         bottom_layout = QVBoxLayout(bottom_widget)
