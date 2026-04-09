@@ -88,7 +88,7 @@ class ItemMaintenanceScreen(QWidget):
         bottom_layout.setContentsMargins(10, 6, 10, 6)
         bottom_layout.setSpacing(6)
         bottom_layout.addLayout(self._build_barcode_stock_row())
-        bottom_layout.addWidget(self._build_price_grid())
+        bottom_layout.addWidget(self._build_price_grid(), 1)
         card_layout.addWidget(bottom_widget, 1)
 
         root.addWidget(self._card_widget, 1)
@@ -767,7 +767,7 @@ class ItemMaintenanceScreen(QWidget):
             if item:
                 item.setBackground(QColor(color))
 
-        layout.addWidget(self._price_table)
+        layout.addWidget(self._price_table, 1)
         return w
 
     # ─────────────────────────────────────────────────────────────────────────
