@@ -503,13 +503,20 @@ def push_all_items_to_central(progress_cb=None) -> tuple[int, int]:
             if ok1 and ok2 and ok3:
                 ok_count += len(batch)
             else:
-                # Batch failed — retry one by one to skip the bad item(s)
+                # Batch failed — retry one by one to identify and skip bad items
                 for item in batch:
-                    ok, _ = push_item_master(item.id)
+                    ok, err = push_item_master(item.id)
                     if ok:
                         ok_count += 1
                     else:
                         fail_count += 1
+                        try:
+                            from config import BASE_DIR
+                            log_path = BASE_DIR / "data" / "push_failures.log"
+                            with open(log_path, "a", encoding="utf-8") as f:
+                                f.write(f"[{item.code}] {item.name!r} — {err}\n")
+                        except Exception:
+                            pass
 
             if progress_cb:
                 progress_cb(batch_start + len(batch), total)
