@@ -118,10 +118,11 @@ class StockCardScreen(QWidget):
 
         row1.addWidget(QLabel("Name:"))
         self._name_edit = QLineEdit()
-        self._name_edit.setPlaceholderText("Item name")
+        self._name_edit.setPlaceholderText("Item name  (Ctrl+Enter = list)")
         self._name_edit.setFixedHeight(30)
-        self._name_edit.setFixedWidth(200)
+        self._name_edit.setFixedWidth(220)
         self._name_edit.returnPressed.connect(lambda: self._find_item(self._name_edit.text()))
+        self._name_edit.installEventFilter(self)
         row1.addWidget(self._name_edit)
 
         find_btn = QPushButton("🔍 Find")
@@ -258,6 +259,83 @@ class StockCardScreen(QWidget):
         for cat_id, cat_name, *_ in ItemService.get_categories():
             self._cat_combo.addItem(cat_name, cat_id)
 
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        if obj is self._name_edit and event.type() == QEvent.Type.KeyPress:
+            if (event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                self._find_item_list(self._name_edit.text())
+                return True
+        return super().eventFilter(obj, event)
+
+    def _find_item_list(self, query: str):
+        """Search by name and show a picker if multiple results."""
+        if not query.strip():
+            return
+        results = ItemService.search_items(query=query.strip(), limit=100)
+        if not results:
+            self._found_lbl.setText("✘  No items found")
+            self._found_lbl.setStyleSheet("font-weight:700; color:#c62828; font-size:13px;")
+            return
+        if len(results) == 1:
+            self._apply_item(results[0].id, results[0].code, results[0].name, results[0].barcode or "")
+            return
+        self._show_picker(results)
+
+    def _show_picker(self, results):
+        from PySide6.QtWidgets import QDialog, QListWidget, QListWidgetItem, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Select Item")
+        dlg.resize(560, 400)
+        layout = QVBoxLayout(dlg)
+        layout.addWidget(QLabel(f"{len(results)} matches — select one:"))
+
+        filter_box = QLineEdit()
+        filter_box.setPlaceholderText("Filter…")
+        filter_box.setFixedHeight(30)
+        layout.addWidget(filter_box)
+
+        lst = QListWidget()
+        all_items = []
+        for item in results:
+            text = f"[{item.code}]  {item.name}"
+            li = QListWidgetItem(text)
+            li.setData(Qt.UserRole, (item.id, item.code, item.name, item.barcode or ""))
+            lst.addItem(li)
+            all_items.append((text.lower(), li.data(Qt.UserRole), text))
+        lst.setCurrentRow(0)
+        layout.addWidget(lst, 1)
+
+        def _filter(text):
+            lst.clear()
+            for low, data, display in all_items:
+                if text.lower() in low:
+                    li = QListWidgetItem(display)
+                    li.setData(Qt.UserRole, data)
+                    lst.addItem(li)
+            if lst.count():
+                lst.setCurrentRow(0)
+
+        filter_box.textChanged.connect(_filter)
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        layout.addWidget(btns)
+        lst.doubleClicked.connect(lambda: dlg.accept())
+        filter_box.returnPressed.connect(lambda: dlg.accept())
+
+        if dlg.exec() == QDialog.Accepted and lst.currentItem():
+            item_id, code, name, barcode = lst.currentItem().data(Qt.UserRole)
+            self._apply_item(item_id, code, name, barcode)
+
+    def _apply_item(self, item_id: str, code: str, name: str, barcode: str):
+        self._item = {"id": item_id, "code": code, "name": name, "barcode": barcode}
+        self._bc_edit.setText(barcode)
+        self._code_edit.setText(code)
+        self._name_edit.setText(name)
+        self._found_lbl.setText(f"✔  {code} — {name}")
+        self._found_lbl.setStyleSheet("font-weight:700; color:#2e7d32; font-size:13px;")
+
     def _find_from_inputs(self):
         q = (self._bc_edit.text().strip() or
              self._code_edit.text().strip() or
@@ -270,15 +348,10 @@ class StockCardScreen(QWidget):
             return
         result = StockCardService.find_item(query)
         if result:
-            self._item = result
-            self._bc_edit.setText(result["barcode"])
-            self._code_edit.setText(result["code"])
-            self._name_edit.setText(result["name"])
-            self._found_lbl.setText(f"✔  {result['code']} — {result['name']}")
-            self._found_lbl.setStyleSheet("font-weight:700; color:#2e7d32; font-size:13px;")
+            self._apply_item(result["id"], result["code"], result["name"], result["barcode"])
         else:
             self._item = None
-            self._found_lbl.setText("✘  Item not found")
+            self._found_lbl.setText("✘  Item not found — try Ctrl+Enter to search by name")
             self._found_lbl.setStyleSheet("font-weight:700; color:#c62828; font-size:13px;")
 
     def _load_by_id(self, item_id: str):
