@@ -37,7 +37,7 @@ class SyncWorker(QThread):
     def _tick(self):
         from sync.service import (
             drain_sync_queue, pull_new_orders,
-            is_configured,
+            pull_sales_invoices, is_configured,
         )
         if not is_configured():
             return
@@ -53,6 +53,12 @@ class SyncWorker(QThread):
                 self.error.emit(f"Order pull: {err}")
             elif count > 0:
                 self.new_orders.emit(count)
+
+            # Pull sales invoices from other branches
+            try:
+                pull_sales_invoices()
+            except Exception:
+                pass
 
         except Exception as e:
             self.error.emit(str(e))
