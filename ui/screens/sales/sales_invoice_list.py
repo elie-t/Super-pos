@@ -650,7 +650,7 @@ class SalesInvoiceListScreen(QWidget):
             q = session.query(SalesInvoice).filter(
                 SalesInvoice.source == "pos_shift",
                 SalesInvoice.status != "cancelled",
-                SalesInvoice.invoice_date < before_date,
+                SalesInvoice.invoice_date <= before_date,
             )
             if wh_id:
                 q = q.filter(SalesInvoice.warehouse_id == wh_id)
@@ -678,21 +678,24 @@ class SalesInvoiceListScreen(QWidget):
         prog.setValue(0)
 
         ok_count = fail_count = 0
+        errors = []
         for i, inv_id in enumerate(ids):
             if prog.wasCanceled():
                 break
             prog.setValue(i)
-            ok, _ = SalesInvoiceService.delete_invoice(inv_id)
+            ok, err = SalesInvoiceService.delete_invoice(inv_id)
             if ok:
                 ok_count += 1
             else:
                 fail_count += 1
+                errors.append(err)
         prog.setValue(len(ids))
 
         self._load()
         msg = f"Purge complete.\n\n✔ {ok_count} invoices cancelled."
         if fail_count:
-            msg += f"\n✘ {fail_count} failed (already cancelled or error)."
+            sample = "\n".join(set(errors[:5]))
+            msg += f"\n✘ {fail_count} failed:\n{sample}"
         QMessageBox.information(self, "Purge Complete", msg)
 
     def _ask_supervisor_pin(self) -> bool:

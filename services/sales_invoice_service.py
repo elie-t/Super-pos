@@ -401,6 +401,7 @@ class SalesInvoiceService:
                     "date":           inv.invoice_date or "",
                     "total":          inv.total,
                     "currency":       inv.currency,
+                    "status":         inv.status,
                     "payment_status": inv.payment_status,
                     "lines":          len(inv.items),
                     "source":         inv.source,
