@@ -683,7 +683,7 @@ class SalesInvoiceListScreen(QWidget):
             if prog.wasCanceled():
                 break
             prog.setValue(i)
-            ok, err = SalesInvoiceService.delete_invoice(inv_id)
+            ok, err = SalesInvoiceService.delete_invoice(inv_id, restore_stock=False)
             if ok:
                 ok_count += 1
             else:

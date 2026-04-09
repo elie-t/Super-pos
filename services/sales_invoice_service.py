@@ -473,14 +473,15 @@ class SalesInvoiceService:
             session.close()
 
     @staticmethod
-    def delete_invoice(invoice_id: str, operator_id: str = "") -> tuple[bool, str]:
-        """Cancel a sales invoice and restore stock."""
+    def delete_invoice(invoice_id: str, operator_id: str = "",
+                       restore_stock: bool = True) -> tuple[bool, str]:
+        """Cancel a sales invoice and optionally restore stock."""
         init_db()
         session = get_session()
         try:
             from database.models.invoices import SalesInvoice, SalesInvoiceItem
             from database.models.stock import StockMovement
-            from database.models.items import ItemStock
+            from database.models.items import ItemStock, Item, Warehouse
             from database.models.base import new_uuid
 
             inv = session.query(SalesInvoice).filter_by(id=invoice_id).first()
@@ -489,25 +490,31 @@ class SalesInvoiceService:
             if inv.status == "cancelled":
                 return False, "Invoice is already cancelled"
 
-            lines = session.query(SalesInvoiceItem).filter_by(invoice_id=invoice_id).all()
-            for li in lines:
-                session.add(StockMovement(
-                    id=new_uuid(),
-                    item_id=li.item_id,
-                    warehouse_id=inv.warehouse_id,
-                    movement_type="cancellation",
-                    quantity=li.quantity,
-                    unit_cost=li.unit_price,
-                    cost_currency=inv.currency,
-                    reference_type="sales_invoice",
-                    reference_id=inv.id,
-                    operator_id=operator_id or None,
-                ))
-                stock = session.query(ItemStock).filter_by(
-                    item_id=li.item_id, warehouse_id=inv.warehouse_id
-                ).first()
-                if stock:
-                    stock.quantity += li.quantity
+            if restore_stock:
+                lines = session.query(SalesInvoiceItem).filter_by(invoice_id=invoice_id).all()
+                for li in lines:
+                    # Skip if item or warehouse no longer exists (orphaned invoice)
+                    item_exists = session.query(Item.id).filter_by(id=li.item_id).first()
+                    wh_exists   = session.query(Warehouse.id).filter_by(id=inv.warehouse_id).first()
+                    if not item_exists or not wh_exists:
+                        continue
+                    session.add(StockMovement(
+                        id=new_uuid(),
+                        item_id=li.item_id,
+                        warehouse_id=inv.warehouse_id,
+                        movement_type="cancellation",
+                        quantity=li.quantity,
+                        unit_cost=li.unit_price,
+                        cost_currency=inv.currency,
+                        reference_type="sales_invoice",
+                        reference_id=inv.id,
+                        operator_id=operator_id or None,
+                    ))
+                    stock = session.query(ItemStock).filter_by(
+                        item_id=li.item_id, warehouse_id=inv.warehouse_id
+                    ).first()
+                    if stock:
+                        stock.quantity += li.quantity
 
             inv.status = "cancelled"
             inv.payment_status = "cancelled"
