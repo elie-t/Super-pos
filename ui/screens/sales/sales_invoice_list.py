@@ -537,7 +537,10 @@ class SalesInvoiceListScreen(QWidget):
             return
 
         user = AuthService.current_user()
-        is_super = user and (user.role == "admin" or user.is_power_user)
+        is_super = user and (
+            str(user.role).strip().lower() == "admin"
+            or bool(getattr(user, "is_power_user", False))
+        )
 
         if d["source"] == "pos_shift" and not is_super:
             QMessageBox.information(
@@ -546,6 +549,7 @@ class SalesInvoiceListScreen(QWidget):
             )
             return
 
+        # Non-superusers must enter a supervisor PIN
         if not is_super and not self._ask_supervisor_pin():
             return
 
@@ -565,11 +569,11 @@ class SalesInvoiceListScreen(QWidget):
         self.edit_requested.emit(d)
 
     def _ask_supervisor_pin(self) -> bool:
-        """Prompt for a supervisor (admin/power_user) PIN. Returns True if verified."""
+        """Prompt for a supervisor PIN. Checks admin passwords and power-user PINs."""
         from PySide6.QtWidgets import QInputDialog
         pin, ok = QInputDialog.getText(
             self, "Supervisor Required",
-            "Enter supervisor PIN to edit this invoice:",
+            "Enter supervisor password / PIN:",
             echo=QLineEdit.Password,
         )
         if not ok or not pin.strip():
@@ -580,22 +584,26 @@ class SalesInvoiceListScreen(QWidget):
         init_db()
         session = get_session()
         try:
-            admins = session.query(User).filter(
-                User.role == "admin", User.is_active == True
+            supervisors = session.query(User).filter(
+                User.is_active == True
+            ).filter(
+                (User.role == "admin") | (User.is_power_user == True)
             ).all()
-            power = session.query(User).filter(
-                User.is_power_user == True, User.is_active == True
-            ).all()
-            for u in admins + power:
+            for u in supervisors:
+                # Check 4-digit PIN first
                 if u.pin and u.pin == pin.strip():
                     return True
-                if u.password_hash and bcrypt.checkpw(pin.strip().encode(), u.password_hash.encode()):
-                    return True
-        except Exception:
-            pass
+                # Check full password
+                try:
+                    if u.password_hash and bcrypt.checkpw(
+                        pin.strip().encode(), u.password_hash.encode()
+                    ):
+                        return True
+                except Exception:
+                    pass
         finally:
             session.close()
-        QMessageBox.warning(self, "Access Denied", "Incorrect supervisor PIN.")
+        QMessageBox.warning(self, "Access Denied", "Incorrect supervisor credentials.")
         return False
 
     def _action_duplicate(self):
