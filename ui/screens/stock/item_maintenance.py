@@ -72,7 +72,7 @@ class ItemMaintenanceScreen(QWidget):
         # Top section — fixed height so it never steals space from the price grid
         top_widget = QWidget()
         top_widget.setStyleSheet("background:#ffffff; border-bottom:1px solid #c0ccd8;")
-        top_widget.setFixedHeight(420)
+        top_widget.setFixedHeight(480)
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 8, 10, 8)
         top_layout.setSpacing(10)
@@ -559,8 +559,6 @@ class ItemMaintenanceScreen(QWidget):
         self._chk_touch = QCheckBox("Touch Screen")
         self._chk_touch.setStyleSheet("font-size:11px; color:#00695c; font-weight:600;")
         layout.addWidget(self._chk_touch)
-
-        layout.addStretch()
 
         # Action buttons — each in its own container frame
         def _action_btn(label, bg, hover, slot, border_top=False):
