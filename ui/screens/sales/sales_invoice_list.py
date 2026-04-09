@@ -13,6 +13,7 @@ from PySide6.QtGui import QColor, QFont
 from PySide6.QtPrintSupport import QPrinter, QPrintPreviewDialog
 
 from services.sales_invoice_service import SalesInvoiceService
+from services.auth_service import AuthService
 
 
 # ── Print helper ───────────────────────────────────────────────────────────────
@@ -531,12 +532,23 @@ class SalesInvoiceListScreen(QWidget):
         d = self._get_selected_data()
         if not d:
             return
-        if d["source"] == "pos_shift":
-            QMessageBox.information(self, "Edit", "Shift invoices cannot be edited.")
-            return
         if d["status"] == "cancelled":
             QMessageBox.warning(self, "Edit", "Cannot edit a cancelled invoice.")
             return
+
+        user = AuthService.current_user()
+        is_super = user and (user.role == "admin" or user.is_power_user)
+
+        if d["source"] == "pos_shift" and not is_super:
+            QMessageBox.information(
+                self, "Edit",
+                "POS shift invoices can only be edited by a superuser."
+            )
+            return
+
+        if not is_super and not self._ask_supervisor_pin():
+            return
+
         if QMessageBox.question(
             self, "Edit Invoice",
             f"Edit invoice {d['invoice_number']}?\n\n"
@@ -551,6 +563,40 @@ class SalesInvoiceListScreen(QWidget):
             return
         self._load()
         self.edit_requested.emit(d)
+
+    def _ask_supervisor_pin(self) -> bool:
+        """Prompt for a supervisor (admin/power_user) PIN. Returns True if verified."""
+        from PySide6.QtWidgets import QInputDialog
+        pin, ok = QInputDialog.getText(
+            self, "Supervisor Required",
+            "Enter supervisor PIN to edit this invoice:",
+            echo=QLineEdit.Password,
+        )
+        if not ok or not pin.strip():
+            return False
+        from database.engine import get_session, init_db
+        from database.models.users import User
+        import bcrypt
+        init_db()
+        session = get_session()
+        try:
+            admins = session.query(User).filter(
+                User.role == "admin", User.is_active == True
+            ).all()
+            power = session.query(User).filter(
+                User.is_power_user == True, User.is_active == True
+            ).all()
+            for u in admins + power:
+                if u.pin and u.pin == pin.strip():
+                    return True
+                if u.password_hash and bcrypt.checkpw(pin.strip().encode(), u.password_hash.encode()):
+                    return True
+        except Exception:
+            pass
+        finally:
+            session.close()
+        QMessageBox.warning(self, "Access Denied", "Incorrect supervisor PIN.")
+        return False
 
     def _action_duplicate(self):
         d = self._get_selected_data()
