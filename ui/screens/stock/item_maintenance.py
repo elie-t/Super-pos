@@ -72,7 +72,7 @@ class ItemMaintenanceScreen(QWidget):
         # Top section — fixed height so it never steals space from the price grid
         top_widget = QWidget()
         top_widget.setStyleSheet("background:#ffffff; border-bottom:1px solid #c0ccd8;")
-        top_widget.setFixedHeight(390)
+        top_widget.setFixedHeight(340)
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 8, 10, 8)
         top_layout.setSpacing(10)
@@ -415,51 +415,50 @@ class ItemMaintenanceScreen(QWidget):
         w.setMinimumWidth(360)
         layout = QVBoxLayout(w)
         layout.setContentsMargins(8, 0, 8, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(2)
 
-        # Cost panel — ultra-compact single font size
+        # Cost panel — minimal height
         cost_grp = QGroupBox("Cost")
         cost_grp.setStyleSheet(
-            "QGroupBox { font-size:11px; font-weight:700; padding-top:10px; margin-top:4px; }"
-            "QLabel { font-size:11px; }"
+            "QGroupBox { font-size:10px; font-weight:700; padding-top:8px; margin-top:2px; }"
+            "QLabel { font-size:10px; }"
         )
         cost_form = QGridLayout(cost_grp)
-        cost_form.setSpacing(2)
-        cost_form.setContentsMargins(6, 2, 6, 4)
+        cost_form.setSpacing(1)
+        cost_form.setContentsMargins(4, 0, 4, 2)
         cost_form.setColumnStretch(1, 1)
         cost_form.setColumnStretch(3, 1)
 
-        def _small_spin():
+        def _xs_spin():
             s = QDoubleSpinBox()
-            s.setFixedHeight(22)
-            s.setStyleSheet("font-size:11px; padding:0 2px;")
+            s.setFixedHeight(20)
+            s.setStyleSheet("font-size:10px; padding:0 1px;")
             return s
 
-        self._brut_cost = _small_spin()
+        self._brut_cost = _xs_spin()
         self._brut_cost.setRange(0, 9999999); self._brut_cost.setDecimals(4)
         self._brut_cost.valueChanged.connect(self._recalc_margins)
 
-        self._discount_spin = _small_spin()
+        self._discount_spin = _xs_spin()
         self._discount_spin.setRange(0, 100); self._discount_spin.setSuffix("%")
         self._discount_spin.valueChanged.connect(self._recalc_margins)
 
         self._net_cost_lbl = QLabel("0.0000")
-        self._net_cost_lbl.setStyleSheet("font-weight:600; font-size:11px;")
+        self._net_cost_lbl.setStyleSheet("font-weight:600; font-size:10px;")
         self._avg_cost_lbl = QLabel("0.0000")
-        self._avg_cost_lbl.setStyleSheet("font-weight:600; font-size:11px;")
+        self._avg_cost_lbl.setStyleSheet("font-weight:600; font-size:10px;")
 
-        self._vat_spin = _small_spin()
+        self._vat_spin = _xs_spin()
         self._vat_spin.setRange(0, 100); self._vat_spin.setSuffix("%")
         self._vat_spin.setValue(11.0)
 
         self._cost_currency = QComboBox()
         self._cost_currency.addItems(["USD", "LBP"])
-        self._cost_currency.setFixedHeight(22)
-        self._cost_currency.setStyleSheet("font-size:11px;")
+        self._cost_currency.setFixedHeight(20)
+        self._cost_currency.setStyleSheet("font-size:10px;")
 
-        for c, lbl in enumerate(["Brut Cost:", "Discount:", "Net Cost:", "Avg Cost:", "VAT%:", "Currency:"]):
-            ql = QLabel(lbl)
-            ql.setStyleSheet("font-size:11px;")
+        for c, txt in enumerate(["Brut Cost:", "Discount:", "Net Cost:", "Avg Cost:", "VAT%:", "Currency:"]):
+            ql = QLabel(txt); ql.setStyleSheet("font-size:10px;")
             cost_form.addWidget(ql, c // 2, (c % 2) * 2)
 
         cost_form.addWidget(self._brut_cost,      0, 1)
@@ -470,62 +469,68 @@ class ItemMaintenanceScreen(QWidget):
         cost_form.addWidget(self._cost_currency,  2, 3)
         layout.addWidget(cost_grp)
 
-        # Supplier row
+        # Supplier row — compact
         sup_row = QHBoxLayout()
+        sup_row.setSpacing(4)
         sup_lbl = QLabel("Supplier:")
-        sup_lbl.setFixedWidth(58)
+        sup_lbl.setStyleSheet("font-size:10px;")
+        sup_lbl.setFixedWidth(50)
         self._supplier_lbl = QLabel("—")
-        self._supplier_lbl.setStyleSheet("color:#1a6cb5;")
+        self._supplier_lbl.setStyleSheet("color:#1a6cb5; font-size:10px;")
         self._supplier_combo = QComboBox()
-        self._supplier_combo.setFixedHeight(26)
+        self._supplier_combo.setFixedHeight(20)
+        self._supplier_combo.setStyleSheet("font-size:10px;")
         add_sup_btn = QPushButton("+")
         add_sup_btn.setObjectName("secondaryBtn")
-        add_sup_btn.setFixedSize(26, 26)
+        add_sup_btn.setFixedSize(20, 20)
         sup_row.addWidget(sup_lbl)
         sup_row.addWidget(self._supplier_combo, 1)
         sup_row.addWidget(add_sup_btn)
         layout.addLayout(sup_row)
 
-        # Image — 150×150 square, centered
+        # Image + URL/Browse all together, no extra spacing
         img_frame = QFrame()
         img_frame.setStyleSheet(
             "background:#f0f4fa; border:2px solid #c0ccd8; border-radius:6px;"
         )
-        img_frame.setFixedSize(150, 150)
+        img_frame.setFixedSize(120, 120)
         img_inner = QVBoxLayout(img_frame)
-        img_inner.setContentsMargins(3, 3, 3, 3)
+        img_inner.setContentsMargins(2, 2, 2, 2)
         self._img_preview = QLabel("No Image")
         self._img_preview.setAlignment(Qt.AlignCenter)
-        self._img_preview.setStyleSheet("color:#aaa; font-size:11px;")
+        self._img_preview.setStyleSheet("color:#aaa; font-size:10px;")
         self._img_preview.setScaledContents(True)
         img_inner.addWidget(self._img_preview)
 
         img_center = QHBoxLayout()
+        img_center.setSpacing(0)
         img_center.addStretch()
         img_center.addWidget(img_frame)
         img_center.addStretch()
         layout.addLayout(img_center)
 
-        # URL + Browse/Clear in one compact block
+        # URL + Browse/Clear
         self._photo_url_edit = QLineEdit()
         self._photo_url_edit.setPlaceholderText("Paste image URL…")
-        self._photo_url_edit.setFixedHeight(26)
-        self._photo_url_edit.setStyleSheet("font-size:11px;")
+        self._photo_url_edit.setFixedHeight(22)
+        self._photo_url_edit.setStyleSheet("font-size:10px;")
         self._photo_url_edit.editingFinished.connect(self._refresh_photo_preview)
 
         url_set_btn = QPushButton("Set")
         url_set_btn.setObjectName("secondaryBtn")
-        url_set_btn.setFixedSize(38, 26)
+        url_set_btn.setFixedSize(32, 22)
         url_set_btn.clicked.connect(self._set_photo_from_url)
 
         browse_btn = QPushButton("Browse…")
         browse_btn.setObjectName("secondaryBtn")
-        browse_btn.setFixedHeight(26)
+        browse_btn.setFixedHeight(22)
+        browse_btn.setStyleSheet("font-size:10px;")
         browse_btn.clicked.connect(self._browse_photo)
 
         self._clear_photo_btn = QPushButton("Clear")
         self._clear_photo_btn.setObjectName("secondaryBtn")
-        self._clear_photo_btn.setFixedHeight(26)
+        self._clear_photo_btn.setFixedHeight(22)
+        self._clear_photo_btn.setStyleSheet("font-size:10px;")
         self._clear_photo_btn.clicked.connect(self._clear_photo)
 
         url_row = QHBoxLayout()
