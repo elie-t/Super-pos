@@ -12,6 +12,35 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QThread
 
 
+def _push_app_settings_to_supabase() -> str:
+    """Push all app_settings rows to Supabase. Returns error string or ''."""
+    try:
+        from sync.service import is_configured, upsert_rows
+        from database.engine import get_session, init_db
+        from database.models.items import Setting
+        from datetime import datetime, timezone
+        if not is_configured():
+            return ""
+        init_db()
+        session = get_session()
+        try:
+            keys = ["block_out_of_stock"]
+            rows = []
+            for key in keys:
+                s = session.get(Setting, key)
+                rows.append({
+                    "key": key,
+                    "value": s.value if s else "false",
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+        finally:
+            session.close()
+        ok, err = upsert_rows("app_settings", rows)
+        return "" if ok else err
+    except Exception as e:
+        return str(e)
+
+
 # ── Scale config editor dialog ────────────────────────────────────────────────
 
 class _ScaleConfigDialog(QDialog):
@@ -197,6 +226,9 @@ class _SyncAllWorker(QThread):
             self.progress.emit("Pushing categories…")
             push_categories()
 
+            self.progress.emit("Pushing app settings…")
+            _push_app_settings_to_supabase()
+
         # ── Always: pull everything else ──────────────────────────────────────
         self.progress.emit("Pulling customers…")
         n, err = pull_master_customers()
@@ -359,6 +391,22 @@ class SettingsScreen(QWidget):
             "Use this when stock counts differ between branches."
         )
         btn_row.addWidget(reconcile_btn)
+
+        reset_stock_btn = QPushButton("🗑  Reset Stock to Zero")
+        reset_stock_btn.setFixedHeight(38)
+        reset_stock_btn.setCursor(Qt.PointingHandCursor)
+        reset_stock_btn.setStyleSheet(
+            "QPushButton{background:#b71c1c;color:#fff;border:none;"
+            "border-radius:5px;font-size:13px;font-weight:700;padding:0 20px;}"
+            "QPushButton:hover{background:#7f0000;}"
+        )
+        reset_stock_btn.clicked.connect(self._do_reset_stock_to_zero)
+        reset_stock_btn.setToolTip(
+            "Clear all local item_stock entries and set stock=0 in Supabase products.\n"
+            "Use this once before going live to remove opening-stock imported from Excel."
+        )
+        btn_row.addWidget(reset_stock_btn)
+
         btn_row.addStretch()
         sync_layout.addLayout(btn_row)
 
@@ -635,6 +683,43 @@ class SettingsScreen(QWidget):
         root.addWidget(scale_box)
         self._load_scale_list()
 
+        # ── Mobile App Settings panel ──────────────────────────────────────────
+        app_box = QGroupBox("Mobile App Settings")
+        app_box.setStyleSheet(
+            "QGroupBox { font-weight:700; font-size:13px; padding-top:12px; }"
+        )
+        app_lay = QVBoxLayout(app_box)
+        app_lay.setSpacing(10)
+
+        self._block_oos_chk = QCheckBox(
+            "Block out-of-stock items  (customers cannot add them to cart)"
+        )
+        self._block_oos_chk.setToolTip(
+            "When checked: items with stock ≤ 0 are grayed out and unclickable in the app.\n"
+            "When unchecked: customers can order any item; you manage sourcing manually."
+        )
+        app_lay.addWidget(self._block_oos_chk)
+
+        save_app_btn = QPushButton("💾  Save & Push to App")
+        save_app_btn.setFixedHeight(32)
+        save_app_btn.setStyleSheet(
+            "QPushButton{background:#1565c0;color:#fff;border:none;"
+            "border-radius:4px;font-size:12px;font-weight:700;padding:0 16px;}"
+            "QPushButton:hover{background:#0d47a1;}"
+        )
+        save_app_btn.clicked.connect(self._save_app_settings)
+        app_btn_row = QHBoxLayout()
+        app_btn_row.addWidget(save_app_btn)
+        app_btn_row.addStretch()
+        app_lay.addLayout(app_btn_row)
+
+        self._app_status_lbl = QLabel("")
+        self._app_status_lbl.setStyleSheet("font-size:11px; color:#2e7d32;")
+        app_lay.addWidget(self._app_status_lbl)
+
+        root.addWidget(app_box)
+        self._load_app_settings()
+
         root.addStretch()
 
         # Back button
@@ -643,6 +728,50 @@ class SettingsScreen(QWidget):
         back_btn.setFixedWidth(100)
         back_btn.clicked.connect(self.back.emit)
         root.addWidget(back_btn, alignment=Qt.AlignLeft)
+
+    def _load_app_settings(self):
+        try:
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            session = get_session()
+            try:
+                s = session.get(Setting, "block_out_of_stock")
+                self._block_oos_chk.setChecked((s.value if s else "false") == "true")
+            finally:
+                session.close()
+        except Exception:
+            pass
+
+    def _save_app_settings(self):
+        try:
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            session = get_session()
+            try:
+                val = "true" if self._block_oos_chk.isChecked() else "false"
+                s = session.get(Setting, "block_out_of_stock")
+                if s:
+                    s.value = val
+                else:
+                    session.add(Setting(key="block_out_of_stock", value=val))
+                session.commit()
+            finally:
+                session.close()
+        except Exception as e:
+            self._app_status_lbl.setStyleSheet("font-size:11px; color:#c62828;")
+            self._app_status_lbl.setText(f"Save error: {e}")
+            return
+
+        # Push to Supabase app_settings table
+        push_err = _push_app_settings_to_supabase()
+        if push_err:
+            self._app_status_lbl.setStyleSheet("font-size:11px; color:#e65100;")
+            self._app_status_lbl.setText(f"Saved locally but push failed: {push_err}")
+        else:
+            self._app_status_lbl.setStyleSheet("font-size:11px; color:#2e7d32;")
+            self._app_status_lbl.setText("Saved and pushed to app.")
 
     def _load_general_settings(self):
         try:
@@ -812,6 +941,62 @@ class SettingsScreen(QWidget):
             self._do_force_sync()
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
+
+    def _do_reset_stock_to_zero(self):
+        """Clear item_stock table locally and zero out stock in Supabase products."""
+        ans = QMessageBox.question(
+            self, "Reset Stock to Zero",
+            "This will:\n"
+            "  1. Delete all rows from the local item_stock table\n"
+            "  2. Set stock = 0 for all products in Supabase\n\n"
+            "Use this once before going live to remove opening-stock\n"
+            "values that were imported from Excel.\n\n"
+            "This cannot be undone. Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ans != QMessageBox.Yes:
+            return
+        errors = []
+        try:
+            import sqlalchemy
+            from database.engine import get_session, init_db
+            init_db()
+            session = get_session()
+            try:
+                session.execute(sqlalchemy.text("DELETE FROM item_stock"))
+                session.commit()
+            finally:
+                session.close()
+        except Exception as e:
+            errors.append(f"Local clear failed: {e}")
+
+        # Zero out Supabase products.stock if configured
+        try:
+            from sync.service import is_configured, _url, _headers, SUPABASE_URL, SUPABASE_KEY
+            if is_configured() and SUPABASE_URL and SUPABASE_KEY:
+                import requests
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc).isoformat()
+                r = requests.patch(
+                    f"{_url('products')}?stock=gt.0",
+                    headers=_headers(),
+                    json={"stock": 0, "updated_at": now},
+                    timeout=30,
+                )
+                if r.status_code not in (200, 204):
+                    errors.append(f"Supabase update failed: {r.status_code} {r.text[:120]}")
+        except Exception as e:
+            errors.append(f"Supabase update error: {e}")
+
+        if errors:
+            QMessageBox.warning(self, "Reset Stock — Partial", "\n".join(errors))
+        else:
+            self._result_lbl.setText(
+                "Stock reset complete.\n"
+                "Local item_stock cleared and Supabase products.stock set to 0.\n"
+                "Run Force Push / Pull to sync."
+            )
+            self._result_lbl.show()
 
     # ── Printer config helpers ─────────────────────────────────────────────────
 
