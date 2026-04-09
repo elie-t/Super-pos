@@ -56,24 +56,21 @@ class SyncWorker(QThread):
                 self.new_orders.emit(count)
 
             # Pull sales invoices from other branches
-            try:
-                pull_sales_invoices()
-            except Exception:
-                pass
+            pulled, err = pull_sales_invoices()
+            if err:
+                self.error.emit(f"Invoice pull: {err}")
 
             # Pull item master data from Supabase
-            try:
-                count, _ = pull_master_items()
-                if count > 0:
-                    self.items_updated.emit(count)
-            except Exception:
-                pass
+            count, err = pull_master_items()
+            if err:
+                self.error.emit(f"Items pull: {err}")
+            elif count > 0:
+                self.items_updated.emit(count)
 
-            # Pull stock movements from other branches (deducts their sales from local stock)
-            try:
-                pull_stock_movements()
-            except Exception:
-                pass
+            # Pull stock movements from other branches
+            _, err = pull_stock_movements()
+            if err:
+                self.error.emit(f"Movements pull: {err}")
 
         except Exception as e:
             self.error.emit(str(e))

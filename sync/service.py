@@ -302,6 +302,15 @@ def drain_sync_queue(batch_size: int = 50) -> tuple[int, int]:
     synced = failed = 0
 
     try:
+        # Reset recently-failed rows so they get retried (handles transient errors)
+        import sqlalchemy
+        session.execute(sqlalchemy.text(
+            "UPDATE sync_queue SET sync_status='pending', retry_count=0 "
+            "WHERE sync_status='failed' "
+            "AND created_at > datetime('now', '-1 day')"
+        ))
+        session.commit()
+
         rows = (
             session.query(SyncQueue)
             .filter(SyncQueue.sync_status == "pending", SyncQueue.retry_count < 3)
@@ -549,7 +558,6 @@ def push_invoice(invoice_id: str) -> tuple[bool, str]:
             "customer_id":    inv.customer_id,
             "customer_name":  customer_name,
             "operator_id":    inv.operator_id,
-            "warehouse_id":   inv.warehouse_id or "",
             "invoice_date":   inv.invoice_date,
             "total":          inv.total,
             "currency":       inv.currency,
