@@ -496,14 +496,20 @@ def push_all_items_to_central(progress_cb=None) -> tuple[int, int]:
                         "pack_qty": b.pack_qty or 1, "updated_at": now,
                     })
 
-            ok1, _ = upsert_rows("items_central",       item_rows)
+            ok1, _ = upsert_rows("items_central",        item_rows)
             ok2, _ = upsert_rows("item_prices_central",  price_rows) if price_rows else (True, "")
             ok3, _ = upsert_rows("item_barcodes_central", bc_rows)   if bc_rows   else (True, "")
 
             if ok1 and ok2 and ok3:
                 ok_count += len(batch)
             else:
-                fail_count += len(batch)
+                # Batch failed — retry one by one to skip the bad item(s)
+                for item in batch:
+                    ok, _ = push_item_master(item.id)
+                    if ok:
+                        ok_count += 1
+                    else:
+                        fail_count += 1
 
             if progress_cb:
                 progress_cb(batch_start + len(batch), total)
