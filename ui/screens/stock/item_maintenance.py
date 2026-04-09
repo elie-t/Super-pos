@@ -72,7 +72,7 @@ class ItemMaintenanceScreen(QWidget):
         # Top section — fixed height so it never steals space from the price grid
         top_widget = QWidget()
         top_widget.setStyleSheet("background:#ffffff; border-bottom:1px solid #c0ccd8;")
-        top_widget.setFixedHeight(440)
+        top_widget.setFixedHeight(390)
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 8, 10, 8)
         top_layout.setSpacing(10)
@@ -407,49 +407,56 @@ class ItemMaintenanceScreen(QWidget):
         layout.setContentsMargins(8, 0, 8, 0)
         layout.setSpacing(4)
 
-        # Cost panel (compact 2-row grid)
+        # Cost panel — ultra-compact single font size
         cost_grp = QGroupBox("Cost")
+        cost_grp.setStyleSheet(
+            "QGroupBox { font-size:11px; font-weight:700; padding-top:10px; margin-top:4px; }"
+            "QLabel { font-size:11px; }"
+        )
         cost_form = QGridLayout(cost_grp)
-        cost_form.setSpacing(4)
-        cost_form.setContentsMargins(8, 2, 8, 6)
+        cost_form.setSpacing(2)
+        cost_form.setContentsMargins(6, 2, 6, 4)
         cost_form.setColumnStretch(1, 1)
         cost_form.setColumnStretch(3, 1)
 
-        self._brut_cost = QDoubleSpinBox()
+        def _small_spin():
+            s = QDoubleSpinBox()
+            s.setFixedHeight(22)
+            s.setStyleSheet("font-size:11px; padding:0 2px;")
+            return s
+
+        self._brut_cost = _small_spin()
         self._brut_cost.setRange(0, 9999999); self._brut_cost.setDecimals(4)
-        self._brut_cost.setFixedHeight(26)
         self._brut_cost.valueChanged.connect(self._recalc_margins)
 
-        self._discount_spin = QDoubleSpinBox()
+        self._discount_spin = _small_spin()
         self._discount_spin.setRange(0, 100); self._discount_spin.setSuffix("%")
-        self._discount_spin.setFixedHeight(26)
         self._discount_spin.valueChanged.connect(self._recalc_margins)
 
         self._net_cost_lbl = QLabel("0.0000")
-        self._net_cost_lbl.setStyleSheet("font-weight:600;")
+        self._net_cost_lbl.setStyleSheet("font-weight:600; font-size:11px;")
         self._avg_cost_lbl = QLabel("0.0000")
-        self._avg_cost_lbl.setStyleSheet("font-weight:600;")
+        self._avg_cost_lbl.setStyleSheet("font-weight:600; font-size:11px;")
 
-        self._vat_spin = QDoubleSpinBox()
+        self._vat_spin = _small_spin()
         self._vat_spin.setRange(0, 100); self._vat_spin.setSuffix("%")
         self._vat_spin.setValue(11.0)
-        self._vat_spin.setFixedHeight(26)
 
         self._cost_currency = QComboBox()
         self._cost_currency.addItems(["USD", "LBP"])
-        self._cost_currency.setFixedHeight(26)
+        self._cost_currency.setFixedHeight(22)
+        self._cost_currency.setStyleSheet("font-size:11px;")
 
-        cost_form.addWidget(QLabel("Brut Cost:"), 0, 0)
+        for c, lbl in enumerate(["Brut Cost:", "Discount:", "Net Cost:", "Avg Cost:", "VAT%:", "Currency:"]):
+            ql = QLabel(lbl)
+            ql.setStyleSheet("font-size:11px;")
+            cost_form.addWidget(ql, c // 2, (c % 2) * 2)
+
         cost_form.addWidget(self._brut_cost,      0, 1)
-        cost_form.addWidget(QLabel("Discount:"),  0, 2)
         cost_form.addWidget(self._discount_spin,  0, 3)
-        cost_form.addWidget(QLabel("Net Cost:"),  1, 0)
         cost_form.addWidget(self._net_cost_lbl,   1, 1)
-        cost_form.addWidget(QLabel("Avg Cost:"),  1, 2)
         cost_form.addWidget(self._avg_cost_lbl,   1, 3)
-        cost_form.addWidget(QLabel("VAT%:"),      2, 0)
         cost_form.addWidget(self._vat_spin,       2, 1)
-        cost_form.addWidget(QLabel("Currency:"),  2, 2)
         cost_form.addWidget(self._cost_currency,  2, 3)
         layout.addWidget(cost_grp)
 
@@ -531,16 +538,12 @@ class ItemMaintenanceScreen(QWidget):
         w.setMinimumWidth(155)
         w.setMaximumWidth(180)
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(8, 4, 8, 8)
         layout.setSpacing(4)
 
-        # Notes
-        notes_lbl = QLabel("Notes:")
-        notes_lbl.setStyleSheet("font-weight:600; font-size:11px; color:#333;")
-        layout.addWidget(notes_lbl)
+        # Notes (hidden — kept for save/load, not displayed)
         self._notes_edit = QTextEdit()
-        self._notes_edit.setFixedHeight(48)
-        layout.addWidget(self._notes_edit)
+        self._notes_edit.hide()
 
         # Dates
         self._date_created_lbl = QLabel("Created: —")
