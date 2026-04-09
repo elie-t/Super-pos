@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QLineEdit, QDateEdit, QComboBox,
-    QDialog, QSplitter, QGridLayout, QMessageBox,
+    QDialog, QSplitter, QGridLayout, QMessageBox, QProgressDialog,
 )
 from PySide6.QtCore import Qt, Signal, QDate
 from PySide6.QtGui import QColor, QFont
@@ -379,6 +379,24 @@ class SalesInvoiceListScreen(QWidget):
         al.addWidget(self._print_btn)
         al.addWidget(self._delete_btn)
         al.addStretch()
+
+        # Superuser only: bulk purge shift invoices
+        user = AuthService.current_user()
+        is_super = user and (
+            str(user.role).strip().lower() == "admin"
+            or bool(getattr(user, "is_power_user", False))
+        )
+        if is_super:
+            purge_btn = QPushButton("🗑  Purge Shift Invoices…")
+            purge_btn.setFixedHeight(28)
+            purge_btn.setCursor(Qt.PointingHandCursor)
+            purge_btn.setStyleSheet(
+                "QPushButton{background:#4e342e;color:#fff;border:none;border-radius:4px;"
+                "font-size:11px;font-weight:700;padding:0 10px;}"
+                "QPushButton:hover{background:#3e2723;}"
+            )
+            purge_btn.clicked.connect(self._purge_shift_invoices)
+            al.addWidget(purge_btn)
         self._action_lbl = QLabel("Select an invoice to enable actions")
         self._action_lbl.setStyleSheet("color:#999;font-size:11px;")
         al.addWidget(self._action_lbl)
@@ -567,6 +585,115 @@ class SalesInvoiceListScreen(QWidget):
             return
         self._load()
         self.edit_requested.emit(d)
+
+    def _purge_shift_invoices(self):
+        """Superuser: bulk-cancel all pos_shift invoices before a chosen date."""
+        from PySide6.QtWidgets import QDialogButtonBox, QFormLayout, QProgressDialog
+        from PySide6.QtCore import QDate
+
+        # ── Date picker dialog ────────────────────────────────────────────────
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Purge Shift Invoices")
+        dlg.setFixedWidth(380)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(10)
+
+        lay.addWidget(QLabel(
+            "Delete (cancel) all POS shift invoices\n"
+            "<b>before</b> the selected date.\n\n"
+            "Stock will be restored for each invoice."
+        ))
+
+        form = QFormLayout()
+        date_edit = QDateEdit()
+        date_edit.setCalendarPopup(True)
+        date_edit.setDate(QDate.currentDate())
+        date_edit.setDisplayFormat("dd/MM/yyyy")
+        form.addRow("Delete invoices before:", date_edit)
+
+        # Warehouse filter
+        wh_combo = QComboBox()
+        wh_combo.addItem("All warehouses", "")
+        try:
+            from database.engine import get_session, init_db
+            from database.models.items import Warehouse
+            init_db()
+            s = get_session()
+            try:
+                for wh in s.query(Warehouse).filter_by(is_active=True).order_by(Warehouse.name).all():
+                    wh_combo.addItem(wh.name, wh.id)
+            finally:
+                s.close()
+        except Exception:
+            pass
+        form.addRow("Warehouse:", wh_combo)
+        lay.addLayout(form)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        lay.addWidget(btns)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        before_date = date_edit.date().toString("yyyy-MM-dd")
+        wh_id = wh_combo.currentData()
+
+        # ── Count matching invoices ───────────────────────────────────────────
+        from database.engine import get_session, init_db
+        from database.models.invoices import SalesInvoice
+        import sqlalchemy
+        init_db()
+        session = get_session()
+        try:
+            q = session.query(SalesInvoice).filter(
+                SalesInvoice.source == "pos_shift",
+                SalesInvoice.status != "cancelled",
+                SalesInvoice.invoice_date < before_date,
+            )
+            if wh_id:
+                q = q.filter(SalesInvoice.warehouse_id == wh_id)
+            ids = [inv.id for inv in q.all()]
+        finally:
+            session.close()
+
+        if not ids:
+            QMessageBox.information(self, "Purge", "No matching shift invoices found.")
+            return
+
+        if QMessageBox.question(
+            self, "Confirm Purge",
+            f"This will cancel <b>{len(ids)}</b> shift invoice(s) before {before_date}"
+            f"{' for the selected warehouse' if wh_id else ''}.\n\n"
+            "Stock will be restored. This cannot be undone.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+
+        # ── Delete with progress ──────────────────────────────────────────────
+        prog = QProgressDialog("Purging shift invoices…", "Cancel", 0, len(ids), self)
+        prog.setWindowTitle("Purge")
+        prog.setMinimumDuration(0)
+        prog.setValue(0)
+
+        ok_count = fail_count = 0
+        for i, inv_id in enumerate(ids):
+            if prog.wasCanceled():
+                break
+            prog.setValue(i)
+            ok, _ = SalesInvoiceService.delete_invoice(inv_id)
+            if ok:
+                ok_count += 1
+            else:
+                fail_count += 1
+        prog.setValue(len(ids))
+
+        self._load()
+        msg = f"Purge complete.\n\n✔ {ok_count} invoices cancelled."
+        if fail_count:
+            msg += f"\n✘ {fail_count} failed (already cancelled or error)."
+        QMessageBox.information(self, "Purge Complete", msg)
 
     def _ask_supervisor_pin(self) -> bool:
         """Prompt for a supervisor PIN. Checks admin passwords and power-user PINs."""
