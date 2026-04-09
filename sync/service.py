@@ -1558,19 +1558,16 @@ def pull_sales_invoices() -> tuple[int, str]:
         pulled    = 0
         latest_ts = last_pull
 
-        try:
-            import sqlalchemy
-            from database.models.stock import StockMovement
-            from database.models.base import new_uuid as _new_uuid
-            session.execute(sqlalchemy.text("PRAGMA foreign_keys=OFF"))
+        import sqlalchemy
+        from database.models.stock import StockMovement
+        from database.models.base import new_uuid as _new_uuid
+        session.execute(sqlalchemy.text("PRAGMA foreign_keys=OFF"))
 
-            for ri in remote:
+        for ri in remote:
+            try:
                 inv = session.get(SalesInvoice, ri["id"])
                 wh_id    = ri.get("warehouse_id") or ""
                 src      = ri.get("source") or "manual"
-                # pos_shift invoices are shift-summary records; their item-level
-                # stock movements already arrive via pull_stock_movements(), so
-                # we skip creating duplicate audit movements for them.
                 is_shift = (src == "pos_shift")
                 is_update = bool(inv)
 
@@ -1582,7 +1579,6 @@ def pull_sales_invoices() -> tuple[int, str]:
                     if ri.get("invoice_type"):
                         inv.invoice_type = ri["invoice_type"]
                     if not is_shift:
-                        # Reverse old audit movements + wipe old line items
                         session.query(StockMovement).filter(
                             StockMovement.reference_type == "sales_invoice",
                             StockMovement.reference_id   == ri["id"],
@@ -1592,8 +1588,6 @@ def pull_sales_invoices() -> tuple[int, str]:
                         ).delete()
                         session.flush()
                 else:
-                    # If invoice_number already taken by a different local invoice,
-                    # suffix with branch prefix to avoid collision
                     inv_number = ri["invoice_number"]
                     clash = session.query(SalesInvoice).filter_by(
                         invoice_number=inv_number
@@ -1622,9 +1616,6 @@ def pull_sales_invoices() -> tuple[int, str]:
                     session.add(inv)
                     session.flush()
 
-                # Add / re-add line items for all invoices.
-                # For pos_shift: add items but skip stock movements
-                # (movements already arrive via pull_stock_movements).
                 for li in lines_by_inv.get(ri["id"], []):
                     item_id = li.get("item_id") or ""
                     qty     = float(li["quantity"])
@@ -1640,7 +1631,6 @@ def pull_sales_invoices() -> tuple[int, str]:
                         currency=li.get("currency", "USD"),
                         line_total=float(li.get("line_total") or 0),
                     ))
-                    # Audit trail movement — only for non-shift invoices
                     if not is_shift and item_id and wh_id:
                         session.add(StockMovement(
                             id=_new_uuid(),
@@ -1653,19 +1643,19 @@ def pull_sales_invoices() -> tuple[int, str]:
                             reference_id=ri["id"],
                         ))
 
+                session.commit()
                 latest_ts = ri["synced_at"]
                 pulled += 1
 
-            session.commit()
-            session.execute(sqlalchemy.text("PRAGMA foreign_keys=ON"))
-            _state_set("sales_invoices_pull", latest_ts)
-            return pulled, ""
+            except Exception:
+                session.rollback()
+                # Skip this invoice and advance cursor so we don't retry forever
+                latest_ts = ri.get("synced_at", latest_ts)
 
-        except Exception as e:
-            session.rollback()
-            return 0, str(e)
-        finally:
-            session.close()
+        session.execute(sqlalchemy.text("PRAGMA foreign_keys=ON"))
+        session.close()
+        _state_set("sales_invoices_pull", latest_ts)
+        return pulled, ""
 
     except Exception as e:
         return 0, str(e)
