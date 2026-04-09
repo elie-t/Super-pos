@@ -237,13 +237,31 @@ class ItemMaintenanceScreen(QWidget):
 
         filter_box.textChanged.connect(_filter)
 
+        def _filter_key(event):
+            key = event.key()
+            if key == Qt.Key.Key_Down:
+                if lst.currentRow() < lst.count() - 1:
+                    lst.setCurrentRow(lst.currentRow() + 1)
+                return True
+            elif key == Qt.Key.Key_Up:
+                if lst.currentRow() > 0:
+                    lst.setCurrentRow(lst.currentRow() - 1)
+                return True
+            elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                dlg.accept()
+                return True
+            return False
+
+        orig = filter_box.keyPressEvent
+        filter_box.keyPressEvent = lambda e: None if _filter_key(e) else orig(e)
+
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
         btns.rejected.connect(dlg.reject)
         layout.addWidget(btns)
         lst.doubleClicked.connect(lambda: dlg.accept())
-        filter_box.returnPressed.connect(lambda: dlg.accept())
 
+        filter_box.setFocus()
         if dlg.exec() == QDialog.Accepted and lst.currentItem():
             item_id = lst.currentItem().data(Qt.UserRole)
             self._load_item(item_id)

@@ -317,13 +317,40 @@ class StockCardScreen(QWidget):
                 lst.setCurrentRow(0)
 
         filter_box.textChanged.connect(_filter)
+
+        # Arrow keys in the filter box move the list selection
+        def _filter_key(event):
+            from PySide6.QtCore import QEvent
+            from PySide6.QtGui import QKeyEvent
+            key = event.key()
+            if key == Qt.Key.Key_Down:
+                row = lst.currentRow()
+                if row < lst.count() - 1:
+                    lst.setCurrentRow(row + 1)
+                return True
+            elif key == Qt.Key.Key_Up:
+                row = lst.currentRow()
+                if row > 0:
+                    lst.setCurrentRow(row - 1)
+                return True
+            elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                dlg.accept()
+                return True
+            return False
+
+        original_key_press = filter_box.keyPressEvent
+        def _patched_key_press(event):
+            if not _filter_key(event):
+                original_key_press(event)
+        filter_box.keyPressEvent = _patched_key_press
+
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
         btns.rejected.connect(dlg.reject)
         layout.addWidget(btns)
         lst.doubleClicked.connect(lambda: dlg.accept())
-        filter_box.returnPressed.connect(lambda: dlg.accept())
 
+        filter_box.setFocus()
         if dlg.exec() == QDialog.Accepted and lst.currentItem():
             item_id, code, name, barcode = lst.currentItem().data(Qt.UserRole)
             self._apply_item(item_id, code, name, barcode)
