@@ -72,6 +72,7 @@ class ItemMaintenanceScreen(QWidget):
         # Top section
         top_widget = QWidget()
         top_widget.setStyleSheet("background:#ffffff; border-bottom:1px solid #c0ccd8;")
+        top_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 8, 10, 8)
         top_layout.setSpacing(10)
@@ -357,7 +358,6 @@ class ItemMaintenanceScreen(QWidget):
         self._family_combo = self._combo_row(layout, "Family :", red=True)
         self._brand_combo  = self._combo_row(layout, "Brand :")
 
-        layout.addStretch()
         return w
 
     def _combo_row(self, layout, label: str, red: bool = False) -> QComboBox:
@@ -512,7 +512,6 @@ class ItemMaintenanceScreen(QWidget):
         btn_row.addWidget(self._clear_photo_btn, 1)
         layout.addLayout(btn_row)
 
-        layout.addStretch()
         return w
 
     # ── Right panel: notes / dates / flags / action buttons ──────────────────
