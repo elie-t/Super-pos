@@ -645,29 +645,27 @@ class ItemMaintenanceScreen(QWidget):
         bc_layout = QVBoxLayout(bc_grp)
         bc_layout.setSpacing(6)
 
-        # Barcode input row
+        # Barcode + Pkg on one row
         bc_input_row = QHBoxLayout()
+        bc_input_row.setSpacing(4)
         bc_input_row.addWidget(QLabel("Barcode:"))
         self._bc_input = QLineEdit()
         self._bc_input.setPlaceholderText("Scan or type…")
         self._bc_input.setFixedHeight(28)
         self._bc_input.returnPressed.connect(self._add_barcode_row)
         bc_input_row.addWidget(self._bc_input, 1)
-        bc_layout.addLayout(bc_input_row)
-
-        # Pkg row
-        pkg_row = QHBoxLayout()
-        pkg_row.addWidget(QLabel("Pkg (pack size):"))
+        pkg_lbl = QLabel("Pkg:")
+        pkg_lbl.setStyleSheet("font-size:11px;")
         self._bc_pkg_spin = QSpinBox()
         self._bc_pkg_spin.setRange(1, 9999)
         self._bc_pkg_spin.setValue(1)
-        self._bc_pkg_spin.setFixedWidth(70)
+        self._bc_pkg_spin.setFixedWidth(55)
         self._bc_pkg_spin.setFixedHeight(28)
-        pkg_row.addWidget(self._bc_pkg_spin)
-        pkg_row.addStretch()
-        bc_layout.addLayout(pkg_row)
+        bc_input_row.addWidget(pkg_lbl)
+        bc_input_row.addWidget(self._bc_pkg_spin)
+        bc_layout.addLayout(bc_input_row)
 
-        # Buttons
+        # Buttons row
         bc_btn_row = QHBoxLayout()
         gen_btn = QPushButton("⊕  Generate")
         gen_btn.setObjectName("secondaryBtn")
