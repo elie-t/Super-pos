@@ -698,6 +698,21 @@ class SalesInvoiceListScreen(QWidget):
                     errors.append(str(e))
                 finally:
                     s.close()
+                # Also delete from Supabase so sync doesn't bring it back
+                try:
+                    from sync.service import is_configured, _headers, _url
+                    import requests as _req
+                    if is_configured():
+                        _req.delete(
+                            f"{_url('sales_invoice_items_central')}?invoice_id=eq.{inv_id}",
+                            headers=_headers(), timeout=10,
+                        )
+                        _req.delete(
+                            f"{_url('sales_invoices_central')}?id=eq.{inv_id}",
+                            headers=_headers(), timeout=10,
+                        )
+                except Exception:
+                    pass
             except Exception as e:
                 fail_count += 1
                 errors.append(str(e))
