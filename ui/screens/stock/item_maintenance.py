@@ -504,25 +504,25 @@ class ItemMaintenanceScreen(QWidget):
 
         self._photo_url_edit = QLineEdit()
         self._photo_url_edit.setPlaceholderText("Paste image URL…")
-        self._photo_url_edit.setFixedHeight(22)
-        self._photo_url_edit.setStyleSheet("font-size:10px;")
+        self._photo_url_edit.setFixedHeight(28)
+        self._photo_url_edit.setStyleSheet("font-size:11px; padding: 2px 4px;")
         self._photo_url_edit.editingFinished.connect(self._refresh_photo_preview)
 
         url_set_btn = QPushButton("Set")
         url_set_btn.setObjectName("secondaryBtn")
-        url_set_btn.setFixedSize(32, 22)
+        url_set_btn.setFixedSize(36, 28)
         url_set_btn.clicked.connect(self._set_photo_from_url)
 
         browse_btn = QPushButton("Browse…")
         browse_btn.setObjectName("secondaryBtn")
-        browse_btn.setFixedHeight(22)
-        browse_btn.setStyleSheet("font-size:10px;")
+        browse_btn.setFixedHeight(28)
+        browse_btn.setStyleSheet("font-size:11px; padding: 2px 6px;")
         browse_btn.clicked.connect(self._browse_photo)
 
         self._clear_photo_btn = QPushButton("Clear")
         self._clear_photo_btn.setObjectName("secondaryBtn")
-        self._clear_photo_btn.setFixedHeight(22)
-        self._clear_photo_btn.setStyleSheet("font-size:10px;")
+        self._clear_photo_btn.setFixedHeight(28)
+        self._clear_photo_btn.setStyleSheet("font-size:11px; padding: 2px 6px;")
         self._clear_photo_btn.clicked.connect(self._clear_photo)
 
         # Left: URL + buttons stacked; Right: image
