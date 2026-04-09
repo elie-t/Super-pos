@@ -195,10 +195,20 @@ class LoginScreen(QWidget):
 
         users = self._fetch_active_users()
         if not users:
-            lbl = QLabel("No active users found.\nContact your administrator.")
+            lbl = QLabel("No users found on this device.")
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setStyleSheet("color:#888;font-size:13px;")
-            self._grid.addWidget(lbl, 0, 0)
+            self._grid.addWidget(lbl, 0, 0, 1, 3)
+            btn = QPushButton("⬇  Pull Users from Server")
+            btn.setFixedSize(220, 44)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(
+                "QPushButton{background:#1a3a5c;color:#fff;border:none;"
+                "border-radius:8px;font-size:13px;font-weight:700;}"
+                "QPushButton:hover{background:#1a6cb5;}"
+            )
+            btn.clicked.connect(self._pull_users_from_server)
+            self._grid.addWidget(btn, 1, 0, 1, 3, Qt.AlignCenter)
             return
 
         COLS = 3
@@ -224,6 +234,20 @@ class LoginScreen(QWidget):
             )
             row, col = divmod(idx, COLS)
             self._grid.addWidget(btn, row, col, Qt.AlignCenter)
+
+    def _pull_users_from_server(self):
+        from sync.service import pull_users, is_configured
+        if not is_configured():
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Not Configured",
+                                "Supabase is not configured. Check your .env file.")
+            return
+        count, err = pull_users()
+        if err:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Error", f"Failed to pull users:\n{err}")
+        else:
+            self._refresh_user_grid()
 
     def _fetch_active_users(self) -> list[tuple]:
         """Returns list of (id, username, full_name, role) for all active users."""
