@@ -1422,6 +1422,7 @@ class POSScreen(QWidget):
         self._active_online_order_id = ""   # set when an online order is loaded into cart
         self._alert_sound = None            # QSoundEffect, created lazily
         self._alert_playing = False
+        self._alert_repeat_timer = None     # QTimer: re-beep every 10 s
 
         self._build_ui()
         self._load_defaults()
@@ -2741,10 +2742,19 @@ class POSScreen(QWidget):
                 self._alert_sound = QSoundEffect(self)
                 self._alert_sound.setSource(QUrl.fromLocalFile(str(wav_path)))
                 self._alert_sound.setVolume(0.9)
-                self._alert_sound.setLoopCount(QSoundEffect.Infinite)
+                self._alert_sound.setLoopCount(1)
 
             self._alert_sound.play()
             self._alert_playing = True
+
+            # Repeat beep every 10 seconds until alert is dismissed
+            if self._alert_repeat_timer is None:
+                from PySide6.QtCore import QTimer as _QTimer
+                self._alert_repeat_timer = _QTimer(self)
+                self._alert_repeat_timer.timeout.connect(
+                    lambda: self._alert_sound.play() if self._alert_playing else None
+                )
+            self._alert_repeat_timer.start(10_000)
         except Exception:
             pass
 
@@ -2752,6 +2762,8 @@ class POSScreen(QWidget):
         if not self._alert_playing:
             return
         try:
+            if self._alert_repeat_timer is not None:
+                self._alert_repeat_timer.stop()
             if self._alert_sound is not None:
                 self._alert_sound.stop()
         except Exception:
