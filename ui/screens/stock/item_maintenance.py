@@ -84,11 +84,21 @@ class ItemMaintenanceScreen(QWidget):
         # Bottom section — stretches to fill the rest
         bottom_widget = QWidget()
         bottom_widget.setStyleSheet("background:#f8f9fa;")
-        bottom_layout = QVBoxLayout(bottom_widget)
-        bottom_layout.setContentsMargins(10, 6, 10, 6)
-        bottom_layout.setSpacing(6)
-        bottom_layout.addLayout(self._build_barcode_stock_row())
-        bottom_layout.addWidget(self._build_price_grid(), 1)
+        bottom_outer = QHBoxLayout(bottom_widget)
+        bottom_outer.setContentsMargins(10, 6, 6, 6)
+        bottom_outer.setSpacing(6)
+
+        # Left: barcode + price grid stacked
+        bottom_left = QWidget()
+        bottom_left_layout = QVBoxLayout(bottom_left)
+        bottom_left_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_left_layout.setSpacing(6)
+        bottom_left_layout.addLayout(self._build_barcode_stock_row())
+        bottom_left_layout.addWidget(self._build_price_grid(), 1)
+        bottom_outer.addWidget(bottom_left, 1)
+
+        # Right: action buttons column
+        bottom_outer.addWidget(self._build_action_buttons())
         card_layout.addWidget(bottom_widget, 1)
 
         root.addWidget(self._card_widget, 1)
@@ -530,7 +540,50 @@ class ItemMaintenanceScreen(QWidget):
 
         return w
 
-    # ── Right panel: notes / dates / flags / action buttons ──────────────────
+    # ── Action buttons column (bottom-right) ──────────────────────────────────
+
+    def _build_action_buttons(self) -> QWidget:
+        w = QWidget()
+        w.setFixedWidth(150)
+        w.setStyleSheet("background:#f0f4f8; border-left:1px solid #c0ccd8; border-radius:4px;")
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
+
+        def _btn(label, bg, hover, slot):
+            btn = QPushButton(label)
+            btn.setFixedHeight(38)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn.setStyleSheet(
+                f"QPushButton {{ background:{bg}; color:#fff; border:none; border-radius:6px; "
+                f"font-weight:700; font-size:12px; }}"
+                f"QPushButton:hover {{ background:{hover}; }}"
+            )
+            btn.clicked.connect(slot)
+            return btn
+
+        layout.addWidget(_btn("💾  Save",       "#2e7d32", "#388e3c", self._save))
+        layout.addWidget(_btn("📊  Stock Card", "#1565c0", "#1976d2", self._open_stock_card))
+        layout.addWidget(_btn("🔍  Search",     "#5c6bc0", "#7986cb", self._go_search))
+
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color:#c0ccd8; margin:2px 0;")
+        layout.addWidget(sep)
+
+        layout.addWidget(_btn("✖  Delete",  "#c62828", "#e53935", self._confirm_delete))
+        layout.addWidget(_btn("←  Close",   "#546e7a", "#78909c", self.back.emit))
+
+        layout.addStretch()
+
+        self._status_lbl = QLabel("")
+        self._status_lbl.setWordWrap(True)
+        self._status_lbl.setStyleSheet("font-size:10px; color:#c62828;")
+        layout.addWidget(self._status_lbl)
+
+        return w
+
+    # ── Right panel: dates / flags only ──────────────────────────────────────
 
     def _build_right_panel(self) -> QWidget:
         w = QWidget()
@@ -571,42 +624,7 @@ class ItemMaintenanceScreen(QWidget):
         self._chk_touch = QCheckBox("Touch Screen")
         self._chk_touch.setStyleSheet("font-size:11px; color:#00695c; font-weight:600;")
         layout.addWidget(self._chk_touch)
-
-        # Action buttons — each in its own container frame
-        def _action_btn(label, bg, hover, slot, border_top=False):
-            frame = QFrame()
-            if border_top:
-                frame.setStyleSheet(
-                    f"QFrame {{ border-top:1px solid #c0ccd8; background:transparent; }}"
-                )
-            else:
-                frame.setStyleSheet("QFrame { background:transparent; }")
-            fl = QVBoxLayout(frame)
-            fl.setContentsMargins(0, 4, 0, 0)
-            fl.setSpacing(0)
-            btn = QPushButton(label)
-            btn.setFixedHeight(40)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            btn.setStyleSheet(
-                f"QPushButton {{ background:{bg}; color:#fff; border:none; border-radius:6px; "
-                f"font-weight:700; font-size:13px; }}"
-                f"QPushButton:hover {{ background:{hover}; }}"
-            )
-            btn.clicked.connect(slot)
-            fl.addWidget(btn)
-            return frame
-
-        layout.addWidget(_action_btn("💾  Save",       "#2e7d32", "#388e3c", self._save))
-        layout.addWidget(_action_btn("📊  Stock Card", "#1565c0", "#1976d2", self._open_stock_card))
-        layout.addWidget(_action_btn("🔍  Search",     "#5c6bc0", "#7986cb", self._go_search))
-        layout.addWidget(_action_btn("✖  Delete",     "#c62828", "#e53935", self._confirm_delete, border_top=True))
-        layout.addWidget(_action_btn("←  Close",      "#546e7a", "#78909c", self.back.emit))
-
-        self._status_lbl = QLabel("")
-        self._status_lbl.setWordWrap(True)
-        self._status_lbl.setStyleSheet("font-size:10px; color:#c62828; margin-top:4px;")
-        layout.addWidget(self._status_lbl)
+        layout.addStretch()
         return w
 
     # ── Bottom: barcode entry + stock summary row ─────────────────────────────
