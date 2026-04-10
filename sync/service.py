@@ -1159,27 +1159,20 @@ def pull_stock_movements() -> tuple[int, str]:
             try:
                 ids_filter = ",".join(f'"{i}"' for i in unknown_ids)
                 rc = requests.get(
-                    f"{_url('items_central')}?id=in.({ids_filter})&select=id,code,barcode",
+                    f"{_url('items_central')}?id=in.({ids_filter})&select=id,code",
                     headers={**_headers(), "Prefer": ""},
                     timeout=15,
                 )
                 if rc.status_code == 200:
                     for ci in rc.json():
-                        code    = ci.get("code") or ""
-                        barcode = ci.get("barcode") or ""
-                        resolved = None
-                        if barcode:
-                            resolved = session.execute(
-                                sqlalchemy.text(
-                                    "SELECT item_id FROM item_barcodes WHERE barcode=:bc LIMIT 1"
-                                ), {"bc": barcode}
-                            ).fetchone()
-                        if not resolved and code:
-                            resolved = session.execute(
-                                sqlalchemy.text(
-                                    "SELECT id FROM items WHERE code=:c LIMIT 1"
-                                ), {"c": code}
-                            ).fetchone()
+                        code = ci.get("code") or ""
+                        if not code:
+                            continue
+                        resolved = session.execute(
+                            sqlalchemy.text(
+                                "SELECT id FROM items WHERE code=:c LIMIT 1"
+                            ), {"c": code}
+                        ).fetchone()
                         if resolved:
                             item_id_map[ci["id"]] = resolved[0]
             except Exception:
