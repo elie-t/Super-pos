@@ -1084,7 +1084,7 @@ def push_stock_movements_for_invoice(reference_id: str) -> tuple[bool, str]:
                 "reference_type": mv.reference_type or "",
                 "reference_id":   mv.reference_id or "",
                 "branch_id":      BRANCH_ID,
-                "created_at":     mv.created_at or datetime.now(timezone.utc).isoformat(),
+                "created_at":     mv.created_at.isoformat() if mv.created_at and hasattr(mv.created_at, 'isoformat') else (mv.created_at or datetime.now(timezone.utc).isoformat()),
             }
             for mv in movements
         ]
