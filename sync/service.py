@@ -1588,6 +1588,8 @@ def pull_sales_invoices() -> tuple[int, str]:
                 src      = ri.get("source") or "manual"
                 is_shift = (src == "pos_shift")
                 is_update = bool(inv)
+                # Normalize invoice_date to date-only (Supabase may return full ISO)
+                inv_date = (ri.get("invoice_date") or "")[:10]
 
                 if is_update:
                     inv.payment_status = ri.get("payment_status", inv.payment_status)
@@ -1620,7 +1622,7 @@ def pull_sales_invoices() -> tuple[int, str]:
                         customer_id=ri.get("customer_id") or "",
                         operator_id=ri.get("operator_id") or "",
                         warehouse_id=wh_id,
-                        invoice_date=ri["invoice_date"],
+                        invoice_date=inv_date,
                         total=ri.get("total", 0),
                         currency=ri.get("currency", "USD"),
                         status=ri.get("status", "finalized"),
