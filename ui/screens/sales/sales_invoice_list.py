@@ -397,6 +397,17 @@ class SalesInvoiceListScreen(QWidget):
             )
             purge_btn.clicked.connect(self._purge_shift_invoices)
             al.addWidget(purge_btn)
+
+            recv_btn = QPushButton("⬇  Receive Shift Invoices")
+            recv_btn.setFixedHeight(28)
+            recv_btn.setCursor(Qt.PointingHandCursor)
+            recv_btn.setStyleSheet(
+                "QPushButton{background:#1a3a5c;color:#fff;border:none;border-radius:4px;"
+                "font-size:11px;font-weight:700;padding:0 10px;}"
+                "QPushButton:hover{background:#1a6cb5;}"
+            )
+            recv_btn.clicked.connect(self._receive_shift_invoices)
+            al.addWidget(recv_btn)
         self._action_lbl = QLabel("Select an invoice to enable actions")
         self._action_lbl.setStyleSheet("color:#999;font-size:11px;")
         al.addWidget(self._action_lbl)
@@ -585,6 +596,31 @@ class SalesInvoiceListScreen(QWidget):
             return
         self._load()
         self.edit_requested.emit(d)
+
+    def _receive_shift_invoices(self):
+        """Force-pull sales invoices from Supabase (resets cursor 30 days back)."""
+        from sync.service import is_configured, pull_sales_invoices, _state_set
+        if not is_configured():
+            QMessageBox.warning(self, "Not Configured",
+                                "Supabase is not configured. Check your .env file.")
+            return
+        from datetime import datetime, timezone, timedelta
+        _state_set("sales_invoices_pull",
+                   (datetime.now(timezone.utc) - timedelta(days=30)).isoformat())
+        prog = QProgressDialog("Pulling invoices from server…", None, 0, 0, self)
+        prog.setWindowTitle("Receive")
+        prog.setMinimumDuration(0)
+        prog.setValue(0)
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+        pulled, err = pull_sales_invoices()
+        prog.close()
+        if err:
+            QMessageBox.warning(self, "Error", f"Pull failed:\n{err}")
+        else:
+            QMessageBox.information(self, "Done",
+                                    f"✔ {pulled} invoice(s) received from server.")
+        self._load()
 
     def _purge_shift_invoices(self):
         """Superuser: bulk-cancel all pos_shift invoices before a chosen date."""
