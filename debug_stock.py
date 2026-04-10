@@ -37,13 +37,15 @@ with engine.connect() as conn:
     cnt = conn.execute(text("SELECT COUNT(*) FROM applied_central_movements")).scalar()
     print(f"  {cnt} rows")
 
-    print("\n=== Movements for shift invoices ===")
+    print("\n=== Movements for shift invoices (with item name) ===")
     rows = conn.execute(text("""
-        SELECT sm.quantity, sm.warehouse_id, sm.created_at
+        SELECT sm.quantity, sm.warehouse_id, sm.created_at, sm.item_id,
+               i.name as item_name, i.code as item_code
         FROM stock_movements sm
         JOIN sales_invoices si ON sm.reference_id = si.id
+        LEFT JOIN items i ON sm.item_id = i.id
         WHERE si.source = 'pos_shift'
     """)).fetchall()
     print(f"  {len(rows)} movements linked to pos_shift invoices")
     for r in rows:
-        print(f"  qty={r[0]} wh={str(r[1])[:8]} at={r[2]}")
+        print(f"  [{r[5]}] {r[4]}  qty={r[0]} wh={str(r[1])[:8]} at={r[2]}")
