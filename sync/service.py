@@ -1153,7 +1153,7 @@ def pull_stock_movements() -> tuple[int, str]:
         item_id_map: dict[str, str] = {}  # branch_id → local_id
         if unknown_ids:
             try:
-                ids_filter = ",".join(f'"{i}"' for i in unknown_ids)
+                ids_filter = ",".join(unknown_ids)  # PostgREST in() needs bare UUIDs, no quotes
                 rc = requests.get(
                     f"{_url('items_central')}?id=in.({ids_filter})&select=id,code",
                     headers={**_headers(), "Prefer": ""},
@@ -1719,8 +1719,52 @@ def pull_sales_invoices() -> tuple[int, str]:
                         currency=li.get("currency", "USD"),
                         line_total=float(li.get("line_total") or 0),
                     ))
-                    # Stock movements are handled by pull_stock_movements().
-                    # Do NOT create them here to avoid double-counting.
+
+                    # Fallback: create stock movement from invoice line if
+                    # pull_stock_movements hasn't created one yet for this line.
+                    # Uses already-resolved local_item_id so no UUID mismatch.
+                    if local_item_id and wh_id:
+                        wh_ok = session.execute(
+                            sqlalchemy.text("SELECT 1 FROM warehouses WHERE id=:id"),
+                            {"id": wh_id}
+                        ).fetchone()
+                        item_ok = session.execute(
+                            sqlalchemy.text("SELECT 1 FROM items WHERE id=:id"),
+                            {"id": local_item_id}
+                        ).fetchone()
+                        if wh_ok and item_ok:
+                            existing_line_mv = session.execute(
+                                sqlalchemy.text(
+                                    "SELECT 1 FROM stock_movements"
+                                    " WHERE reference_type='sales_invoice'"
+                                    " AND reference_id=:ref AND item_id=:iid"
+                                ),
+                                {"ref": ri["id"], "iid": local_item_id}
+                            ).fetchone()
+                            if not existing_line_mv:
+                                from database.models.items import ItemStock
+                                mv_qty = -abs(qty)  # sales always reduce stock
+                                session.add(StockMovement(
+                                    id=_new_uuid(),
+                                    item_id=local_item_id,
+                                    warehouse_id=wh_id,
+                                    movement_type="sale",
+                                    quantity=mv_qty,
+                                    reference_type="sales_invoice",
+                                    reference_id=ri["id"],
+                                ))
+                                stock = session.query(ItemStock).filter_by(
+                                    item_id=local_item_id, warehouse_id=wh_id
+                                ).first()
+                                if stock:
+                                    stock.quantity += mv_qty
+                                else:
+                                    session.add(ItemStock(
+                                        id=_new_uuid(),
+                                        item_id=local_item_id,
+                                        warehouse_id=wh_id,
+                                        quantity=mv_qty,
+                                    ))
 
                 session.commit()
                 latest_ts = ri["synced_at"]
