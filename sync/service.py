@@ -564,6 +564,7 @@ def push_invoice(invoice_id: str) -> tuple[bool, str]:
             "customer_id":    inv.customer_id,
             "customer_name":  customer_name,
             "operator_id":    inv.operator_id,
+            "warehouse_id":   inv.warehouse_id or "",
             "invoice_date":   inv.invoice_date,
             "total":          inv.total,
             "currency":       inv.currency,
@@ -1193,6 +1194,23 @@ def pull_stock_movements() -> tuple[int, str]:
                     )
                     session.add(stock)
                     stock_cache[cache_key] = stock
+
+                # Create local StockMovement so stock card shows branch movements
+                from database.models.stock import StockMovement
+                existing_mv = session.execute(
+                    sqlalchemy.text("SELECT 1 FROM stock_movements WHERE id=:id"),
+                    {"id": mv_id}
+                ).fetchone()
+                if not existing_mv:
+                    session.add(StockMovement(
+                        id=mv_id,
+                        item_id=item_id,
+                        warehouse_id=warehouse_id,
+                        movement_type=rm.get("movement_type") or "sale",
+                        quantity=qty_change,
+                        reference_type=rm.get("reference_type") or "",
+                        reference_id=rm.get("reference_id") or "",
+                    ))
 
                 # Mark as applied (only reached when stock was actually updated)
                 session.execute(
