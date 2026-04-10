@@ -47,6 +47,15 @@ def main():
         _sync_worker.new_orders.connect(
             lambda n: window.statusBar().showMessage(f"  {n} new online order(s) received!", 8000)
         )
+        _sync_worker.sync_done.connect(
+            lambda s, f: window.statusBar().showMessage(f"  Sync: {s} pushed" + (f", {f} failed" if f else ""), 5000)
+        )
+        _sync_worker.error.connect(
+            lambda e: window.statusBar().showMessage(f"  ⚠ Sync error: {e}", 10000)
+        )
+        _sync_worker.invoices_pulled.connect(
+            lambda n: window.statusBar().showMessage(f"  ✔ {n} branch invoice(s) synced", 8000)
+        )
         _sync_worker.users_changed.connect(window.refresh_login)
         _sync_worker.start()
         app.aboutToQuit.connect(_sync_worker.stop)
