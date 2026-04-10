@@ -236,6 +236,12 @@ class _SyncAllWorker(QThread):
         n, err = pull_users()
         results.append(f"Users pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
+        # Pull warehouses FIRST so movements can reference them
+        self.progress.emit("Pulling warehouses…")
+        push_warehouses()
+        n, err = pull_warehouses()
+        results.append(f"Warehouses pulled: {n}" + (f" ⚠ {err}" if err else ""))
+
         self.progress.emit("Pulling stock movements…")
         # Reset movements cursor to 30 days ago and remove applied-but-missing
         # StockMovement records so the new pull creates the local rows.
@@ -256,11 +262,6 @@ class _SyncAllWorker(QThread):
             _sess2.close()
         n, err = pull_stock_movements()
         results.append(f"Stock movements applied: {n}" + (f" ⚠ {err}" if err else ""))
-
-        self.progress.emit("Pulling warehouses…")
-        push_warehouses()
-        n, err = pull_warehouses()
-        results.append(f"Warehouses pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
         self.progress.emit("Rebuilding stock levels from movements…")
         n, err = pull_all_stock_levels()
