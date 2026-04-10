@@ -1144,6 +1144,48 @@ def pull_stock_movements() -> tuple[int, str]:
         # Track new ItemStock rows added this batch to avoid UNIQUE conflicts
         stock_cache: dict[tuple, ItemStock] = {}
 
+        # ── Build branch→local item ID map in ONE batch request ──────────────
+        branch_item_ids = list({rm["item_id"] for rm in remote})
+        # Find which ones don't exist locally
+        unknown_ids = []
+        for bid in branch_item_ids:
+            if not session.execute(
+                sqlalchemy.text("SELECT 1 FROM items WHERE id=:id"), {"id": bid}
+            ).fetchone():
+                unknown_ids.append(bid)
+
+        item_id_map: dict[str, str] = {}  # branch_id → local_id
+        if unknown_ids:
+            try:
+                ids_filter = ",".join(f'"{i}"' for i in unknown_ids)
+                rc = requests.get(
+                    f"{_url('items_central')}?id=in.({ids_filter})&select=id,code,barcode",
+                    headers={**_headers(), "Prefer": ""},
+                    timeout=15,
+                )
+                if rc.status_code == 200:
+                    for ci in rc.json():
+                        code    = ci.get("code") or ""
+                        barcode = ci.get("barcode") or ""
+                        resolved = None
+                        if barcode:
+                            resolved = session.execute(
+                                sqlalchemy.text(
+                                    "SELECT item_id FROM item_barcodes WHERE barcode=:bc LIMIT 1"
+                                ), {"bc": barcode}
+                            ).fetchone()
+                        if not resolved and code:
+                            resolved = session.execute(
+                                sqlalchemy.text(
+                                    "SELECT id FROM items WHERE code=:c LIMIT 1"
+                                ), {"c": code}
+                            ).fetchone()
+                        if resolved:
+                            item_id_map[ci["id"]] = resolved[0]
+            except Exception:
+                pass
+        # ─────────────────────────────────────────────────────────────────────
+
         try:
             for rm in remote:
                 mv_id = rm["id"]
@@ -1165,45 +1207,15 @@ def pull_stock_movements() -> tuple[int, str]:
 
                 from database.models.items import Warehouse
 
-                # Resolve branch item_id → local item_id if IDs differ
+                # Resolve branch item_id → local item_id using pre-built map
+                item_id = item_id_map.get(item_id, item_id)
+
                 item_exists = session.execute(
                     sqlalchemy.text("SELECT 1 FROM items WHERE id=:id"), {"id": item_id}
                 ).fetchone()
-                if not item_exists:
-                    # Try to find local item via items_central (get code then match locally)
-                    try:
-                        rc = requests.get(
-                            f"{_url('items_central')}?id=eq.{item_id}&select=code,barcode",
-                            headers={**_headers(), "Prefer": ""},
-                            timeout=10,
-                        )
-                        if rc.status_code == 200 and rc.json():
-                            ci = rc.json()[0]
-                            code = ci.get("code") or ""
-                            barcode = ci.get("barcode") or ""
-                            resolved = None
-                            if barcode:
-                                resolved = session.execute(
-                                    sqlalchemy.text(
-                                        "SELECT item_id FROM item_barcodes WHERE barcode=:bc LIMIT 1"
-                                    ), {"bc": barcode}
-                                ).fetchone()
-                            if not resolved and code:
-                                resolved = session.execute(
-                                    sqlalchemy.text(
-                                        "SELECT id FROM items WHERE code=:c LIMIT 1"
-                                    ), {"c": code}
-                                ).fetchone()
-                            if resolved:
-                                item_id = resolved[0]
-                                item_exists = True
-                    except Exception:
-                        pass
-
                 wh_exists = session.get(Warehouse, warehouse_id)
 
                 if not item_exists or not wh_exists:
-                    # Item or warehouse not yet synced — skip WITHOUT marking applied
                     latest_ts = rm["created_at"]
                     continue
 
