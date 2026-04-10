@@ -243,20 +243,16 @@ class _SyncAllWorker(QThread):
         results.append(f"Warehouses pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
         self.progress.emit("Pulling stock movements…")
-        # Reset movements cursor to 30 days ago and remove applied-but-missing
-        # StockMovement records so the new pull creates the local rows.
-        from datetime import datetime, timezone, timedelta
+        # Clear applied_central_movements so every remote movement is
+        # re-applied from scratch (pull_stock_movements no longer uses a cursor).
+        # pull_all_stock_levels (called next) recalculates ItemStock from movements
+        # so any temporary double-counting is corrected.
         import sqlalchemy as _sa2
         from database.engine import get_session as _gs2, init_db as _idb2
-        _state_set("movements_pull",
-                   (datetime.now(timezone.utc) - timedelta(days=30)).isoformat())
         _idb2()
         _sess2 = _gs2()
         try:
-            _sess2.execute(_sa2.text(
-                "DELETE FROM applied_central_movements "
-                "WHERE movement_id NOT IN (SELECT id FROM stock_movements)"
-            ))
+            _sess2.execute(_sa2.text("DELETE FROM applied_central_movements"))
             _sess2.commit()
         finally:
             _sess2.close()

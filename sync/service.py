@@ -1106,9 +1106,9 @@ def push_stock_movements_for_invoice(reference_id: str) -> tuple[bool, str]:
 
 def pull_stock_movements() -> tuple[int, str]:
     """
-    Pull stock movements from OTHER branches since last pull.
-    Applies qty changes to local ItemStock.
-    Skips movements already applied or originating from this branch.
+    Pull ALL stock movements from OTHER branches (no cursor).
+    Uses applied_central_movements to skip already-processed ones.
+    Applies qty changes to local ItemStock and creates local StockMovement rows.
     Returns (applied_count, error).
     """
     from database.engine import get_session, init_db
@@ -1119,16 +1119,13 @@ def pull_stock_movements() -> tuple[int, str]:
     if not is_configured():
         return 0, ""
 
-    last_pull = _state_get("movements_pull")
-
     try:
         r = requests.get(
             f"{_url('stock_movements_central')}"
-            f"?created_at=gt.{last_pull}"
-            f"&branch_id=neq.{BRANCH_ID}"
-            f"&order=created_at.asc&limit=1000",
+            f"?branch_id=neq.{BRANCH_ID}"
+            f"&order=created_at.asc&limit=2000",
             headers={**_headers(), "Prefer": ""},
-            timeout=20,
+            timeout=30,
         )
         if r.status_code != 200:
             return 0, f"HTTP {r.status_code}: {r.text[:200]}"
@@ -1139,8 +1136,7 @@ def pull_stock_movements() -> tuple[int, str]:
 
         init_db()
         session = get_session()
-        applied   = 0
-        latest_ts = last_pull
+        applied = 0
         # Track new ItemStock rows added this batch to avoid UNIQUE conflicts
         stock_cache: dict[tuple, ItemStock] = {}
 
@@ -1180,6 +1176,9 @@ def pull_stock_movements() -> tuple[int, str]:
         # ─────────────────────────────────────────────────────────────────────
 
         try:
+            from database.models.items import Warehouse
+            from database.models.stock import StockMovement
+
             for rm in remote:
                 mv_id = rm["id"]
 
@@ -1191,14 +1190,11 @@ def pull_stock_movements() -> tuple[int, str]:
                     {"id": mv_id},
                 ).fetchone()
                 if already:
-                    latest_ts = rm["created_at"]
                     continue
 
                 item_id      = rm["item_id"]
                 warehouse_id = rm["warehouse_id"]
-                qty_change   = rm["qty_change"]
-
-                from database.models.items import Warehouse
+                qty_change   = rm.get("qty_change") or rm.get("quantity") or 0
 
                 # Resolve branch item_id → local item_id using pre-built map
                 item_id = item_id_map.get(item_id, item_id)
@@ -1208,8 +1204,17 @@ def pull_stock_movements() -> tuple[int, str]:
                 ).fetchone()
                 wh_exists = session.get(Warehouse, warehouse_id)
 
+                # If warehouse missing, try to pull warehouses first
+                if not wh_exists:
+                    try:
+                        pull_warehouses()
+                        session.expire_all()
+                        wh_exists = session.get(Warehouse, warehouse_id)
+                    except Exception:
+                        pass
+
                 if not item_exists or not wh_exists:
-                    latest_ts = rm["created_at"]
+                    # Don't mark as applied — will retry next pull
                     continue
 
                 cache_key = (item_id, warehouse_id)
@@ -1232,7 +1237,6 @@ def pull_stock_movements() -> tuple[int, str]:
                     stock_cache[cache_key] = stock
 
                 # Create local StockMovement so stock card shows branch movements
-                from database.models.stock import StockMovement
                 existing_mv = session.execute(
                     sqlalchemy.text("SELECT 1 FROM stock_movements WHERE id=:id"),
                     {"id": mv_id}
@@ -1248,7 +1252,7 @@ def pull_stock_movements() -> tuple[int, str]:
                         reference_id=rm.get("reference_id") or "",
                     ))
 
-                # Mark as applied (only reached when stock was actually updated)
+                # Mark as applied
                 session.execute(
                     sqlalchemy.text(
                         "INSERT OR IGNORE INTO applied_central_movements"
@@ -1257,11 +1261,9 @@ def pull_stock_movements() -> tuple[int, str]:
                     {"id": mv_id, "ts": datetime.now(timezone.utc).isoformat()},
                 )
 
-                latest_ts = rm["created_at"]
                 applied += 1
 
             session.commit()
-            _state_set("movements_pull", latest_ts)
             return applied, ""
 
         except Exception as e:
