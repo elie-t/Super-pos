@@ -1640,10 +1640,40 @@ def pull_sales_invoices() -> tuple[int, str]:
                     item_id = li.get("item_id") or ""
                     qty     = float(li["quantity"])
                     price   = float(li.get("unit_price") or 0)
+
+                    # Resolve branch item_id → local item_id if IDs differ
+                    local_item_id = item_id
+                    if item_id:
+                        exists = session.execute(
+                            sqlalchemy.text("SELECT 1 FROM items WHERE id=:id"),
+                            {"id": item_id}
+                        ).fetchone()
+                        if not exists:
+                            # Try barcode lookup
+                            barcode = li.get("barcode") or ""
+                            resolved = None
+                            if barcode:
+                                resolved = session.execute(
+                                    sqlalchemy.text(
+                                        "SELECT item_id FROM item_barcodes WHERE barcode=:bc LIMIT 1"
+                                    ), {"bc": barcode}
+                                ).fetchone()
+                            # Try item_name lookup
+                            if not resolved:
+                                item_name = li.get("item_name") or ""
+                                if item_name:
+                                    resolved = session.execute(
+                                        sqlalchemy.text(
+                                            "SELECT id FROM items WHERE name=:n LIMIT 1"
+                                        ), {"n": item_name}
+                                    ).fetchone()
+                            if resolved:
+                                local_item_id = resolved[0]
+
                     session.add(SalesInvoiceItem(
                         id=li["id"] if not is_update else _new_uuid(),
                         invoice_id=ri["id"],
-                        item_id=item_id,
+                        item_id=local_item_id,
                         item_name=li["item_name"],
                         barcode=li.get("barcode") or "",
                         quantity=qty,
@@ -1651,7 +1681,7 @@ def pull_sales_invoices() -> tuple[int, str]:
                         currency=li.get("currency", "USD"),
                         line_total=float(li.get("line_total") or 0),
                     ))
-                    if item_id and wh_id:
+                    if local_item_id and wh_id:
                         # Check if a movement for this line already exists
                         # (pull_stock_movements may have already created it)
                         existing = session.execute(
@@ -1660,12 +1690,12 @@ def pull_sales_invoices() -> tuple[int, str]:
                                 "WHERE reference_type='sales_invoice' "
                                 "AND reference_id=:inv_id AND item_id=:item_id"
                             ),
-                            {"inv_id": ri["id"], "item_id": item_id},
+                            {"inv_id": ri["id"], "item_id": local_item_id},
                         ).fetchone()
                         if not existing:
                             session.add(StockMovement(
                                 id=_new_uuid(),
-                                item_id=item_id,
+                                item_id=local_item_id,
                                 warehouse_id=wh_id,
                                 movement_type="sale",
                                 quantity=-qty,
