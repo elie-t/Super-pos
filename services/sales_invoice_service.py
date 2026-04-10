@@ -381,7 +381,7 @@ class SalesInvoiceService:
                 .outerjoin(Warehouse, SalesInvoice.warehouse_id == Warehouse.id)
                 .outerjoin(User,      SalesInvoice.operator_id  == User.id)
                 .filter(SalesInvoice.invoice_type == "sale")
-                .filter(SalesInvoice.source.in_(["manual", "pos_shift", "pos"]))
+                .filter(SalesInvoice.source.in_(["manual", "pos_shift"]))
             )
             if date_from:
                 q = q.filter(SalesInvoice.invoice_date >= date_from)

@@ -477,7 +477,7 @@ class SalesInvoiceListScreen(QWidget):
         if type_filter == "Manual":
             rows = [r for r in rows if r["source"] == "manual"]
         elif type_filter == "Shift":
-            rows = [r for r in rows if r["source"] in ("pos_shift", "pos")]
+            rows = [r for r in rows if r["source"] == "pos_shift"]
         self._fill(rows)
 
     def _fill(self, rows: list[dict]):
