@@ -1681,28 +1681,8 @@ def pull_sales_invoices() -> tuple[int, str]:
                         currency=li.get("currency", "USD"),
                         line_total=float(li.get("line_total") or 0),
                     ))
-                    if local_item_id and wh_id:
-                        # Check if a movement for this line already exists
-                        # (pull_stock_movements may have already created it)
-                        existing = session.execute(
-                            sqlalchemy.text(
-                                "SELECT 1 FROM stock_movements "
-                                "WHERE reference_type='sales_invoice' "
-                                "AND reference_id=:inv_id AND item_id=:item_id"
-                            ),
-                            {"inv_id": ri["id"], "item_id": local_item_id},
-                        ).fetchone()
-                        if not existing:
-                            session.add(StockMovement(
-                                id=_new_uuid(),
-                                item_id=local_item_id,
-                                warehouse_id=wh_id,
-                                movement_type="sale",
-                                quantity=-qty,
-                                unit_cost=price,
-                                reference_type="sales_invoice",
-                                reference_id=ri["id"],
-                            ))
+                    # Stock movements are handled by pull_stock_movements().
+                    # Do NOT create them here to avoid double-counting.
 
                 session.commit()
                 latest_ts = ri["synced_at"]
