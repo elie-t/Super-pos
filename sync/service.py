@@ -1163,16 +1163,47 @@ def pull_stock_movements() -> tuple[int, str]:
                 warehouse_id = rm["warehouse_id"]
                 qty_change   = rm["qty_change"]
 
-                # Only apply to local ItemStock if item + warehouse exist locally
                 from database.models.items import Warehouse
+
+                # Resolve branch item_id → local item_id if IDs differ
                 item_exists = session.execute(
                     sqlalchemy.text("SELECT 1 FROM items WHERE id=:id"), {"id": item_id}
                 ).fetchone()
+                if not item_exists:
+                    # Try to find local item via items_central (get code then match locally)
+                    try:
+                        rc = requests.get(
+                            f"{_url('items_central')}?id=eq.{item_id}&select=code,barcode",
+                            headers={**_headers(), "Prefer": ""},
+                            timeout=10,
+                        )
+                        if rc.status_code == 200 and rc.json():
+                            ci = rc.json()[0]
+                            code = ci.get("code") or ""
+                            barcode = ci.get("barcode") or ""
+                            resolved = None
+                            if barcode:
+                                resolved = session.execute(
+                                    sqlalchemy.text(
+                                        "SELECT item_id FROM item_barcodes WHERE barcode=:bc LIMIT 1"
+                                    ), {"bc": barcode}
+                                ).fetchone()
+                            if not resolved and code:
+                                resolved = session.execute(
+                                    sqlalchemy.text(
+                                        "SELECT id FROM items WHERE code=:c LIMIT 1"
+                                    ), {"c": code}
+                                ).fetchone()
+                            if resolved:
+                                item_id = resolved[0]
+                                item_exists = True
+                    except Exception:
+                        pass
+
                 wh_exists = session.get(Warehouse, warehouse_id)
 
                 if not item_exists or not wh_exists:
                     # Item or warehouse not yet synced — skip WITHOUT marking applied
-                    # so it will be retried on the next sync cycle
                     latest_ts = rm["created_at"]
                     continue
 
