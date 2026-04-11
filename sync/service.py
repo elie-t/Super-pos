@@ -807,7 +807,7 @@ def pull_master_items() -> tuple[int, str]:
         cats       = {c.name: c.id          for c in session.query(Category).all()}
         cat_touch  = {c.name: c.show_on_touch for c in session.query(Category).all()}
         brands = {b.name: b.id for b in session.query(Brand).all()}
-        seen_codes: set[str] = set(r[0] for r in session.query(Item.code).all())
+        seen_codes: set[str] = set()  # tracks codes processed in this sync run only
 
         while True:
             if full_sync_mode:
@@ -857,7 +857,6 @@ def pull_master_items() -> tuple[int, str]:
 
             for ri in remote_items:
                 if ri.get("pushed_by") == BRANCH_ID:
-                    seen_codes.add(ri.get("code") or ri["id"][:12])
                     latest_ts = ri.get("updated_at", latest_ts)
                     continue
 
