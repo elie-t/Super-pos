@@ -21,9 +21,9 @@ with engine.connect() as conn:
 
     # 2. Item stock
     stocks = conn.execute(text(
-        "SELECT is.quantity, w.name FROM item_stock is "
-        "JOIN warehouses w ON w.id=is.warehouse_id "
-        "WHERE is.item_id=:id"
+        "SELECT ist.quantity, w.name FROM item_stock ist "
+        "JOIN warehouses w ON w.id=ist.warehouse_id "
+        "WHERE ist.item_id=:id"
     ), {"id": item_id}).fetchall()
     print(f"\nItem stock:")
     for qty, wh in stocks:
@@ -39,8 +39,8 @@ with engine.connect() as conn:
         "WHERE sm.item_id=:id ORDER BY sm.created_at DESC LIMIT 20"
     ), {"id": item_id}).fetchall()
     print(f"\nStock movements ({len(mvs)}):")
-    for mt, qty, rt, rid, cat, wh in mvs:
-        print(f"  {cat}  type={mt} qty={qty} ref={rt} created_at={cat} wh={wh}")
+    for mt, qty, rt, rid, created, wh in mvs:
+        print(f"  created_at={created}  type={mt} qty={qty} ref={rt} wh={wh}")
     if not mvs:
         print("  (none)")
 
