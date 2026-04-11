@@ -1242,6 +1242,13 @@ def pull_stock_movements() -> tuple[int, str]:
                     {"id": mv_id}
                 ).fetchone()
                 if not existing_mv:
+                    mv_created = rm.get("created_at")
+                    if mv_created:
+                        try:
+                            from datetime import datetime as _dt
+                            mv_created = _dt.fromisoformat(mv_created.replace("Z", "+00:00"))
+                        except Exception:
+                            mv_created = None
                     session.add(StockMovement(
                         id=mv_id,
                         item_id=item_id,
@@ -1250,6 +1257,7 @@ def pull_stock_movements() -> tuple[int, str]:
                         quantity=qty_change,
                         reference_type=rm.get("reference_type") or "",
                         reference_id=rm.get("reference_id") or "",
+                        created_at=mv_created,
                     ))
 
                 # Mark as applied
@@ -1744,6 +1752,17 @@ def pull_sales_invoices() -> tuple[int, str]:
                             if not existing_line_mv:
                                 from database.models.items import ItemStock
                                 mv_qty = -abs(qty)  # sales always reduce stock
+                                # Use invoice date as created_at so movement lands
+                                # on the correct date in the stock card.
+                                mv_ts = None
+                                if inv_date:
+                                    try:
+                                        from datetime import datetime as _dt2, timezone as _tz
+                                        mv_ts = _dt2.strptime(inv_date, "%Y-%m-%d").replace(
+                                            hour=12, minute=0, tzinfo=_tz.utc
+                                        )
+                                    except Exception:
+                                        pass
                                 session.add(StockMovement(
                                     id=_new_uuid(),
                                     item_id=local_item_id,
@@ -1752,6 +1771,7 @@ def pull_sales_invoices() -> tuple[int, str]:
                                     quantity=mv_qty,
                                     reference_type="sales_invoice",
                                     reference_id=ri["id"],
+                                    created_at=mv_ts,
                                 ))
                                 stock = session.query(ItemStock).filter_by(
                                     item_id=local_item_id, warehouse_id=wh_id
