@@ -1644,11 +1644,8 @@ def pull_sales_invoices() -> tuple[int, str]:
                         inv.source       = ri["source"]
                     if ri.get("invoice_type"):
                         inv.invoice_type = ri["invoice_type"]
-                    # Refresh lines + movements for all invoice types
-                    session.query(StockMovement).filter(
-                        StockMovement.reference_type == "sales_invoice",
-                        StockMovement.reference_id   == ri["id"],
-                    ).delete()
+                    # Refresh invoice lines only — movements are managed by
+                    # pull_stock_movements and must NOT be deleted here.
                     session.query(SalesInvoiceItem).filter_by(
                         invoice_id=ri["id"]
                     ).delete()
