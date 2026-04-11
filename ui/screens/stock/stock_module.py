@@ -185,21 +185,38 @@ class StockModule(QWidget):
                     from seed.import_items import load_xlsx, import_items as do_import
                     import io, contextlib
 
-                    self.status.emit("Reading Excel file…")
-                    raw_rows = load_xlsx(self._path)
-                    self.status.emit(f"Grouping {len(raw_rows):,} rows by title…")
+                    # Pause background sync so it doesn't hold the DB write lock
+                    try:
+                        from sync.worker import get_sync_worker
+                        _sw = get_sync_worker()
+                        if _sw:
+                            _sw.pause()
+                    except Exception:
+                        _sw = None
 
-                    buf = io.StringIO()
-                    with contextlib.redirect_stdout(buf):
-                        do_import(self._path, batch_size=500, do_clear=self._clear,
-                                  _preloaded_rows=raw_rows,
-                                  progress_callback=lambda cur, tot: (
-                                      self.progress.emit(cur, tot),
-                                      self.status.emit(f"Importing items…  {cur:,} / {tot:,}")
-                                  ))
-                    self.finished.emit(buf.getvalue())
+                    try:
+                        self.status.emit("Reading Excel file…")
+                        raw_rows = load_xlsx(self._path)
+                        self.status.emit(f"Grouping {len(raw_rows):,} rows by title…")
+
+                        buf = io.StringIO()
+                        with contextlib.redirect_stdout(buf):
+                            do_import(self._path, batch_size=200, do_clear=self._clear,
+                                      _preloaded_rows=raw_rows,
+                                      progress_callback=lambda cur, tot: (
+                                          self.progress.emit(cur, tot),
+                                          self.status.emit(f"Importing items…  {cur:,} / {tot:,}")
+                                      ))
+                        self.finished.emit(buf.getvalue())
+                    finally:
+                        try:
+                            if _sw:
+                                _sw.resume()
+                        except Exception:
+                            pass
                 except Exception as exc:
-                    self.error.emit(str(exc))
+                    import traceback
+                    self.error.emit(f"{exc}\n\n{traceback.format_exc()}")
 
         progress = QProgressDialog("Preparing import…", None, 0, 100, self)
         progress.setWindowModality(Qt.ApplicationModal)

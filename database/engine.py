@@ -9,7 +9,7 @@ from database.models.base import Base
 # SQLite-specific: enable WAL mode and foreign keys on every connection
 engine = create_engine(
     LOCAL_DB_URL,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": 30},
     echo=False,
 )
 

@@ -11,6 +11,13 @@ from PySide6.QtCore import QThread, Signal, QTimer
 from config import SYNC_INTERVAL_SEC
 
 
+_instance: "SyncWorker | None" = None
+
+
+def get_sync_worker() -> "SyncWorker | None":
+    return _instance
+
+
 class SyncWorker(QThread):
     """Background thread that syncs with Supabase."""
 
@@ -24,12 +31,24 @@ class SyncWorker(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._running = False
+        self._paused  = False
+        global _instance
+        _instance = self
+
+    def pause(self):
+        """Pause sync ticks (e.g. during long DB operations like import)."""
+        self._paused = True
+
+    def resume(self):
+        """Resume sync ticks."""
+        self._paused = False
 
     def run(self):
         self._running = True
         while self._running:
-            self._tick()
-            # Sleep in small increments so stop() is responsive
+            if not self._paused:
+                self._tick()
+            # Sleep in small increments so stop()/pause() are responsive
             for _ in range(SYNC_INTERVAL_SEC * 10):
                 if not self._running:
                     break
