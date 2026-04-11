@@ -215,7 +215,7 @@ class ItemMaintenanceScreen(QWidget):
         limit = 100 if force_list else 5
         results = ItemService.search_items(query=query, limit=limit)
         if not results:
-            self._lookup_status("✘  No item found for: " + query, error=True)
+            self._start_new_item_with_barcode(query)
             return
 
         if len(results) == 1 and not force_list:
@@ -318,6 +318,27 @@ class ItemMaintenanceScreen(QWidget):
             "background:#2e7d32; border-radius:4px; padding:2px 10px;"
         )
         self._bar_mode_lbl.show()
+
+    def _start_new_item_with_barcode(self, barcode: str):
+        """Not found — open new item form, auto-generate code, pre-insert barcode."""
+        self._start_new_item()
+        try:
+            from database.engine import get_session
+            from sqlalchemy import text
+            session = get_session()
+            try:
+                row = session.execute(text(
+                    "SELECT MAX(CAST(code AS INTEGER)) FROM items "
+                    "WHERE code GLOB '[0-9]*'"
+                )).fetchone()
+                next_code = str((row[0] or 0) + 1)
+            finally:
+                session.close()
+        except Exception:
+            next_code = ""
+        self._code_edit.setText(next_code)
+        self._bc_input.setText(barcode)
+        self._add_barcode_row()
 
     def _clear_fields(self):
         self._code_edit.clear()
