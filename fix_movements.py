@@ -19,6 +19,12 @@ with engine.connect() as conn:
     r = conn.execute(text("DELETE FROM applied_central_movements"))
     print(f"  applied_central_movements cleared  : {r.rowcount}")
 
+    # 3. Delete pos-source invoices (individual POS transactions — duplicated by pos_shift summaries)
+    r = conn.execute(text("DELETE FROM sales_invoice_items WHERE invoice_id IN (SELECT id FROM sales_invoices WHERE source='pos')"))
+    print(f"  pos-source invoice items deleted   : {r.rowcount}")
+    r = conn.execute(text("DELETE FROM sales_invoices WHERE source='pos'"))
+    print(f"  pos-source invoices deleted        : {r.rowcount}")
+
     conn.commit()
 
 # 3. Delete transfer movements from Supabase stock_movements_central
