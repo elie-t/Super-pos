@@ -3,7 +3,47 @@ Stock module container — manages navigation between all stock sub-screens.
 Each sub-screen is its own file; this file only handles routing.
 """
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QStackedWidget
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, QThread, QObject
+
+
+class _ImportWorker(QObject):
+    """Module-level worker so PySide6 registers signals correctly on all platforms."""
+    finished = Signal(str)
+    error    = Signal(str)
+    progress = Signal(int, int)
+    status   = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self._path  = ""
+        self._clear = False
+
+    def setup(self, path: str, clear: bool):
+        self._path  = path
+        self._clear = clear
+
+    def run(self):
+        import io, contextlib, traceback
+        try:
+            from seed.import_items import load_xlsx, import_items as do_import
+
+            self.status.emit("Reading Excel file…")
+            raw_rows = load_xlsx(self._path)
+            self.status.emit(f"Grouping {len(raw_rows):,} rows…")
+
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                do_import(
+                    self._path, batch_size=200, do_clear=self._clear,
+                    _preloaded_rows=raw_rows,
+                    progress_callback=lambda cur, tot: (
+                        self.progress.emit(cur, tot),
+                        self.status.emit(f"Importing…  {cur:,} / {tot:,}"),
+                    ),
+                )
+            self.finished.emit(buf.getvalue())
+        except Exception as exc:
+            self.error.emit(f"{exc}\n\n{traceback.format_exc()}")
 
 from ui.screens.stock.stock_hub        import StockHub
 from ui.screens.stock.items_list       import ItemsListScreen
@@ -148,7 +188,7 @@ class StockModule(QWidget):
 
     def _run_import(self):
         from PySide6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog
-        from PySide6.QtCore import Qt, QThread, QObject, Signal as Sig
+        from PySide6.QtCore import Qt
 
         path, _ = QFileDialog.getOpenFileName(
             self, "Select Excel file", "", "Excel files (*.xlsx *.xls)"
@@ -166,82 +206,51 @@ class StockModule(QWidget):
             return
         do_clear = (reply == QMessageBox.Yes)
 
-        # Run in a background thread so the UI stays responsive
-        class Worker(QObject):
-            finished = Sig(str)        # summary text
-            error    = Sig(str)
-            progress = Sig(int, int)   # current, total
-            status   = Sig(str)        # label text
+        # Pause background sync before touching the DB
+        _sw = None
+        try:
+            from sync.worker import get_sync_worker
+            _sw = get_sync_worker()
+            if _sw:
+                _sw.pause()
+        except Exception:
+            pass
 
-            def __init__(self, p, c):
-                super().__init__()
-                self._path = p
-                self._clear = c
-
-            def run(self):
-                try:
-                    import sys, pathlib
-                    sys.path.insert(0, str(pathlib.Path(__file__).parents[3]))
-                    from seed.import_items import load_xlsx, import_items as do_import
-                    import io, contextlib
-
-                    # Pause background sync so it doesn't hold the DB write lock
-                    try:
-                        from sync.worker import get_sync_worker
-                        _sw = get_sync_worker()
-                        if _sw:
-                            _sw.pause()
-                    except Exception:
-                        _sw = None
-
-                    try:
-                        self.status.emit("Reading Excel file…")
-                        raw_rows = load_xlsx(self._path)
-                        self.status.emit(f"Grouping {len(raw_rows):,} rows by title…")
-
-                        buf = io.StringIO()
-                        with contextlib.redirect_stdout(buf):
-                            do_import(self._path, batch_size=200, do_clear=self._clear,
-                                      _preloaded_rows=raw_rows,
-                                      progress_callback=lambda cur, tot: (
-                                          self.progress.emit(cur, tot),
-                                          self.status.emit(f"Importing items…  {cur:,} / {tot:,}")
-                                      ))
-                        self.finished.emit(buf.getvalue())
-                    finally:
-                        try:
-                            if _sw:
-                                _sw.resume()
-                        except Exception:
-                            pass
-                except Exception as exc:
-                    import traceback
-                    self.error.emit(f"{exc}\n\n{traceback.format_exc()}")
-
-        progress = QProgressDialog("Preparing import…", None, 0, 100, self)
+        progress = QProgressDialog("Reading Excel file…", None, 0, 100, self)
         progress.setWindowModality(Qt.ApplicationModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
         progress.show()
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
 
-        thread = QThread(self)
-        worker = Worker(path, do_clear)
+        worker  = _ImportWorker()
+        worker.setup(path, do_clear)
+        thread  = QThread(self)
         worker.moveToThread(thread)
 
         def on_done(msg):
             thread.quit()
             progress.close()
-            # Refresh items list if open
+            if _sw:
+                try:
+                    _sw.resume()
+                except Exception:
+                    pass
             if "items_list" in self._screens:
                 self._screens["items_list"].refresh()
-            # Show last few lines of output
-            lines = [l for l in msg.strip().splitlines() if l.strip()]
+            lines   = [l for l in msg.strip().splitlines() if l.strip()]
             summary = "\n".join(lines[-8:])
             QMessageBox.information(self, "Import complete", summary)
 
         def on_error(msg):
             thread.quit()
             progress.close()
+            if _sw:
+                try:
+                    _sw.resume()
+                except Exception:
+                    pass
             QMessageBox.critical(self, "Import failed", msg)
 
         def on_progress(cur, tot):
@@ -255,4 +264,5 @@ class StockModule(QWidget):
         worker.status.connect(progress.setLabelText)
         thread.started.connect(worker.run)
         thread.start()
-        self._import_thread = thread   # keep alive
+        self._import_thread = thread
+        self._import_worker = worker   # keep alive
