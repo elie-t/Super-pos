@@ -1476,6 +1476,17 @@ class POSScreen(QWidget):
         back_btn.clicked.connect(self.back.emit)
         lay.addWidget(back_btn)
 
+        self._refresh_prices_btn = QPushButton("↻  Prices")
+        self._refresh_prices_btn.setFixedHeight(28)
+        self._refresh_prices_btn.setStyleSheet(
+            "QPushButton{background:#1a6cb5;color:#fff;border:1px solid #3a8cd5;"
+            "border-radius:4px;padding:2px 10px;font-size:12px;}"
+            "QPushButton:hover{background:#155a9a;}"
+            "QPushButton:disabled{background:#2a4a6a;color:#7a9aba;}"
+        )
+        self._refresh_prices_btn.clicked.connect(self._refresh_prices)
+        lay.addWidget(self._refresh_prices_btn)
+
         self._pos_title_lbl = QLabel("🖥️  POS — Point of Sale  (ل.ل  LBP)")
         self._pos_title_lbl.setStyleSheet("color:#fff;font-size:14px;font-weight:700;margin-left:8px;")
         lay.addWidget(self._pos_title_lbl)
@@ -3204,6 +3215,40 @@ class POSScreen(QWidget):
         self._add_item(line)
 
     # ── Customer ───────────────────────────────────────────────────────────────
+
+    def _refresh_prices(self):
+        """Reload prices for all items currently in the cart from the local DB."""
+        self._refresh_prices_btn.setEnabled(False)
+        self._refresh_prices_btn.setText("↻  Updating…")
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+        try:
+            updated = 0
+            for row in self._lines:
+                li = row.get("item")
+                if not li or not li.code:
+                    continue
+                fresh = PosService.lookup_item(
+                    li.code, "code",
+                    currency=li.currency,
+                    price_type=li.price_type,
+                )
+                if fresh and fresh.unit_price != li.unit_price:
+                    li.unit_price = fresh.unit_price
+                    li.total      = round(fresh.unit_price * li.qty)
+                    row["price"]  = fresh.unit_price
+                    row["total"]  = li.total
+                    updated += 1
+            if updated:
+                self._refresh_table()
+        except Exception:
+            pass
+        self._refresh_prices_btn.setText("✓  Updated")
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(2000, lambda: (
+            self._refresh_prices_btn.setEnabled(True),
+            self._refresh_prices_btn.setText("↻  Prices"),
+        ))
 
     def _toggle_print(self):
         self._print_enabled = not self._print_enabled
