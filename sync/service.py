@@ -880,6 +880,26 @@ def pull_master_items() -> tuple[int, str]:
                                 "updated_at": datetime.now(timezone.utc).isoformat(),
                             }])
                             existing.is_online = False
+                        # Still apply price/name updates to the local item so changes
+                        # made on the main PC propagate to the branch.
+                        existing.name       = ri.get("name") or existing.name
+                        existing.name_ar    = ri.get("name_ar") or existing.name_ar
+                        existing.cost_price = ri.get("cost_price") or existing.cost_price
+                        existing.vat_rate   = ri.get("vat_rate") or existing.vat_rate
+                        existing.is_active  = ri.get("is_active", existing.is_active)
+                        existing.is_pos_featured = ri.get("is_pos_featured", existing.is_pos_featured)
+                        for rp_row in prices_by_item.get(ri["id"], []):
+                            price = session.query(ItemPrice).filter_by(
+                                item_id=existing.id,
+                                price_type=rp_row["price_type"],
+                                currency=rp_row["currency"],
+                            ).first()
+                            if not price:
+                                price = ItemPrice(id=new_uuid(), item_id=existing.id)
+                                session.add(price)
+                            price.price_type = rp_row["price_type"]
+                            price.amount     = rp_row["amount"]
+                            price.currency   = rp_row["currency"]
                         seen_codes.add(code_str)
                         latest_ts = ri.get("updated_at", latest_ts)
                         total_updated += 1
