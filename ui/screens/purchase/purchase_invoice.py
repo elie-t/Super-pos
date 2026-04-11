@@ -434,7 +434,7 @@ class PostSaveDialog(QDialog):
 class PurchaseInvoiceScreen(QWidget):
     back    = Signal()
     deleted = Signal()                  # emitted after successful delete → go to invoice list
-    edit_item_requested = Signal(str)   # emits item_id → module opens Item Maintenance
+    edit_item_requested = Signal(str, str)  # emits (item_id, supplier_id) → module opens Item Maintenance
 
     # Table column indices
     COL_NUM  = 0
@@ -1342,7 +1342,8 @@ class PurchaseInvoiceScreen(QWidget):
         if row < 0 or row >= len(self._lines):
             return
         item_id = self._lines[row]["item"].item_id
-        self.edit_item_requested.emit(item_id)
+        supplier_id = self._supplier.id if self._supplier else ""
+        self.edit_item_requested.emit(item_id, supplier_id)
 
     def _cancel_edit(self):
         self._editing_row = -1

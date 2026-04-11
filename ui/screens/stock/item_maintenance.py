@@ -40,16 +40,19 @@ class ItemMaintenanceScreen(QWidget):
     saved  = Signal(str)
     back   = Signal()
 
-    def __init__(self, item_id: str = "", parent=None):
+    def __init__(self, item_id: str = "", parent=None, supplier_id: str = ""):
         super().__init__(parent)
         self._item_id = item_id or new_uuid()
         self._is_new  = not item_id
         self._detail: ItemDetail | None = None
         self._photo_url: str = ""
+        self._preset_supplier_id = supplier_id
         self._lbp_rate = self._get_lbp_rate()
         self._build_ui()
         if item_id:
             self._load_item(item_id)
+        else:
+            self._load_suppliers(None)
 
     # ─────────────────────────────────────────────────────────────────────────
     # UI Construction
@@ -504,6 +507,7 @@ class ItemMaintenanceScreen(QWidget):
         add_sup_btn = QPushButton("+")
         add_sup_btn.setObjectName("secondaryBtn")
         add_sup_btn.setFixedSize(20, 20)
+        add_sup_btn.clicked.connect(self._add_new_supplier)
         sup_row.addWidget(sup_lbl)
         sup_row.addWidget(self._supplier_combo, 1)
         sup_row.addWidget(add_sup_btn)
@@ -1001,8 +1005,8 @@ class ItemMaintenanceScreen(QWidget):
 
         self._price_table.blockSignals(False)
 
-    def _load_suppliers(self, detail: ItemDetail):
-        """Populate supplier combo."""
+    def _load_suppliers(self, detail):
+        """Populate supplier combo and pre-select if applicable."""
         from database.engine import get_session, init_db
         from database.models.parties import Supplier
         init_db()
@@ -1014,11 +1018,44 @@ class ItemMaintenanceScreen(QWidget):
             self._supplier_combo.addItem("— Select Supplier —", "")
             for s in suppliers:
                 self._supplier_combo.addItem(s.name, s.id)
-            if detail.id:
-                # Try to pre-select based on item's supplier
-                pass
+            # Pre-select: item's own supplier first, then preset from caller context
+            # For existing items, read supplier from the DB item directly
+            item_supplier_id = ""
+            if detail and getattr(detail, "id", None):
+                from database.models.items import Item as _Item
+                _item = session.get(_Item, detail.id)
+                item_supplier_id = (_item.default_supplier_id or "") if _item else ""
+            target_id = item_supplier_id or self._preset_supplier_id
+            if target_id:
+                idx = self._supplier_combo.findData(target_id)
+                if idx >= 0:
+                    self._supplier_combo.setCurrentIndex(idx)
         finally:
             session.close()
+
+    def _add_new_supplier(self):
+        """Quick-create a supplier by name; reload combo but keep 'Select Supplier' selected."""
+        from PySide6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, "New Supplier", "Supplier name:")
+        if not ok or not name.strip():
+            return
+        try:
+            from database.engine import get_session
+            from database.models.parties import Supplier
+            from database.models.base import new_uuid
+            session = get_session()
+            try:
+                sup = Supplier(id=new_uuid(), name=name.strip(), is_active=True)
+                session.add(sup)
+                session.commit()
+            finally:
+                session.close()
+        except Exception as e:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Error", str(e))
+            return
+        # Reload combo but stay on "— Select Supplier —"
+        self._load_suppliers(self._detail)
 
     def _load_combos(self):
         self._cat_combo.clear()

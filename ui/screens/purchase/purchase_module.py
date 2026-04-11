@@ -404,9 +404,9 @@ class PurchaseModule(QWidget):
 
     # ── Item maintenance overlay ──────────────────────────────────────────────
 
-    def _open_item_maintenance(self, item_id: str):
+    def _open_item_maintenance(self, item_id: str, supplier_id: str = ""):
         from ui.screens.stock.item_maintenance import ItemMaintenanceScreen
-        screen = ItemMaintenanceScreen(item_id=item_id)
+        screen = ItemMaintenanceScreen(item_id=item_id, supplier_id=supplier_id)
         screen.back.connect(self._close_item_maintenance)
         screen.saved.connect(lambda _: self._close_item_maintenance())
         self._stack.addWidget(screen)
