@@ -38,9 +38,13 @@ class _ImportWorker(QObject):
                     _preloaded_rows=raw_rows,
                     progress_callback=lambda cur, tot: (
                         self.progress.emit(cur, tot),
-                        self.status.emit(f"Importing…  {cur:,} / {tot:,}"),
+                        self.status.emit(
+                            f"Importing…  {cur:,} / {tot:,}"
+                            if cur < tot else "Finalizing…"
+                        ),
                     ),
                 )
+            self.status.emit("Done — loading summary…")
             self.finished.emit(buf.getvalue())
         except Exception as exc:
             self.error.emit(f"{exc}\n\n{traceback.format_exc()}")

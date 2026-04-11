@@ -320,6 +320,8 @@ def import_items(xlsx_path: str, batch_size: int = 500, do_clear: bool = False, 
                     progress_callback(total, len(groups))
 
         session.commit()
+        if progress_callback:
+            progress_callback(total, total)  # signal 100% done
         print(f"\n✓ Import complete.")
         print(f"  Items inserted  : {inserted:,}")
         print(f"  Items updated   : {updated:,}")
