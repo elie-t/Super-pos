@@ -835,7 +835,7 @@ def pull_master_items() -> tuple[int, str]:
                 break
 
             item_ids = [i["id"] for i in remote_items]
-            ids_filter = ",".join(f'"{iid}"' for iid in item_ids)
+            ids_filter = ",".join(item_ids)
 
             prices_by_item: dict[str, list] = {}
             rp = requests.get(
