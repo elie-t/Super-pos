@@ -40,6 +40,9 @@ class ItemMaintenanceScreen(QWidget):
     saved  = Signal(str)
     back   = Signal()
 
+    _last_category_id:   str = ""
+    _last_category_name: str = ""
+
     def __init__(self, item_id: str = "", parent=None, supplier_id: str = ""):
         super().__init__(parent)
         self._item_id = item_id or new_uuid()
@@ -307,6 +310,11 @@ class ItemMaintenanceScreen(QWidget):
         self._is_new  = True
         self._detail  = None
         self._clear_fields()
+        # Pre-select last used category
+        if ItemMaintenanceScreen._last_category_id:
+            idx = self._cat_combo.findData(ItemMaintenanceScreen._last_category_id)
+            if idx >= 0:
+                self._cat_combo.setCurrentIndex(idx)
         self._card_widget.show()
         self._code_edit.setFocus()
         # Reset lookup bar style
@@ -1456,6 +1464,10 @@ class ItemMaintenanceScreen(QWidget):
 
         ok, err = ItemService.save_item(detail)
         if ok:
+            # Remember category for next new item
+            if detail.category_id:
+                ItemMaintenanceScreen._last_category_id   = detail.category_id
+                ItemMaintenanceScreen._last_category_name = detail.category_name
             self._status_lbl.setStyleSheet("color:#2e7d32;")
             self._status_lbl.setText("✔ Saved.")
             self.saved.emit(self._item_id)
