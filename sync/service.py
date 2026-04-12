@@ -1262,13 +1262,13 @@ def pull_stock_movements() -> tuple[int, str]:
                     sqlalchemy.text("SELECT 1 FROM stock_movements WHERE id=:id"),
                     {"id": mv_id}
                 ).fetchone()
-                if not existing_mv and ref_type and ref_id:
+                if not existing_mv and ref_id:
                     existing_mv = session.execute(
                         sqlalchemy.text(
                             "SELECT 1 FROM stock_movements"
-                            " WHERE reference_type=:rt AND reference_id=:rid AND item_id=:iid"
+                            " WHERE reference_id=:rid AND item_id=:iid"
                         ),
-                        {"rt": ref_type, "rid": ref_id, "iid": item_id}
+                        {"rid": ref_id, "iid": item_id}
                     ).fetchone()
                 if not existing_mv:
                     mv_created = rm.get("created_at")
