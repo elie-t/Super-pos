@@ -403,54 +403,33 @@ class DailySalesService:
             except Exception:
                 pass
 
-            # ── Cloud cleanup: push pos_shift movements, delete individual pos ──
+            # ── Cloud cleanup: delete individual pos, keep shift invoice only ──
+            # The shift invoice was already enqueued to sales_invoices_central above.
+            # pull_sales_invoices on other branches will create the stock movement
+            # from that invoice — no need to also push to stock_movements_central
+            # (doing so caused ghost duplicate movements on main).
             try:
                 from sync.service import (
-                    is_configured, upsert_rows, _url, _headers, BRANCH_ID
+                    is_configured, _url, _headers, BRANCH_ID
                 )
                 import requests as _req
-                from database.models.base import new_uuid as _nu
-                from datetime import datetime as _dt, timezone as _tz
 
-                if is_configured():
-                    # 1. Push aggregated movements for the shift invoice so other
-                    #    branches can pull them without fallback/UUID guessing.
-                    mv_rows = [
-                        {
-                            "id":             _nu(),
-                            "item_id":        item_id,
-                            "warehouse_id":   wh_id,
-                            "qty_change":     -abs(d["qty"]),
-                            "movement_type":  "sale",
-                            "reference_type": "sales_invoice",
-                            "reference_id":   shift_inv.id,
-                            "branch_id":      BRANCH_ID,
-                            "created_at":     _dt.now(_tz.utc).isoformat(),
-                        }
-                        for item_id, d in agg.items()
-                    ]
-                    if mv_rows:
-                        upsert_rows("stock_movements_central", mv_rows)
-
-                    # 2. Delete individual pos invoice movements from cloud
-                    #    (they are now superseded by the pos_shift movements above).
-                    if invoice_ids:
-                        ids_csv = ",".join(invoice_ids)
-                        _req.delete(
-                            f"{_url('stock_movements_central')}?reference_id=in.({ids_csv})&branch_id=eq.{BRANCH_ID}",
-                            headers=_headers(), timeout=20,
-                        )
-
-                    # 3. Delete individual pos invoices from cloud
-                    if invoice_ids:
-                        _req.delete(
-                            f"{_url('sales_invoice_items_central')}?invoice_id=in.({ids_csv})",
-                            headers=_headers(), timeout=20,
-                        )
-                        _req.delete(
-                            f"{_url('sales_invoices_central')}?id=in.({ids_csv})&branch_id=eq.{BRANCH_ID}",
-                            headers=_headers(), timeout=20,
-                        )
+                if is_configured() and invoice_ids:
+                    ids_csv = ",".join(invoice_ids)
+                    # Delete individual pos invoice movements from cloud
+                    _req.delete(
+                        f"{_url('stock_movements_central')}?reference_id=in.({ids_csv})&branch_id=eq.{BRANCH_ID}",
+                        headers=_headers(), timeout=20,
+                    )
+                    # Delete individual pos invoices from cloud
+                    _req.delete(
+                        f"{_url('sales_invoice_items_central')}?invoice_id=in.({ids_csv})",
+                        headers=_headers(), timeout=20,
+                    )
+                    _req.delete(
+                        f"{_url('sales_invoices_central')}?id=in.({ids_csv})&branch_id=eq.{BRANCH_ID}",
+                        headers=_headers(), timeout=20,
+                    )
             except Exception:
                 pass  # Cloud cleanup is best-effort; local state is already correct
 

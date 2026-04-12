@@ -1784,8 +1784,7 @@ def pull_sales_invoices() -> tuple[int, str]:
                             existing_line_mv = session.execute(
                                 sqlalchemy.text(
                                     "SELECT 1 FROM stock_movements"
-                                    " WHERE reference_type='sales_invoice'"
-                                    " AND reference_id=:ref AND item_id=:iid"
+                                    " WHERE reference_id=:ref AND item_id=:iid"
                                 ),
                                 {"ref": ri["id"], "iid": local_item_id}
                             ).fetchone()
