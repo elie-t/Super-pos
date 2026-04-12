@@ -1256,10 +1256,20 @@ def pull_stock_movements() -> tuple[int, str]:
                     stock_cache[cache_key] = stock
 
                 # Create local StockMovement so stock card shows branch movements
+                ref_type = rm.get("reference_type") or ""
+                ref_id   = rm.get("reference_id") or ""
                 existing_mv = session.execute(
                     sqlalchemy.text("SELECT 1 FROM stock_movements WHERE id=:id"),
                     {"id": mv_id}
                 ).fetchone()
+                if not existing_mv and ref_type and ref_id:
+                    existing_mv = session.execute(
+                        sqlalchemy.text(
+                            "SELECT 1 FROM stock_movements"
+                            " WHERE reference_type=:rt AND reference_id=:rid AND item_id=:iid"
+                        ),
+                        {"rt": ref_type, "rid": ref_id, "iid": item_id}
+                    ).fetchone()
                 if not existing_mv:
                     mv_created = rm.get("created_at")
                     if mv_created:
