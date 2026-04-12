@@ -1278,14 +1278,26 @@ def pull_stock_movements() -> tuple[int, str]:
                             mv_created = _dt.fromisoformat(mv_created.replace("Z", "+00:00"))
                         except Exception:
                             mv_created = None
+                    # If reference invoice is from another branch (won't exist locally),
+                    # store reference_type as 'branch_sale' so it doesn't show as a
+                    # broken link in stock card but still deduplicates correctly.
+                    local_ref_type = rm.get("reference_type") or ""
+                    local_ref_id   = rm.get("reference_id") or ""
+                    if local_ref_type == "sales_invoice" and local_ref_id:
+                        inv_exists = session.execute(
+                            sqlalchemy.text("SELECT 1 FROM sales_invoices WHERE id=:id"),
+                            {"id": local_ref_id}
+                        ).fetchone()
+                        if not inv_exists:
+                            local_ref_type = "branch_sale"
                     session.add(StockMovement(
                         id=mv_id,
                         item_id=item_id,
                         warehouse_id=warehouse_id,
                         movement_type=rm.get("movement_type") or "sale",
                         quantity=qty_change,
-                        reference_type=rm.get("reference_type") or "",
-                        reference_id=rm.get("reference_id") or "",
+                        reference_type=local_ref_type,
+                        reference_id=local_ref_id,
                         created_at=mv_created,
                     ))
 
