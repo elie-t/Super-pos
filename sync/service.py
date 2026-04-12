@@ -410,6 +410,7 @@ def push_item_master(item_id: str) -> tuple[bool, str]:
             "cost_price": item.cost_price, "cost_currency": item.cost_currency or "USD",
             "vat_rate": item.vat_rate, "is_active": item.is_active,
             "is_online": item.is_online, "is_pos_featured": item.is_pos_featured,
+            "show_on_touch": item.show_on_touch,
             "photo_url": item.photo_url or "", "notes": item.notes or "",
             "updated_at": now, "pushed_by": BRANCH_ID,
         }
@@ -494,6 +495,7 @@ def push_all_items_to_central(progress_cb=None, incremental: bool = False) -> tu
                     "vat_rate": item.vat_rate, "is_active": item.is_active,
                     "is_online": item.is_online,
                     "is_pos_featured": item.is_pos_featured,
+                    "show_on_touch": item.show_on_touch,
                     "photo_url": item.photo_url or "",
                     "notes": item.notes or "",
                     "updated_at": now, "pushed_by": BRANCH_ID,
@@ -918,6 +920,7 @@ def pull_master_items() -> tuple[int, str]:
                 item.is_active       = ri.get("is_active", True)
                 item.is_online       = ri.get("is_online", False)
                 item.is_pos_featured = ri.get("is_pos_featured", False)
+                item.show_on_touch   = ri.get("show_on_touch", False)
                 item.photo_url       = ri.get("photo_url") or ""
                 item.notes           = ri.get("notes") or ""
 
@@ -926,8 +929,8 @@ def pull_master_items() -> tuple[int, str]:
                 item.category_id = cats.get(cat_name)
                 item.brand_id    = brands.get(brand_name)
 
-                # New items inherit show_on_touch from their category
-                if is_new and cat_touch.get(cat_name):
+                # New items with no show_on_touch set inherit from their category
+                if is_new and not item.show_on_touch and cat_touch.get(cat_name):
                     item.show_on_touch = True
 
                 seen_price_keys: set[tuple] = set()
