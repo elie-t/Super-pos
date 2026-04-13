@@ -1583,10 +1583,12 @@ class POSScreen(QWidget):
         )
         self._scan_input.returnPressed.connect(self._on_barcode_entered)
 
-        # Override keyPress so + / - act as qty shortcuts when input is empty
+        # Override keyPress so + / - act as qty shortcuts, Ctrl+Enter opens picker
         _orig_scan_key = self._scan_input.keyPressEvent
         def _scan_key(event, _orig=_orig_scan_key):
-            if event.key() == Qt.Key_Plus and not self._scan_input.text():
+            if event.key() in (Qt.Key_Return, Qt.Key_Enter) and (event.modifiers() & Qt.ControlModifier):
+                self._open_item_picker()
+            elif event.key() == Qt.Key_Plus and not self._scan_input.text():
                 self._increment_qty()
             else:
                 _orig(event)
@@ -2010,8 +2012,6 @@ class POSScreen(QWidget):
         QShortcut(QKeySequence("Escape"), self).activated.connect(
             lambda: self._scan_input.setFocus()
         )
-        QShortcut(QKeySequence("Ctrl+Return"), self).activated.connect(self._open_item_picker)
-        QShortcut(QKeySequence("Ctrl+Enter"),  self).activated.connect(self._open_item_picker)
 
     # ── Barcode scan ───────────────────────────────────────────────────────────
 
