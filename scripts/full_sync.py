@@ -85,8 +85,10 @@ def main():
             db.execute("""
                 INSERT INTO items (id, code, name, name_ar, category_id, brand_id,
                     unit, pack_size, cost_price, cost_currency, vat_rate, min_stock,
-                    is_active, is_pos_featured, is_online, show_on_touch, photo_url, notes)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    is_active, is_pos_featured, is_online, is_visible, is_featured,
+                    show_on_touch, photo_url, notes,
+                    sync_status, local_version, remote_version)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET
                     code=excluded.code, name=excluded.name, name_ar=excluded.name_ar,
                     category_id=excluded.category_id, brand_id=excluded.brand_id,
@@ -102,8 +104,10 @@ def main():
                   1 if ri.get("is_active",True) else 0,
                   1 if ri.get("is_pos_featured") else 0,
                   1 if ri.get("is_online") else 0,
+                  1, 0,
                   1 if ri.get("show_on_touch") else 0,
-                  ri.get("photo_url",""), ri.get("notes","")))
+                  ri.get("photo_url",""), ri.get("notes",""),
+                  "synced", 1, 1))
 
             # Upsert prices
             for p in prices_by_item.get(item_id, []):
