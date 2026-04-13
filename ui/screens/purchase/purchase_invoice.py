@@ -759,14 +759,15 @@ class PurchaseInvoiceScreen(QWidget):
         )
         self._table.installEventFilter(self)
         hdr = self._table.horizontalHeader()
-        # Description stretches to fill available space
-        hdr.setSectionResizeMode(self.COL_DESC, QHeaderView.Stretch)
+        # Description: fixed width so price/total columns have room
+        hdr.setSectionResizeMode(self.COL_DESC, QHeaderView.Fixed)
+        self._table.setColumnWidth(self.COL_DESC, 220)
         # Numeric columns: fixed minimum widths so editors are comfortable
         for col in (self.COL_NUM, self.COL_W, self.COL_CODE, self.COL_BC):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
         for col, w in (
-            (self.COL_BOX, 52), (self.COL_PCS, 72), (self.COL_PRC, 90),
-            (self.COL_DSC, 68), (self.COL_VAT, 68), (self.COL_TOT, 90),
+            (self.COL_BOX, 52), (self.COL_PCS, 72), (self.COL_PRC, 120),
+            (self.COL_DSC, 68), (self.COL_VAT, 68), (self.COL_TOT, 120),
         ):
             hdr.setSectionResizeMode(col, QHeaderView.Fixed)
             self._table.setColumnWidth(col, w)
@@ -1588,11 +1589,14 @@ class PurchaseInvoiceScreen(QWidget):
         disc_val = 0.0
         vat_val  = 0.0
         for line in self._lines:
+            box    = line.get("box", 0)
             pcs    = line["pcs"]
+            pkg    = line.get("pkg", 1)
             price  = line["price"]
             disc   = line["disc"]
             vat    = line["vat"]
-            gross  = pcs * price
+            qty    = box if (pkg > 1 and box > 0) else pcs
+            gross  = qty * price
             d      = gross * disc / 100
             net_hd = gross - d
             v      = net_hd * vat / 100
