@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QDialogButtonBox, QMessageBox,
     QDoubleSpinBox, QDateEdit, QInputDialog,
 )
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer, QObject, QEvent
 from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut
 
 from services.pos_service import PosService, PosLineItem
@@ -1583,16 +1583,25 @@ class POSScreen(QWidget):
         )
         self._scan_input.returnPressed.connect(self._on_barcode_entered)
 
-        # Override keyPress so + / - act as qty shortcuts, Ctrl+Enter opens picker
-        _orig_scan_key = self._scan_input.keyPressEvent
-        def _scan_key(event, _orig=_orig_scan_key):
-            if event.key() in (Qt.Key_Return, Qt.Key_Enter) and (event.modifiers() & Qt.ControlModifier):
-                self._open_item_picker()
-            elif event.key() == Qt.Key_Plus and not self._scan_input.text():
-                self._increment_qty()
-            else:
-                _orig(event)
-        self._scan_input.keyPressEvent = _scan_key
+        # Event filter: Ctrl+Enter → item picker, +/- → qty shortcuts
+        class _ScanFilter(QObject):
+            def __init__(self, screen):
+                super().__init__(screen)
+                self._screen = screen
+            def eventFilter(self, obj, event):
+                if event.type() == QEvent.Type.KeyPress:
+                    k = event.key()
+                    mod = event.modifiers()
+                    if k in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and (mod & Qt.KeyboardModifier.ControlModifier):
+                        self._screen._open_item_picker()
+                        return True
+                    if k == Qt.Key.Key_Plus and not self._screen._scan_input.text():
+                        self._screen._increment_qty()
+                        return True
+                return False
+
+        self._scan_filter = _ScanFilter(self)
+        self._scan_input.installEventFilter(self._scan_filter)
 
         sl.addWidget(self._scan_input, 1)
 
