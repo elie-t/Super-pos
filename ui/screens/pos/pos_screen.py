@@ -1582,9 +1582,6 @@ class POSScreen(QWidget):
             "border-radius:4px;padding:0 8px;background:#fff;color:#1a1a2e;"
         )
         self._scan_input.returnPressed.connect(self._on_barcode_entered)
-        QShortcut(QKeySequence("Ctrl+Return"), self._scan_input).activated.connect(
-            self._open_item_picker
-        )
 
         # Override keyPress so + / - act as qty shortcuts when input is empty
         _orig_scan_key = self._scan_input.keyPressEvent
@@ -2131,7 +2128,9 @@ class POSScreen(QWidget):
         query = self._scan_input.text().strip()
         rows = PurchaseService.search_items_by_sales(query, limit=200)
         if not rows:
-            QMessageBox.information(self, "No Items", "No items found.")
+            rows = PurchaseService.search_items_by_usage(query, limit=200)
+        if not rows:
+            self._beep_not_found()
             return
 
         dlg = QDialog(self)
