@@ -471,6 +471,74 @@ class PurchaseService:
             session.close()
 
     @staticmethod
+    def search_items_by_sales(query: str = "", limit: int = 200) -> list[dict]:
+        """Items matching query, sorted by POS sales frequency (most sold first)."""
+        init_db()
+        session = get_session()
+        try:
+            from database.models.items import Item, ItemBarcode
+            from database.models.sales import SaleLine
+            from sqlalchemy import func
+
+            sales_sub = (
+                session.query(
+                    SaleLine.item_id,
+                    func.count(SaleLine.id).label("cnt"),
+                )
+                .group_by(SaleLine.item_id)
+                .subquery()
+            )
+
+            q = (
+                session.query(Item, sales_sub.c.cnt)
+                .outerjoin(sales_sub, Item.id == sales_sub.c.item_id)
+                .filter(Item.is_active == True)
+            )
+
+            if query:
+                like = f"%{query}%"
+                bc_ids = (
+                    session.query(ItemBarcode.item_id)
+                    .filter(ItemBarcode.barcode.ilike(like))
+                    .scalar_subquery()
+                )
+                q = q.filter(
+                    Item.name.ilike(like)
+                    | Item.code.ilike(like)
+                    | Item.id.in_(bc_ids)
+                )
+
+            q = q.order_by(
+                func.coalesce(sales_sub.c.cnt, 0).desc(),
+                Item.name,
+            ).limit(limit)
+
+            rows = q.all()
+            item_ids = [r.Item.id for r in rows]
+            bc_map = {}
+            for bc in session.query(ItemBarcode).filter(
+                ItemBarcode.item_id.in_(item_ids), ItemBarcode.is_primary == True
+            ).all():
+                bc_map[bc.item_id] = bc
+
+            result = []
+            for r, cnt in rows:
+                bc = bc_map.get(r.id)
+                result.append({
+                    "item_id":  r.id,
+                    "code":     r.code,
+                    "name":     r.name,
+                    "barcode":  bc.barcode if bc else "",
+                    "pack_qty": (bc.pack_qty or 1) if bc else 1,
+                    "cost":     r.cost_price,
+                    "vat_pct":  r.vat_rate * 100,
+                    "usage":    cnt or 0,
+                })
+            return result
+        finally:
+            session.close()
+
+    @staticmethod
     def list_invoices(limit: int = 300) -> list[dict]:
         """All purchase invoices, newest first."""
         init_db()

@@ -2116,7 +2116,7 @@ class POSScreen(QWidget):
         """Ctrl+Enter: browse all items and select one."""
         from services.purchase_service import PurchaseService
         query = self._scan_input.text().strip()
-        rows = PurchaseService.search_items_by_usage(query, limit=200)
+        rows = PurchaseService.search_items_by_sales(query, limit=200)
         if not rows:
             QMessageBox.information(self, "No Items", "No items found.")
             return
