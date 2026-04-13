@@ -499,6 +499,26 @@ class SettingsScreen(QWidget):
         gen_form.setSpacing(8)
         gen_form.setLabelAlignment(Qt.AlignRight)
 
+        self._shop_name = QLineEdit()
+        self._shop_name.setPlaceholderText("e.g. My Shop")
+        self._shop_name.setFixedWidth(260)
+        gen_form.addRow("Shop Name:", self._shop_name)
+
+        self._shop_address = QLineEdit()
+        self._shop_address.setPlaceholderText("e.g. Beirut, Lebanon")
+        self._shop_address.setFixedWidth(260)
+        gen_form.addRow("Shop Address:", self._shop_address)
+
+        self._shop_phone = QLineEdit()
+        self._shop_phone.setPlaceholderText("e.g. +961 1 234 567")
+        self._shop_phone.setFixedWidth(260)
+        gen_form.addRow("Shop Phone:", self._shop_phone)
+
+        self._receipt_footer = QLineEdit()
+        self._receipt_footer.setPlaceholderText("e.g. Thank you!")
+        self._receipt_footer.setFixedWidth(260)
+        gen_form.addRow("Receipt Footer:", self._receipt_footer)
+
         self._lbp_rate = QLineEdit()
         self._lbp_rate.setPlaceholderText("e.g. 89500")
         self._lbp_rate.setFixedWidth(140)
@@ -796,8 +816,14 @@ class SettingsScreen(QWidget):
             init_db()
             session = get_session()
             try:
-                s = session.get(Setting, "lbp_rate")
-                self._lbp_rate.setText(s.value if s else "")
+                def _load(key, widget):
+                    s = session.get(Setting, key)
+                    widget.setText(s.value if s else "")
+                _load("shop_name",      self._shop_name)
+                _load("shop_address",   self._shop_address)
+                _load("shop_phone",     self._shop_phone)
+                _load("receipt_footer", self._receipt_footer)
+                _load("lbp_rate",       self._lbp_rate)
             finally:
                 session.close()
         except Exception:
@@ -810,12 +836,18 @@ class SettingsScreen(QWidget):
             init_db()
             session = get_session()
             try:
-                val = self._lbp_rate.text().strip()
-                s = session.get(Setting, "lbp_rate")
-                if s:
-                    s.value = val
-                else:
-                    session.add(Setting(key="lbp_rate", value=val))
+                def _save(key, widget):
+                    val = widget.text().strip()
+                    s = session.get(Setting, key)
+                    if s:
+                        s.value = val
+                    else:
+                        session.add(Setting(key=key, value=val))
+                _save("shop_name",      self._shop_name)
+                _save("shop_address",   self._shop_address)
+                _save("shop_phone",     self._shop_phone)
+                _save("receipt_footer", self._receipt_footer)
+                _save("lbp_rate",       self._lbp_rate)
                 session.commit()
                 self._gen_status_lbl.setText("✔  Saved.")
                 self._gen_status_lbl.setStyleSheet("font-size:11px; color:#2e7d32;")
