@@ -38,7 +38,7 @@ def _build_receipt_text(data: dict, payment_method: str, tendered: float) -> str
         rows.append(data["shop_address"].center(W))
     if data.get("shop_phone"):
         rows.append(f"Tel: {data['shop_phone']}".center(W))
-    if data.get("warehouse"):
+    if data.get("warehouse") and data.get("warehouse") != data.get("shop_address"):
         rows.append(data["warehouse"].center(W))
     rows.append("-" * W)
 
@@ -131,7 +131,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         header += f"<div style='text-align:center;font-size:10pt;line-height:1.0;margin:0;'>{e(data['shop_address'])}</div>"
     if data.get("shop_phone"):
         header += f"<div style='text-align:center;font-size:9pt;line-height:1.0;margin:0;'>Tel: {e(data['shop_phone'])}</div>"
-    if data.get("warehouse"):
+    if data.get("warehouse") and data.get("warehouse") != data.get("shop_address"):
         header += f"<div style='text-align:center;font-size:9pt;line-height:1.0;margin:0;'>{e(data['warehouse'])}</div>"
 
     # ── Meta rows ─────────────────────────────────────────────────────────────
@@ -547,7 +547,7 @@ def print_receipt_escpos(
             p.text(f"{data['shop_address']}\n")
         if data.get("shop_phone"):
             p.text(f"Tel: {data['shop_phone']}\n")
-        if data.get("warehouse"):
+        if data.get("warehouse") and data.get("warehouse") != data.get("shop_address"):
             p.text(f"{data['warehouse']}\n")
 
         p.text("-" * W + "\n")
