@@ -51,7 +51,7 @@ def main():
         rows = get("items_central", {
             "select": "id,code,name,name_ar,category,brand,unit,cost_price,"
                       "cost_currency,vat_rate,is_active,is_pos_featured,is_online,"
-                      "show_on_touch,photo_url,notes,pack_size",
+                      "show_on_touch,photo_url,notes",
             "order": "id.asc",
             "limit": BATCH,
             "offset": offset,
@@ -84,20 +84,19 @@ def main():
             # Upsert item
             db.execute("""
                 INSERT INTO items (id, code, name, name_ar, category_id, brand_id,
-                    unit, pack_size, cost_price, cost_currency, vat_rate, is_active,
+                    unit, cost_price, cost_currency, vat_rate, is_active,
                     is_pos_featured, is_online, show_on_touch, photo_url, notes)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET
                     code=excluded.code, name=excluded.name, name_ar=excluded.name_ar,
                     category_id=excluded.category_id, brand_id=excluded.brand_id,
-                    unit=excluded.unit, pack_size=excluded.pack_size,
-                    cost_price=excluded.cost_price, cost_currency=excluded.cost_currency,
-                    vat_rate=excluded.vat_rate, is_active=excluded.is_active,
-                    is_pos_featured=excluded.is_pos_featured, is_online=excluded.is_online,
-                    show_on_touch=excluded.show_on_touch, photo_url=excluded.photo_url,
-                    notes=excluded.notes
+                    unit=excluded.unit, cost_price=excluded.cost_price,
+                    cost_currency=excluded.cost_currency, vat_rate=excluded.vat_rate,
+                    is_active=excluded.is_active, is_pos_featured=excluded.is_pos_featured,
+                    is_online=excluded.is_online, show_on_touch=excluded.show_on_touch,
+                    photo_url=excluded.photo_url, notes=excluded.notes
             """, (item_id, ri.get("code",""), ri.get("name",""), ri.get("name_ar",""),
-                  cat_id, brand_id, ri.get("unit","PCS"), ri.get("pack_size",1),
+                  cat_id, brand_id, ri.get("unit","PCS"),
                   ri.get("cost_price",0), ri.get("cost_currency","USD"),
                   ri.get("vat_rate",0), 1 if ri.get("is_active",True) else 0,
                   1 if ri.get("is_pos_featured") else 0,
