@@ -1597,6 +1597,16 @@ class POSScreen(QWidget):
 
         sl.addWidget(self._scan_input, 1)
 
+        search_btn = QPushButton("🔍")
+        search_btn.setFixedSize(36, 36)
+        search_btn.setToolTip("Search items  (Ctrl+Enter)")
+        search_btn.setStyleSheet(
+            "QPushButton{background:#1a6cb5;color:#fff;font-size:15px;"
+            "border:none;border-radius:4px;}"
+            "QPushButton:hover{background:#1256a0;}"
+        )
+        search_btn.clicked.connect(self._open_item_picker)
+        sl.addWidget(search_btn)
 
         lay.addWidget(scan_bar)
 
@@ -2003,6 +2013,8 @@ class POSScreen(QWidget):
         QShortcut(QKeySequence("Escape"), self).activated.connect(
             lambda: self._scan_input.setFocus()
         )
+        QShortcut(QKeySequence("Ctrl+Return"), self).activated.connect(self._open_item_picker)
+        QShortcut(QKeySequence("Ctrl+Enter"),  self).activated.connect(self._open_item_picker)
 
     # ── Barcode scan ───────────────────────────────────────────────────────────
 
