@@ -894,14 +894,18 @@ class ItemMaintenanceScreen(QWidget):
         """One row per barcode — each with Cost + price columns."""
         self._price_table.setRowCount(0)
 
-        # Group prices by type
-        price_map = {p[1]: (p[2], p[3]) for p in detail.prices}  # type → (amount, currency)
+        # Group prices by (type, pack_qty) — box barcode rows get independent prices
+        price_map = {
+            (p[1], p[5] if len(p) > 5 else 1): (p[2], p[3])
+            for p in detail.prices
+        }  # (type, pack_qty) → (amount, currency)
 
-        # Restore currency combos from stored prices
+        # Restore currency combos from pcs prices (pack_qty=1)
         price_type_order = ["individual", "retail", "wholesale", "semi_wholesale"]
         for i, ptype in enumerate(price_type_order):
-            if ptype in price_map:
-                _, currency = price_map[ptype]
+            key = (ptype, 1)
+            if key in price_map:
+                _, currency = price_map[key]
                 combo = self._sale_currency_combos[i]
                 combo.blockSignals(True)
                 idx = combo.findText(currency)
@@ -966,11 +970,22 @@ class ItemMaintenanceScreen(QWidget):
         for i, (ptype, color, def_margin) in enumerate(
                 zip(price_type_keys, price_colors, default_margins)):
 
-            if ptype in price_map:
-                amount, _ = price_map[ptype]
+            # Look up price: prefer exact pack_qty match, then fall back to pcs (pack_qty=1)
+            key_exact = (ptype, pkg)
+            key_pcs   = (ptype, 1)
+            key_retail_exact = ("retail", pkg)
+            key_retail_pcs   = ("retail", 1)
+            if key_exact in price_map:
+                amount, _ = price_map[key_exact]
                 margin = self._calc_margin(row_cost, amount) if row_cost > 0 else def_margin
-            elif "retail" in price_map and i == 0:
-                amount, _ = price_map["retail"]
+            elif key_pcs in price_map:
+                amount, _ = price_map[key_pcs]
+                margin = self._calc_margin(row_cost, amount) if row_cost > 0 else def_margin
+            elif i == 0 and key_retail_exact in price_map:
+                amount, _ = price_map[key_retail_exact]
+                margin = self._calc_margin(row_cost, amount) if row_cost > 0 else def_margin
+            elif i == 0 and key_retail_pcs in price_map:
+                amount, _ = price_map[key_retail_pcs]
                 margin = self._calc_margin(row_cost, amount) if row_cost > 0 else def_margin
             else:
                 # New row — auto-calculate price from default margin
@@ -1311,10 +1326,19 @@ class ItemMaintenanceScreen(QWidget):
                     pct  = (new_price / base - 1) * 100 if base > 0 else 0.0
                     pct_item.setText(f"{pct:.2f}")
 
-                # Propagate the new price to every other barcode row
+                # Propagate the new price to other pcs rows (pack_qty=1) only.
+                # Box rows (pack_qty > 1) have independent prices — do not touch them.
                 if new_price is not None:
                     for other_r in range(self._price_table.rowCount()):
                         if other_r == row:
+                            continue
+                        # Skip box barcode rows — their prices are independent
+                        other_pkg_item = self._price_table.item(other_r, 2)
+                        try:
+                            other_pkg = int(other_pkg_item.text()) if other_pkg_item else 1
+                        except ValueError:
+                            other_pkg = 1
+                        if other_pkg > 1:
                             continue
                         other_price_item = self._price_table.item(other_r, col)
                         if other_price_item:
@@ -1416,19 +1440,29 @@ class ItemMaintenanceScreen(QWidget):
             self._show_error("Product description is required.")
             return
 
-        # Collect prices from grid
+        # Collect prices from grid — one set per unique pack_qty.
+        # pcs rows (pack_qty=1) share prices; box rows (pack_qty>1) are independent.
         prices = []
         price_type_keys = ["individual", "retail", "wholesale", "semi_wholesale"]
-        if self._price_table.rowCount() > 0:
+        seen_pack_qtys: set[int] = set()
+        for r in range(self._price_table.rowCount()):
+            pkg_item = self._price_table.item(r, 2)
+            try:
+                row_pkg = int(pkg_item.text()) if pkg_item else 1
+            except ValueError:
+                row_pkg = 1
+            if row_pkg in seen_pack_qtys:
+                continue
+            seen_pack_qtys.add(row_pkg)
             for col_idx, ptype in zip([5, 7, 9, 11], price_type_keys):
-                price_item = self._price_table.item(0, col_idx)
+                price_item = self._price_table.item(r, col_idx)
                 if price_item:
                     try:
                         amount = float(price_item.text())
                         currency = self._sale_currency_combos[
                             price_type_keys.index(ptype)
                         ].currentText()
-                        prices.append(("", ptype, amount, currency, ptype == "retail"))
+                        prices.append(("", ptype, amount, currency, ptype == "retail", row_pkg))
                     except ValueError:
                         pass
 

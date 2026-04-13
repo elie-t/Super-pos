@@ -423,7 +423,9 @@ def push_item_master(item_id: str) -> tuple[bool, str]:
             {
                 "id": p.id, "item_id": item.id,
                 "price_type": p.price_type, "amount": p.amount,
-                "currency": p.currency, "updated_at": now,
+                "currency": p.currency,
+                "pack_qty": getattr(p, "pack_qty", 1),
+                "updated_at": now,
             }
             for p in item.prices
         ]
@@ -504,7 +506,9 @@ def push_all_items_to_central(progress_cb=None, incremental: bool = False) -> tu
                     price_rows.append({
                         "id": p.id, "item_id": item.id,
                         "price_type": p.price_type, "amount": p.amount,
-                        "currency": p.currency, "updated_at": now,
+                        "currency": p.currency,
+                        "pack_qty": getattr(p, "pack_qty", 1),
+                        "updated_at": now,
                     })
                 for b in item.barcodes:
                     bc_rows.append({
@@ -890,10 +894,12 @@ def pull_master_items() -> tuple[int, str]:
                         existing.is_active  = ri.get("is_active", existing.is_active)
                         existing.is_pos_featured = ri.get("is_pos_featured", existing.is_pos_featured)
                         for rp_row in prices_by_item.get(ri["id"], []):
+                            r_pack_qty = rp_row.get("pack_qty", 1) or 1
                             price = session.query(ItemPrice).filter_by(
                                 item_id=existing.id,
                                 price_type=rp_row["price_type"],
                                 currency=rp_row["currency"],
+                                pack_qty=r_pack_qty,
                             ).first()
                             if not price:
                                 price = ItemPrice(id=new_uuid(), item_id=existing.id)
@@ -901,6 +907,7 @@ def pull_master_items() -> tuple[int, str]:
                             price.price_type = rp_row["price_type"]
                             price.amount     = rp_row["amount"]
                             price.currency   = rp_row["currency"]
+                            price.pack_qty   = r_pack_qty
                         seen_codes.add(code_str)
                         latest_ts = ri.get("updated_at", latest_ts)
                         total_updated += 1
@@ -935,12 +942,14 @@ def pull_master_items() -> tuple[int, str]:
 
                 seen_price_keys: set[tuple] = set()
                 for rp_row in prices_by_item.get(ri["id"], []):
+                    r_pack_qty = rp_row.get("pack_qty", 1) or 1
                     price = session.get(ItemPrice, rp_row["id"])
                     if not price:
                         price = session.query(ItemPrice).filter_by(
                             item_id=ri["id"],
                             price_type=rp_row["price_type"],
                             currency=rp_row["currency"],
+                            pack_qty=r_pack_qty,
                         ).first()
                     if not price:
                         price = ItemPrice(id=rp_row["id"], item_id=ri["id"])
@@ -948,11 +957,12 @@ def pull_master_items() -> tuple[int, str]:
                     price.price_type = rp_row["price_type"]
                     price.amount     = rp_row["amount"]
                     price.currency   = rp_row["currency"]
-                    seen_price_keys.add((rp_row["price_type"], rp_row["currency"]))
+                    price.pack_qty   = r_pack_qty
+                    seen_price_keys.add((rp_row["price_type"], rp_row["currency"], r_pack_qty))
 
                 if seen_price_keys:
                     for dup in session.query(ItemPrice).filter_by(item_id=ri["id"]).all():
-                        if (dup.price_type, dup.currency) not in seen_price_keys:
+                        if (dup.price_type, dup.currency, getattr(dup, "pack_qty", 1)) not in seen_price_keys:
                             session.delete(dup)
 
                 for rb_row in barcodes_by_item.get(ri["id"], []):

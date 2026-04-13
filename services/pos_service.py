@@ -139,25 +139,64 @@ class PosService:
                 item_id=item.id, is_primary=True
             ).first()
 
-            # Selling price — prefer requested type, fallback to retail, then any
-            price_obj = (
-                session.query(ItemPrice).filter_by(
-                    item_id=item.id, price_type=price_type, currency=currency
-                ).first()
-                or session.query(ItemPrice).filter_by(
-                    item_id=item.id, price_type=price_type
-                ).first()
-                or session.query(ItemPrice).filter_by(
-                    item_id=item.id, price_type="retail"
-                ).first()
-                or session.query(ItemPrice).filter_by(item_id=item.id).first()
+            scanned_pack_qty = scanned_bc.pack_qty if scanned_bc else 1
+
+            # Selling price — for box barcodes prefer the pack_qty-specific price first
+            if scanned_pack_qty > 1:
+                price_obj = (
+                    session.query(ItemPrice).filter_by(
+                        item_id=item.id, price_type=price_type,
+                        currency=currency, pack_qty=scanned_pack_qty
+                    ).first()
+                    or session.query(ItemPrice).filter_by(
+                        item_id=item.id, price_type=price_type, pack_qty=scanned_pack_qty
+                    ).first()
+                    or session.query(ItemPrice).filter_by(
+                        item_id=item.id, price_type=price_type, currency=currency, pack_qty=1
+                    ).first()
+                    or session.query(ItemPrice).filter_by(
+                        item_id=item.id, price_type=price_type
+                    ).first()
+                    or session.query(ItemPrice).filter_by(
+                        item_id=item.id, price_type="retail"
+                    ).first()
+                    or session.query(ItemPrice).filter_by(item_id=item.id).first()
+                )
+            else:
+                price_obj = (
+                    session.query(ItemPrice).filter_by(
+                        item_id=item.id, price_type=price_type,
+                        currency=currency, pack_qty=1
+                    ).first()
+                    or session.query(ItemPrice).filter_by(
+                        item_id=item.id, price_type=price_type, currency=currency
+                    ).first()
+                    or session.query(ItemPrice).filter_by(
+                        item_id=item.id, price_type=price_type
+                    ).first()
+                    or session.query(ItemPrice).filter_by(
+                        item_id=item.id, price_type="retail"
+                    ).first()
+                    or session.query(ItemPrice).filter_by(item_id=item.id).first()
+                )
+
+            # If a box-specific price was found, use it directly (qty=pack_qty pcs consumed)
+            # and divide by pack_qty so total = unit_price × pack_qty = box_price ✓
+            box_price_found = (
+                scanned_pack_qty > 1
+                and price_obj is not None
+                and getattr(price_obj, "pack_qty", 1) == scanned_pack_qty
             )
-            unit_price = price_obj.amount if price_obj else 0.0
+            if box_price_found:
+                box_price = price_obj.amount
+                unit_price = box_price / scanned_pack_qty
+            else:
+                unit_price = price_obj.amount if price_obj else 0.0
             price_currency = price_obj.currency if price_obj else currency
 
             # Pack qty — if the scanned barcode represents a multi-pack,
             # set qty to pack_qty so (qty × unit_price) gives the pack total.
-            pack_qty = float(scanned_bc.pack_qty) if scanned_bc and scanned_bc.pack_qty > 1 else 1.0
+            pack_qty = float(scanned_pack_qty) if scanned_pack_qty > 1 else 1.0
 
             # Stock
             stock = session.query(ItemStock).filter_by(item_id=item.id).first()

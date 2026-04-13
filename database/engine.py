@@ -190,6 +190,13 @@ def init_db() -> None:
         except Exception:
             pass
         try:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE item_prices ADD COLUMN pack_qty INTEGER NOT NULL DEFAULT 1"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+        try:
             # Propagate show_on_touch from category to items that are missing it.
             # Runs on every startup but is a no-op when already correct.
             conn.execute(__import__("sqlalchemy").text(

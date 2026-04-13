@@ -138,6 +138,8 @@ class ItemPrice(Base, TimestampMixin, SyncMixin):
     currency:   Mapped[str]   = mapped_column(String(5), default="USD")       # USD | LBP
     is_default: Mapped[bool]  = mapped_column(Boolean, default=True)
     is_active:  Mapped[bool]  = mapped_column(Boolean, default=True)
+    # pack_qty=1 → pcs price; pack_qty>1 → box price (independent from pcs price)
+    pack_qty:   Mapped[int]   = mapped_column(Integer, default=1)
 
     item: Mapped["Item"] = relationship(back_populates="prices")
 

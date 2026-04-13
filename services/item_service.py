@@ -145,7 +145,7 @@ class ItemService:
             brand = session.query(Brand).filter_by(id=item.brand_id).first() if item.brand_id else None
             barcodes = [(b.id, b.barcode, b.is_primary, b.pack_qty)
                         for b in session.query(ItemBarcode).filter_by(item_id=item_id).all()]
-            prices = [(p.id, p.price_type, p.amount, p.currency, p.is_default)
+            prices = [(p.id, p.price_type, p.amount, p.currency, p.is_default, getattr(p, "pack_qty", 1))
                       for p in session.query(ItemPrice).filter_by(item_id=item_id).all()]
             stock_entries = []
             for s in session.query(ItemStock).filter_by(item_id=item_id).all():
@@ -238,24 +238,28 @@ class ItemService:
 
             session.flush()
 
-            # Update prices — find by id first, then by type, then insert
+            # Update prices — find by id first, then by (type, pack_qty), then insert
             from database.models.base import new_uuid
-            for pid, ptype, amount, currency, is_default in detail.prices:
+            for price_tuple in detail.prices:
+                pid, ptype, amount, currency, is_default = price_tuple[:5]
+                p_pack_qty = price_tuple[5] if len(price_tuple) > 5 else 1
                 price_obj = (
                     session.query(ItemPrice).filter_by(id=pid).first()
                     if pid else
                     session.query(ItemPrice).filter_by(
-                        item_id=item.id, price_type=ptype
+                        item_id=item.id, price_type=ptype, pack_qty=p_pack_qty
                     ).first()
                 )
                 if price_obj:
                     price_obj.amount   = amount
                     price_obj.currency = currency
+                    price_obj.pack_qty = p_pack_qty
                 else:
                     session.add(ItemPrice(
                         id=new_uuid(), item_id=item.id,
                         price_type=ptype, amount=amount,
                         currency=currency, is_default=is_default,
+                        pack_qty=p_pack_qty,
                     ))
 
             # Update barcodes — (bc_id, barcode, is_primary, pack_qty)
