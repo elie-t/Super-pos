@@ -32,6 +32,7 @@ class PurchaseLineItem:
     stock_units: float = 0.0
     stock_packs: float = 0.0
     last_cost: float = 0.0
+    last_cost_currency: str = "USD"
     avg_cost: float = 0.0
     subgroup: str = ""
     brand: str = ""
@@ -140,6 +141,13 @@ class PurchaseService:
                 item_id=item.id, movement_type="purchase"
             ).order_by(StockMovement.created_at.desc()).first()
             last_cost = last_mv.unit_cost if last_mv else item.cost_price
+            # Determine currency of last cost from the purchase invoice it came from
+            last_cost_currency = "USD"
+            if last_mv and last_mv.reference_id:
+                from database.models.invoices import PurchaseInvoice
+                ref_inv = session.query(PurchaseInvoice).filter_by(id=last_mv.reference_id).first()
+                if ref_inv:
+                    last_cost_currency = ref_inv.currency or "USD"
 
             # Selling prices
             prices = session.query(ItemPrice).filter_by(item_id=item.id).all()
@@ -169,6 +177,7 @@ class PurchaseService:
                 stock_units=stock_units,
                 stock_packs=stock_packs,
                 last_cost=last_cost,
+                last_cost_currency=last_cost_currency,
                 avg_cost=item.cost_price,
                 subgroup=cat.name if cat else "",
                 brand="",

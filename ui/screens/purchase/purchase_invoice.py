@@ -1106,8 +1106,15 @@ class PurchaseInvoiceScreen(QWidget):
         self._block_total(True)
         self._box_spin.setValue(0)
         self._pcs_spin.setValue(0)
-        # Store pcs and box prices in invoice currency (last_cost is always in USD)
-        rate = self._lbp_rate if self._cur_combo.currentText() == "LBP" else 1.0
+        # Convert last_cost to invoice currency only if currencies differ
+        inv_currency = self._cur_combo.currentText()
+        last_cost_currency = getattr(item, "last_cost_currency", "USD") or "USD"
+        if inv_currency == "LBP" and last_cost_currency == "USD":
+            rate = self._lbp_rate
+        elif inv_currency == "USD" and last_cost_currency == "LBP":
+            rate = 1.0 / self._lbp_rate if self._lbp_rate else 1.0
+        else:
+            rate = 1.0
         self._current_pcs_price = item.last_cost * rate
         self._current_box_price = item.last_cost * item.pack_qty * rate
         # Default: pcs price (box qty is 0 at this point)
