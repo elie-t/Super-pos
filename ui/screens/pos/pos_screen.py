@@ -1535,7 +1535,8 @@ class POSScreen(QWidget):
 
         lay.addSpacing(16)
 
-        self._print_enabled = False
+        self._print_copies = 0   # 0=OFF  1=ON  2=ON×2
+        self._print_enabled = False  # kept for compat (True when copies>0)
         self._print_toggle_btn = QPushButton("🖨 Print: OFF")
         self._print_toggle_btn.setFixedHeight(24)
         self._print_toggle_btn.setStyleSheet(
@@ -2620,7 +2621,9 @@ class POSScreen(QWidget):
             change_txt = f"  Change ل.ل {change:,.0f}" if change > 0 else ""
             self._last_inv_amt_lbl.setText(f"ل.ل {total:,.0f}{change_txt}")
             self._active_online_order_id = ""
-            if self._print_enabled:
+            if self._print_copies > 0:
+                self._print_receipt(result, dlg.method, dlg.tendered)
+            if self._print_copies >= 2:
                 self._print_receipt(result, dlg.method, dlg.tendered)
             self._new_sale()
         else:
@@ -3288,13 +3291,21 @@ class POSScreen(QWidget):
         ))
 
     def _toggle_print(self):
-        self._print_enabled = not self._print_enabled
-        if self._print_enabled:
+        self._print_copies = (self._print_copies + 1) % 3   # 0→1→2→0
+        self._print_enabled = self._print_copies > 0
+        if self._print_copies == 1:
             self._print_toggle_btn.setText("🖨 Print: ON")
             self._print_toggle_btn.setStyleSheet(
                 "QPushButton{background:#2e7d32;color:#fff;border:none;"
                 "border-radius:3px;padding:0 10px;font-size:11px;font-weight:700;}"
                 "QPushButton:hover{background:#1b5e20;}"
+            )
+        elif self._print_copies == 2:
+            self._print_toggle_btn.setText("🖨 Print: ×2")
+            self._print_toggle_btn.setStyleSheet(
+                "QPushButton{background:#f57f17;color:#fff;border:none;"
+                "border-radius:3px;padding:0 10px;font-size:11px;font-weight:700;}"
+                "QPushButton:hover{background:#e65100;}"
             )
         else:
             self._print_toggle_btn.setText("🖨 Print: OFF")
