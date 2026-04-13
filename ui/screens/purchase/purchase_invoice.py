@@ -1102,10 +1102,6 @@ class PurchaseInvoiceScreen(QWidget):
             subgroup=getattr(item, "subgroup", ""),
         )
 
-        # reset entry fields
-        self._block_total(True)
-        self._box_spin.setValue(0)
-        self._pcs_spin.setValue(0)
         # Convert last_cost to invoice currency only if currencies differ
         inv_currency = self._cur_combo.currentText()
         last_cost_currency = getattr(item, "last_cost_currency", "USD") or "USD"
@@ -1117,7 +1113,12 @@ class PurchaseInvoiceScreen(QWidget):
             rate = 1.0
         self._current_pcs_price = item.last_cost * rate
         self._current_box_price = item.last_cost * item.pack_qty * rate
-        # Default: pcs price (box qty is 0 at this point)
+
+        # Reset entry fields — set prices BEFORE touching spins so _on_box_changed
+        # fires with correct values already in place
+        self._block_total(True)
+        self._box_spin.setValue(0)
+        self._pcs_spin.setValue(0)
         self._price_spin.setValue(self._current_pcs_price)
         self._disc_spin.setValue(0)
         self._vat_spin.setValue(0)          # VAT stays 0 unless user sets it
@@ -1233,11 +1234,21 @@ class PurchaseInvoiceScreen(QWidget):
                 subgroup=getattr(item, "subgroup", ""),
             )
 
+            inv_currency = self._cur_combo.currentText()
+            last_cost_currency = getattr(item, "last_cost_currency", "USD") or "USD"
+            if inv_currency == "LBP" and last_cost_currency == "USD":
+                rate = self._lbp_rate
+            elif inv_currency == "USD" and last_cost_currency == "LBP":
+                rate = 1.0 / self._lbp_rate if self._lbp_rate else 1.0
+            else:
+                rate = 1.0
+            self._current_pcs_price = item.last_cost * rate
+            self._current_box_price = item.last_cost * item.pack_qty * rate
+
             self._block_total(True)
             self._box_spin.setValue(0)
             self._pcs_spin.setValue(0)
-            default_price = row["cost"] * item.pack_qty if item.pack_qty > 1 else row["cost"]
-            self._price_spin.setValue(default_price)
+            self._price_spin.setValue(self._current_pcs_price)
             self._disc_spin.setValue(0)
             self._vat_spin.setValue(0)
             self._total_spin.setValue(0)
