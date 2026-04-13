@@ -3345,7 +3345,8 @@ class POSScreen(QWidget):
     def _price_check(self):
         dlg = QDialog(self)
         dlg.setWindowTitle("POS Price Checking")
-        dlg.setFixedSize(460, 320)
+        dlg.setMinimumSize(560, 400)
+        dlg.resize(600, 440)
         dlg.setStyleSheet("background:#fff;")
 
         lay = QVBoxLayout(dlg)
@@ -3397,28 +3398,33 @@ class POSScreen(QWidget):
         rl.setSpacing(4)
 
         code_lbl = QLabel("")
-        code_lbl.setStyleSheet("font-size:12px;color:#333;")
+        code_lbl.setStyleSheet("font-size:13px;color:#333;")
         rl.addWidget(code_lbl)
 
         name_lbl = QLabel("")
-        name_lbl.setStyleSheet("font-size:18px;font-weight:700;color:#cc0000;")
+        name_lbl.setStyleSheet("font-size:20px;font-weight:700;color:#cc0000;")
         name_lbl.setWordWrap(True)
+        name_lbl.setMinimumHeight(30)
         rl.addWidget(name_lbl)
 
         lbp_lbl = QLabel("")
-        lbp_lbl.setStyleSheet("font-size:28px;font-weight:700;color:#cc0000;")
+        lbp_lbl.setStyleSheet("font-size:32px;font-weight:700;color:#cc0000;")
+        lbp_lbl.setMinimumHeight(42)
+        lbp_lbl.setWordWrap(True)
         rl.addWidget(lbp_lbl)
 
         usd_lbl = QLabel("")
-        usd_lbl.setStyleSheet("font-size:22px;font-weight:700;color:#cc0000;")
+        usd_lbl.setStyleSheet("font-size:26px;font-weight:700;color:#cc0000;")
+        usd_lbl.setMinimumHeight(36)
+        usd_lbl.setWordWrap(True)
         rl.addWidget(usd_lbl)
 
         stock_title = QLabel("Stock Units:")
-        stock_title.setStyleSheet("font-size:12px;font-weight:700;color:#333;")
+        stock_title.setStyleSheet("font-size:13px;font-weight:700;color:#333;")
         rl.addWidget(stock_title)
 
         stock_lbl = QLabel("")
-        stock_lbl.setStyleSheet("font-size:16px;font-weight:700;color:#1a1a2e;")
+        stock_lbl.setStyleSheet("font-size:18px;font-weight:700;color:#1a1a2e;")
         rl.addWidget(stock_lbl)
 
         lay.addWidget(result_frame, 1)
@@ -3430,7 +3436,7 @@ class POSScreen(QWidget):
         self._pc_item = [None]   # holds last found item
 
         drop_btn = QPushButton("Drop To\nInvoice  ➕")
-        drop_btn.setFixedSize(90, 46)
+        drop_btn.setFixedSize(120, 50)
         drop_btn.setStyleSheet(
             "QPushButton{background:#2e7d32;color:#fff;font-size:11px;font-weight:700;"
             "border:none;border-radius:5px;}"
@@ -3438,7 +3444,7 @@ class POSScreen(QWidget):
         )
 
         close_btn = QPushButton("Close  ✕")
-        close_btn.setFixedSize(70, 46)
+        close_btn.setFixedSize(90, 50)
         close_btn.setStyleSheet(
             "QPushButton{background:#c62828;color:#fff;font-size:11px;font-weight:700;"
             "border:none;border-radius:5px;}"
