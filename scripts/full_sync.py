@@ -113,13 +113,13 @@ def main():
             for p in prices_by_item.get(item_id, []):
                 db.execute("""
                     INSERT INTO item_prices (id, item_id, price_type, amount, currency,
-                        is_default, is_active, pack_qty)
-                    VALUES (?,?,?,?,?,1,1,?)
+                        is_default, is_active, pack_qty, sync_status, local_version, remote_version)
+                    VALUES (?,?,?,?,?,1,1,?,?,?,?)
                     ON CONFLICT(id) DO UPDATE SET
                         price_type=excluded.price_type, amount=excluded.amount,
                         currency=excluded.currency, pack_qty=excluded.pack_qty
                 """, (p["id"], item_id, p["price_type"], p["amount"],
-                      p.get("currency","USD"), p.get("pack_qty",1)))
+                      p.get("currency","USD"), p.get("pack_qty",1), "synced", 1, 1))
 
             # Upsert barcodes
             for b in barcodes_by_item.get(item_id, []):
