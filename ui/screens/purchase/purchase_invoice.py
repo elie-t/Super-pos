@@ -653,9 +653,10 @@ class PurchaseInvoiceScreen(QWidget):
         lay.addWidget(self._price_lbl)
         self._price_spin = QDoubleSpinBox()
         self._price_spin.setRange(0, 999999999)
-        self._price_spin.setDecimals(4)
+        self._price_spin.setDecimals(2)
+        self._price_spin.setGroupSeparatorShown(True)
         self._price_spin.setFixedHeight(32)
-        self._price_spin.setFixedWidth(100)
+        self._price_spin.setFixedWidth(120)
         self._price_spin.installEventFilter(self)
         # also catch F1 on the spinbox's internal line edit
         for child in self._price_spin.children():
@@ -694,8 +695,9 @@ class PurchaseInvoiceScreen(QWidget):
         self._total_spin = QDoubleSpinBox()
         self._total_spin.setRange(0, 999999999)
         self._total_spin.setDecimals(2)
+        self._total_spin.setGroupSeparatorShown(True)
         self._total_spin.setFixedHeight(32)
-        self._total_spin.setFixedWidth(110)
+        self._total_spin.setFixedWidth(130)
         self._total_spin.setStyleSheet("font-weight:700;font-size:13px;")
         self._total_spin.installEventFilter(self)
         # back-calc price when total is changed
@@ -1202,7 +1204,7 @@ class PurchaseInvoiceScreen(QWidget):
         denom = qty * (1 - disc / 100) * (1 + vat / 100)
         if denom > 0:
             self._price_spin.blockSignals(True)
-            self._price_spin.setValue(round(val / denom, 4))
+            self._price_spin.setValue(round(val / denom, 2))
             self._price_spin.blockSignals(False)
 
     def _block_total(self, block: bool):
