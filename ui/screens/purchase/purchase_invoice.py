@@ -1484,6 +1484,8 @@ class PurchaseInvoiceScreen(QWidget):
             self._table.setCellWidget(row, self.COL_DEL, del_btn)
 
         self._table_updating = False
+        if self._lines:
+            self._table.scrollToItem(self._table.item(len(self._lines) - 1, 0))
 
     def _on_cell_edited(self, cell):
         if self._table_updating:
