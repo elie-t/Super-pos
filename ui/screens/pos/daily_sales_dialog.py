@@ -863,15 +863,73 @@ class DailySalesDialog(QDialog):
 <div style='text-align:center;font-size:7pt;margin-top:4px;'>*** Shift Closed ***</div>
 </body></html>"""
 
+            from utils.receipt_printer import _render_to_printer, _get_qt_printer_name, get_escpos_printer
             from PySide6.QtPrintSupport import QPrinter, QPrintPreviewDialog
-            from utils.receipt_printer import _render_to_printer, _get_qt_printer_name
+            from PySide6.QtGui import QPageLayout
+            from PySide6.QtCore import QMarginsF
 
+            # 1. ESC/POS direct print
+            p = get_escpos_printer()
+            if p is not None:
+                try:
+                    W = 48
+                    def rrow(label, value):
+                        vw = len(str(value))
+                        lw = max(1, W - vw - 1)
+                        return f"{str(label)[:lw]:<{lw}} {value}\n"
+                    p.text("\n")
+                    p.set(align="center", bold=True, double_height=True)
+                    p.text("End of Shift\n")
+                    p.set(align="center", bold=False, double_height=False)
+                    p.text(f"{today}  |  {s.get('invoice_count',0)} invoices\n")
+                    p.text("-" * W + "\n")
+                    p.set(align="left", bold=True)
+                    p.text("CATEGORIES\n")
+                    p.set(bold=False)
+                    for c in cats:
+                        p.text(rrow(c['category'], famt(c['total'], c['currency'])))
+                    p.text("-" * W + "\n")
+                    p.set(bold=True)
+                    p.text("PAYMENT METHODS\n")
+                    p.set(bold=False)
+                    for pay in by_pay:
+                        method = {"cash":"Cash","card":"Card","account":"Account"}.get(pay["method"], pay["method"])
+                        p.text(rrow(method, famt(pay['total'], pay['currency'])))
+                    p.text("=" * W + "\n")
+                    p.set(bold=True)
+                    p.text(rrow("GRAND TOTAL", grand_total))
+                    p.set(bold=False)
+                    p.text("-" * W + "\n")
+                    p.text("CASHIERS\n")
+                    prev_date = None
+                    for row in by_cd:
+                        lbp = row["totals"].get("LBP", 0)
+                        usd = row["totals"].get("USD", 0)
+                        amt_str = famt(lbp, "LBP") if lbp else famt(usd, "USD")
+                        date_cell = row["date"] if row["date"] != prev_date else ""
+                        prev_date = row["date"]
+                        p.text(rrow(f"{date_cell} {row['cashier']}", amt_str))
+                    p.text("-" * W + "\n")
+                    p.set(align="center")
+                    p.text("*** Shift Closed ***\n")
+                    p.text("\n\n\n")
+                    p.cut()
+                finally:
+                    try: p.close()
+                    except Exception: pass
+                return
+
+            # 2. Windows Qt printer — auto-print
             qt_name = _get_qt_printer_name()
             printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
             if qt_name:
                 printer.setPrinterName(qt_name)
-            printer.setFullPage(False)
+                printer.setFullPage(False)
+                printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+                _render_to_printer(html, printer)
+                return
 
+            # 3. No printer — show preview
             preview = QPrintPreviewDialog(printer, self)
             preview.setWindowTitle("End of Shift Report — Print Preview")
             preview.paintRequested.connect(lambda p: _render_to_printer(html, p))
