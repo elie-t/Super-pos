@@ -315,6 +315,13 @@ class PurchaseService:
                 session.flush()
 
             for line in lines:
+                # When buying by box, line.price is per-box price.
+                # Store unit_cost per piece so last_cost is correct on next purchase.
+                unit_cost = (
+                    line.price / line.pack_qty
+                    if (line.pack_qty > 1 and line.box_qty > 0 and line.pack_qty)
+                    else line.price
+                )
                 li = PurchaseInvoiceItem(
                     id=new_uuid(),
                     invoice_id=inv.id,
@@ -322,7 +329,7 @@ class PurchaseService:
                     item_name=line.description,
                     quantity=line.pcs_qty,
                     pack_size=int(line.box_qty) if line.box_qty else 1,
-                    unit_cost=line.price,
+                    unit_cost=unit_cost,
                     currency=currency,
                     discount_pct=line.disc_pct,
                     vat_pct=line.vat_pct / 100.0,
@@ -337,7 +344,7 @@ class PurchaseService:
                     warehouse_id=warehouse_id,
                     movement_type="purchase",
                     quantity=line.pcs_qty,
-                    unit_cost=line.price,
+                    unit_cost=unit_cost,
                     cost_currency=currency,
                     reference_type="purchase_invoice",
                     reference_id=inv.id,
