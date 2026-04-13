@@ -9,6 +9,15 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Disable SSL verification — fixes Windows certificate store hang
+import requests, urllib3
+urllib3.disable_warnings()
+_orig = requests.Session.request
+def _noverify(self, *a, **kw):
+    kw['verify'] = False
+    return _orig(self, *a, **kw)
+requests.Session.request = _noverify
+
 from database.engine import init_db
 init_db()
 
