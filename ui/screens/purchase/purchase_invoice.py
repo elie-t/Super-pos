@@ -457,6 +457,8 @@ class PurchaseInvoiceScreen(QWidget):
         self._lines: list[dict] = []          # list of line dicts
         self._current_item: PurchaseLineItem | None = None
         self._current_pack_qty = 1
+        self._current_pcs_price = 0.0         # last_cost in invoice currency (per piece)
+        self._current_box_price = 0.0         # last_cost × pack_qty in invoice currency
         self._editing_row: int = -1           # -1 = new line, ≥0 = editing existing row
         self._wh_num_map: dict[str, int] = {} # wh_id → warehouse number
         self._loaded_invoice_id: str = ""     # set when editing an existing invoice
@@ -1104,12 +1106,12 @@ class PurchaseInvoiceScreen(QWidget):
         self._block_total(True)
         self._box_spin.setValue(0)
         self._pcs_spin.setValue(0)
-        # Price per box when pack_qty > 1, price per piece otherwise
-        last_cost = item.last_cost * item.pack_qty if item.pack_qty > 1 else item.last_cost
-        # Convert to invoice currency if needed (last_cost is stored in USD)
-        if self._cur_combo.currentText() == "LBP":
-            last_cost = last_cost * self._lbp_rate
-        self._price_spin.setValue(last_cost)
+        # Store pcs and box prices in invoice currency (last_cost is always in USD)
+        rate = self._lbp_rate if self._cur_combo.currentText() == "LBP" else 1.0
+        self._current_pcs_price = item.last_cost * rate
+        self._current_box_price = item.last_cost * item.pack_qty * rate
+        # Default: pcs price (box qty is 0 at this point)
+        self._price_spin.setValue(self._current_pcs_price)
         self._disc_spin.setValue(0)
         self._vat_spin.setValue(0)          # VAT stays 0 unless user sets it
         self._total_spin.setValue(0)
@@ -1141,7 +1143,6 @@ class PurchaseInvoiceScreen(QWidget):
 
     def _on_box_changed(self, val):
         if self._current_pack_qty > 1:
-            # Grey out pcs to show it's auto-calculated (not hard-locked)
             auto = val > 0
             self._pcs_spin.setStyleSheet(
                 "background:#e8e8e8;color:#555;" if auto else ""
@@ -1150,6 +1151,12 @@ class PurchaseInvoiceScreen(QWidget):
             self._pcs_spin.blockSignals(True)
             self._pcs_spin.setValue(val * self._current_pack_qty)
             self._pcs_spin.blockSignals(False)
+            # Switch price between box price and pcs price
+            self._block_total(True)
+            self._price_spin.setValue(
+                self._current_box_price if auto else self._current_pcs_price
+            )
+            self._block_total(False)
         self._recalc_total()
 
     def _on_pcs_changed(self, val):
