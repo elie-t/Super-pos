@@ -1,15 +1,16 @@
 """
 Full item sync from Supabase — wipes local items and re-imports from scratch.
-Usage: venv/Scripts/python scripts/full_sync.py
+Usage:
+  venv/Scripts/python scripts/full_sync.py           # fresh wipe + import
+  venv/Scripts/python scripts/full_sync.py --resume  # continue from last offset
 """
-import sys, sqlite3, os
+import sys, sqlite3, os, time, json
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import requests, urllib3
 urllib3.disable_warnings()
 
-# Monkey-patch to disable SSL verification globally (Windows cert issue)
 _orig_request = requests.Session.request
 def _no_verify(self, method, url, **kwargs):
     kwargs["verify"] = False
@@ -23,23 +24,34 @@ URL = os.getenv("SUPABASE_URL")
 KEY = os.getenv("SUPABASE_SERVICE_KEY")
 HEADERS = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
 
-DB_PATH = "data/supermarket.db"
-BATCH = 200
+DB_PATH     = "data/supermarket.db"
+BATCH       = 200
+PROGRESS    = "data/.full_sync_offset"
+MAX_RETRIES = 5
+RETRY_WAIT  = 8   # seconds between retries
 
 
 def get(table, params=None):
-    r = requests.get(f"{URL}/rest/v1/{table}",
-                     headers=HEADERS, params=params or {}, timeout=60)
-    r.raise_for_status()
-    return r.json()
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            r = requests.get(f"{URL}/rest/v1/{table}",
+                             headers=HEADERS, params=params or {}, timeout=60)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            if attempt == MAX_RETRIES:
+                raise
+            print(f"  [network error, retry {attempt}/{MAX_RETRIES} in {RETRY_WAIT}s] {e}")
+            time.sleep(RETRY_WAIT)
 
 
 def main():
+    resume = "--resume" in sys.argv
+
     db = sqlite3.connect(DB_PATH)
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA foreign_keys=OFF")
 
-    # Load local lookup maps
     cats   = {r[0]: r[1] for r in db.execute("SELECT name, id FROM categories").fetchall()}
     brands = {r[0]: r[1] for r in db.execute("SELECT name, id FROM brands").fetchall()}
 
@@ -48,17 +60,21 @@ def main():
                      headers={**HEADERS, "Range-Unit": "items", "Range": "0-0",
                               "Prefer": "count=exact"})
     total_remote = int(r.headers.get("content-range", "0/0").split("/")[-1])
-    print(f"Supabase has {total_remote} items.")
-    print(f"Wiping local items, prices, barcodes...")
 
-    db.execute("DELETE FROM item_barcodes")
-    db.execute("DELETE FROM item_prices")
-    db.execute("DELETE FROM items")
-    db.commit()
-    print("Wiped. Starting import...\n")
+    if resume and Path(PROGRESS).exists():
+        offset = int(Path(PROGRESS).read_text().strip())
+        print(f"Resuming from offset {offset} (Supabase has {total_remote} items).\n")
+    else:
+        print(f"Supabase has {total_remote} items. Wiping local items, prices, barcodes...")
+        db.execute("DELETE FROM item_barcodes")
+        db.execute("DELETE FROM item_prices")
+        db.execute("DELETE FROM items")
+        db.commit()
+        offset = 0
+        Path(PROGRESS).write_text("0")
+        print("Wiped. Starting import...\n")
 
-    offset = 0
-    imported = 0
+    imported = offset
 
     while True:
         rows = get("items_central", {
@@ -69,27 +85,23 @@ def main():
         if not rows:
             break
 
-        ids = [r["id"] for r in rows]
+        ids     = [r["id"] for r in rows]
         ids_csv = ",".join(ids)
 
-        # Fetch prices for this batch
-        prices = get("item_prices_central", {"item_id": f"in.({ids_csv})"})
-        prices_by_item = {}
+        prices   = get("item_prices_central",  {"item_id": f"in.({ids_csv})"})
+        barcodes = get("item_barcodes_central", {"item_id": f"in.({ids_csv})"})
+
+        prices_by_item   = {}
+        barcodes_by_item = {}
         for p in prices:
             prices_by_item.setdefault(p["item_id"], []).append(p)
-
-        # Fetch barcodes for this batch
-        barcodes = get("item_barcodes_central", {"item_id": f"in.({ids_csv})"})
-        barcodes_by_item = {}
         for b in barcodes:
             barcodes_by_item.setdefault(b["item_id"], []).append(b)
 
         for ri in rows:
             item_id    = ri["id"]
-            cat_name   = ri.get("category") or ""
-            brand_name = ri.get("brand") or ""
-            cat_id     = cats.get(cat_name)
-            brand_id   = brands.get(brand_name)
+            cat_id     = cats.get(ri.get("category") or "")
+            brand_id   = brands.get(ri.get("brand") or "")
 
             db.execute("""
                 INSERT OR IGNORE INTO items
@@ -134,6 +146,7 @@ def main():
         db.commit()
         imported += len(rows)
         offset   += BATCH
+        Path(PROGRESS).write_text(str(offset))
         print(f"  {imported}/{total_remote} items imported...")
 
         if len(rows) < BATCH:
@@ -142,6 +155,7 @@ def main():
     db.execute("PRAGMA foreign_keys=ON")
     count = db.execute("SELECT COUNT(*) FROM items").fetchone()[0]
     db.close()
+    Path(PROGRESS).unlink(missing_ok=True)
     print(f"\nDone. Local DB now has {count} items.")
 
 
