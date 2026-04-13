@@ -613,6 +613,15 @@ def print_receipt_escpos(
             p.text(rrow("Change:", fmt(change)))
             p.set(align="left", bold=False, double_height=False, double_width=False)
 
+        # USD equivalent for LBP invoices
+        lbp_rate = int(data.get("lbp_rate") or 0)
+        inv_total = data.get("total", 0.0)
+        if is_lbp and inv_total and lbp_rate:
+            usd_equiv = inv_total / lbp_rate
+            p.set(align="left", bold=True, double_height=False, double_width=False)
+            p.text(rrow("= USD:", f"$ {usd_equiv:,.2f}"))
+            p.set(align="left", bold=False, double_height=False, double_width=False)
+
         # footer
         p.text("-" * W + "\n")
         footer = data.get("receipt_footer", "Thank you!")
