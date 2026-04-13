@@ -2107,9 +2107,10 @@ class POSScreen(QWidget):
             else:
                 self._add_item(item)
         else:
-            # Nothing found → open picker pre-filtered with the query
-            self._scan_input.setText(query)
-            self._open_item_picker()
+            # Nothing found → beep and select text so next scan replaces it
+            self._beep_not_found()
+            self._scan_input.selectAll()
+            self._scan_input.setFocus()
 
     def _open_item_picker(self):
         """Ctrl+Enter: browse all items and select one."""
@@ -2721,6 +2722,42 @@ class POSScreen(QWidget):
             self._refresh_online_panel(orders)
         except Exception:
             pass
+
+    def _beep_not_found(self):
+        """Short low-pitched error beep when a barcode is not found."""
+        try:
+            from PySide6.QtMultimedia import QSoundEffect
+            from PySide6.QtCore import QUrl
+            import wave, math
+            from pathlib import Path
+
+            wav_path = Path(__file__).parent.parent.parent / "assets" / "sounds" / "not_found.wav"
+            wav_path.parent.mkdir(parents=True, exist_ok=True)
+            if not wav_path.exists():
+                sample_rate = 44100
+                duration    = 0.25
+                freq        = 320   # low tone = "error"
+                n_samples   = int(sample_rate * duration)
+                with wave.open(str(wav_path), "w") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(sample_rate)
+                    for i in range(n_samples):
+                        t   = i / sample_rate
+                        env = min(t / 0.01, 1.0, (duration - t) / 0.02)
+                        val = int(32767 * env * math.sin(2 * math.pi * freq * t))
+                        wf.writeframes(val.to_bytes(2, "little", signed=True))
+
+            self._not_found_sfx = QSoundEffect()
+            self._not_found_sfx.setSource(QUrl.fromLocalFile(str(wav_path)))
+            self._not_found_sfx.setVolume(0.9)
+            self._not_found_sfx.play()
+        except Exception:
+            try:
+                from PySide6.QtWidgets import QApplication
+                QApplication.beep()
+            except Exception:
+                pass
 
     def _start_alert_sound(self):
         if self._alert_playing:
