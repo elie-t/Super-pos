@@ -994,7 +994,7 @@ class PurchaseInvoiceScreen(QWidget):
             _s = get_session()
             try:
                 r = _s.get(Setting, "lbp_rate")
-                self._lbp_rate = int(r.value) if r else 90_000
+                self._lbp_rate = (int(r.value) if r and r.value else 0) or 90_000
             finally:
                 _s.close()
         except Exception:
@@ -1299,12 +1299,13 @@ class PurchaseInvoiceScreen(QWidget):
                     self._bc_input.selectAll()
                     return True
                 if obj is self._box_spin:
-                    if self._current_pack_qty > 1:
-                        # pcs is auto-calculated — skip to price
+                    if self._current_pack_qty > 1 and self._box_spin.value() > 0:
+                        # box filled → pcs auto-calculated → skip to price
                         self._recalc_total()
                         self._price_spin.setFocus()
                         self._price_spin.selectAll()
                     else:
+                        # box is 0 → user wants to enter pcs manually
                         self._pcs_spin.setFocus()
                         self._pcs_spin.selectAll()
                     return True
