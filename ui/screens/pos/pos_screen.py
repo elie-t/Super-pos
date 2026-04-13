@@ -2124,13 +2124,20 @@ class POSScreen(QWidget):
 
     def _open_item_picker(self):
         """Ctrl+Enter: browse all items and select one."""
-        from services.purchase_service import PurchaseService
-        query = self._scan_input.text().strip()
-        rows = PurchaseService.search_items_by_sales(query, limit=200)
-        if not rows:
-            rows = PurchaseService.search_items_by_usage(query, limit=200)
-        if not rows:
-            self._beep_not_found()
+        try:
+            from services.purchase_service import PurchaseService
+            query = self._scan_input.text().strip()
+            try:
+                rows = PurchaseService.search_items_by_sales(query, limit=200)
+            except Exception:
+                rows = []
+            if not rows:
+                rows = PurchaseService.search_items_by_usage(query, limit=200)
+            if not rows:
+                QMessageBox.information(self, "No Items", "No items found in database.")
+                return
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Item picker failed:\n{e}")
             return
 
         dlg = QDialog(self)
