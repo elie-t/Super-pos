@@ -1,6 +1,6 @@
 """
 Full item sync from Supabase — standalone, small batches, no sync service.
-Usage: venv\Scripts\python scripts/full_sync.py
+Usage: venv/Scripts/python scripts/full_sync.py
 """
 import sys, sqlite3, json, os
 from pathlib import Path
@@ -20,9 +20,9 @@ DB_PATH = "data/supermarket.db"
 BATCH = 100   # small to avoid huge responses
 
 
-def get(table, params=""):
-    r = requests.get(f"{URL}/rest/v1/{table}?{params}",
-                     headers=HEADERS, timeout=60, verify=False)
+def get(table, params=None):
+    r = requests.get(f"{URL}/rest/v1/{table}",
+                     headers=HEADERS, params=params or {}, timeout=60, verify=False)
     r.raise_for_status()
     return r.json()
 
@@ -48,11 +48,14 @@ def main():
     imported = 0
 
     while True:
-        rows = get("items_central",
-                   f"select=id,code,name,name_ar,category,brand,unit,cost_price,"
-                   f"cost_currency,vat_rate,is_active,is_pos_featured,is_online,"
-                   f"show_on_touch,photo_url,notes,pack_size"
-                   f"&order=id.asc&limit={BATCH}&offset={offset}")
+        rows = get("items_central", {
+            "select": "id,code,name,name_ar,category,brand,unit,cost_price,"
+                      "cost_currency,vat_rate,is_active,is_pos_featured,is_online,"
+                      "show_on_touch,photo_url,notes,pack_size",
+            "order": "id.asc",
+            "limit": BATCH,
+            "offset": offset,
+        })
         if not rows:
             break
 
@@ -60,15 +63,13 @@ def main():
         ids_csv = ",".join(ids)
 
         # Fetch prices for this batch
-        prices = get("item_prices_central",
-                     f"item_id=in.({ids_csv})")
+        prices = get("item_prices_central", {"item_id": f"in.({ids_csv})"})
         prices_by_item = {}
         for p in prices:
             prices_by_item.setdefault(p["item_id"], []).append(p)
 
         # Fetch barcodes for this batch
-        barcodes = get("item_barcodes_central",
-                       f"item_id=in.({ids_csv})")
+        barcodes = get("item_barcodes_central", {"item_id": f"in.({ids_csv})"})
         barcodes_by_item = {}
         for b in barcodes:
             barcodes_by_item.setdefault(b["item_id"], []).append(b)
