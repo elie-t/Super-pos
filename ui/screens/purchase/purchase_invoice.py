@@ -984,6 +984,19 @@ class PurchaseInvoiceScreen(QWidget):
         self._wh_combo.blockSignals(False)
         self._wh_combo.currentIndexChanged.connect(self._on_warehouse_changed)
         self._refresh_invoice_number()
+        # Load LBP rate for price conversion
+        try:
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            _s = get_session()
+            try:
+                r = _s.get(Setting, "lbp_rate")
+                self._lbp_rate = int(r.value) if r else 90_000
+            finally:
+                _s.close()
+        except Exception:
+            self._lbp_rate = 90_000
         self._sup_input.setFocus()
 
     def _refresh_invoice_number(self):
@@ -1034,6 +1047,11 @@ class PurchaseInvoiceScreen(QWidget):
         self._supplier = sup
         self._sup_name_label.setText(sup.name)
         self._sup_input.setText(sup.name)
+        # Auto-set currency from supplier's preferred currency
+        sup_currency = getattr(sup, "currency", "USD") or "USD"
+        idx = self._cur_combo.findText(sup_currency)
+        if idx >= 0:
+            self._cur_combo.setCurrentIndex(idx)
         # advance focus to date
         self._date_edit.setFocus()
 
@@ -1087,8 +1105,11 @@ class PurchaseInvoiceScreen(QWidget):
         self._box_spin.setValue(0)
         self._pcs_spin.setValue(0)
         # Price per box when pack_qty > 1, price per piece otherwise
-        default_price = item.last_cost * item.pack_qty if item.pack_qty > 1 else item.last_cost
-        self._price_spin.setValue(default_price)
+        last_cost = item.last_cost * item.pack_qty if item.pack_qty > 1 else item.last_cost
+        # Convert to invoice currency if needed (last_cost is stored in USD)
+        if self._cur_combo.currentText() == "LBP":
+            last_cost = last_cost * self._lbp_rate
+        self._price_spin.setValue(last_cost)
         self._disc_spin.setValue(0)
         self._vat_spin.setValue(0)          # VAT stays 0 unless user sets it
         self._total_spin.setValue(0)
@@ -1715,6 +1736,8 @@ class PurchaseInvoiceScreen(QWidget):
                     break
             else:
                 price = item.last_cost * item.pack_qty if item.pack_qty > 1 else item.last_cost
+                if self._cur_combo.currentText() == "LBP":
+                    price = price * self._lbp_rate
                 self._lines.append({
                     "item":  item,
                     "box":   0,
