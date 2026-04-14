@@ -2531,6 +2531,22 @@ class POSScreen(QWidget):
         self._box_price_lbl.setText(f"{price:,.0f}")
         self._box_bar.setVisible(True)
 
+    def _pole_show_welcome(self):
+        try:
+            from utils.pole_display import pole_show
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            _s = get_session()
+            try:
+                _sn = _s.get(Setting, "shop_name")
+                name = (_sn.value if _sn else "Welcome!")[:20]
+            finally:
+                _s.close()
+            pole_show(name, "")
+        except Exception:
+            pass
+
     def _pole_show_item(self, description: str, qty: float, unit_price: float):
         try:
             from utils.pole_display import pole_show
@@ -3252,19 +3268,7 @@ class POSScreen(QWidget):
         self._last_pack_qty = 1
         self._refresh_table()
         self._scan_input.setFocus()
-        try:
-            from utils.pole_display import pole_welcome
-            from database.engine import get_session, init_db
-            from database.models.items import Setting
-            init_db()
-            _s = get_session()
-            try:
-                _sn = _s.get(Setting, "shop_name")
-                pole_welcome(_sn.value if _sn else "Welcome!")
-            finally:
-                _s.close()
-        except Exception:
-            pass
+        QTimer.singleShot(3000, self._pole_show_welcome)
 
     # ── Elevation guard ────────────────────────────────────────────────────────
 
