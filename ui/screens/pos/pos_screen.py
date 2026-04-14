@@ -75,9 +75,31 @@ class PaymentDialog(QDialog):
         t.setStyleSheet("color:#fff;font-size:16px;font-weight:700;letter-spacing:2px;")
         hl.addWidget(t)
         hl.addStretch()
+        tot_col = QVBoxLayout()
+        tot_col.setSpacing(2)
         tot = QLabel(f"ل.ل  {self._total:,.0f}")
         tot.setStyleSheet("color:#00e676;font-size:24px;font-weight:700;")
-        hl.addWidget(tot)
+        tot.setAlignment(Qt.AlignRight)
+        tot_col.addWidget(tot)
+        try:
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            _s = get_session()
+            try:
+                _r = _s.get(Setting, "lbp_rate")
+                lbp_rate = int(_r.value) if _r and _r.value else 0
+            finally:
+                _s.close()
+            if lbp_rate:
+                usd = self._total / lbp_rate
+                usd_lbl = QLabel(f"$  {usd:,.2f}")
+                usd_lbl.setStyleSheet("color:#80cbc4;font-size:14px;font-weight:600;")
+                usd_lbl.setAlignment(Qt.AlignRight)
+                tot_col.addWidget(usd_lbl)
+        except Exception:
+            pass
+        hl.addLayout(tot_col)
         lay.addWidget(hdr)
 
         body = QWidget()
