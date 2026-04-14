@@ -2240,7 +2240,19 @@ class POSScreen(QWidget):
         """Ctrl+Enter: browse all items and select one."""
         try:
             from services.purchase_service import PurchaseService
-            query = self._scan_input.text().strip()
+            raw = self._scan_input.text().strip()
+
+            # Parse optional "N*name" prefix (e.g. "2*bread" → qty=2, search="bread")
+            prefix_qty = None
+            query = raw
+            if "*" in raw:
+                parts = raw.split("*", 1)
+                try:
+                    prefix_qty = float(parts[0])
+                    query = parts[1].strip()
+                except ValueError:
+                    pass  # not a qty prefix — treat as literal search
+
             try:
                 rows = PurchaseService.search_items_by_sales(query, limit=200)
             except Exception:
@@ -2407,7 +2419,10 @@ class POSScreen(QWidget):
             total      = lbp_price,
             currency   = "LBP",
         )
-        self._add_item(item)
+        if prefix_qty is not None:
+            self._add_item(item, force_qty=prefix_qty)
+        else:
+            self._add_item(item)
         self._scan_input.clear()
 
     def _open_vege_dialog(self):
