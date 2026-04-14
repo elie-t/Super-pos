@@ -810,6 +810,19 @@ class SalesListDialog(QDialog):
         self._edit_btn.clicked.connect(self._edit_invoice)
         fl.addWidget(self._edit_btn)
 
+        self._print_inv_btn = QPushButton("🖨  Print")
+        self._print_inv_btn.setFixedHeight(32)
+        self._print_inv_btn.setEnabled(False)
+        self._print_inv_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;font-size:12px;font-weight:700;"
+            "border:none;border-radius:5px;padding:0 14px;}"
+            "QPushButton:hover{background:#1b5e20;}"
+            "QPushButton:disabled{background:#bbb;}"
+        )
+        self._print_inv_btn.setCursor(Qt.PointingHandCursor)
+        self._print_inv_btn.clicked.connect(self._print_selected_invoice)
+        fl.addWidget(self._print_inv_btn)
+
         self._cancel_inv_btn = QPushButton("✕  Cancel Invoice")
         self._cancel_inv_btn.setFixedHeight(32)
         self._cancel_inv_btn.setEnabled(False)
@@ -917,6 +930,7 @@ class SalesListDialog(QDialog):
         if not current:
             self._selected_row = None
             self._edit_btn.setEnabled(False)
+            self._print_inv_btn.setEnabled(False)
             self._cancel_inv_btn.setEnabled(False)
             return
         inv_id  = current.data(Qt.UserRole)
@@ -931,6 +945,7 @@ class SalesListDialog(QDialog):
         can_act = not self._show_archived
         self._edit_btn.setEnabled(can_act)
         self._cancel_inv_btn.setEnabled(can_act)
+        self._print_inv_btn.setEnabled(True)  # print works for any invoice
 
         lines   = PosService.get_sale_lines(inv_id)
 
@@ -998,6 +1013,17 @@ class SalesListDialog(QDialog):
             self._load()
         else:
             QMessageBox.critical(self, "Error", result)
+
+    def _print_selected_invoice(self):
+        if not self._selected_row:
+            return
+        inv_id = self._selected_row["id"]
+        payment_method = self._selected_row.get("payment_method", "cash")
+        tendered = float(self._selected_row.get("amount_paid") or 0)
+        from utils.receipt_printer import print_receipt
+        data = PosService.get_invoice_for_print(inv_id)
+        if data:
+            print_receipt(data, payment_method, tendered, parent=self, show_preview=True)
 
     def _edit_invoice(self):
         if not self._selected_row:
