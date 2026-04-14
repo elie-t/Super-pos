@@ -123,7 +123,7 @@ class PaymentDialog(QDialog):
         tender_lbl.setStyleSheet("font-size:12px;font-weight:700;color:#6680a0;")
         tf.addWidget(tender_lbl)
 
-        self._tender_input = QLineEdit(f"{self._total:.0f}")
+        self._tender_input = QLineEdit(f"{self._total:,.0f}")
         self._tender_input.setFixedHeight(52)
         self._tender_input.setAlignment(Qt.AlignRight)
         self._tender_input.setStyleSheet(
@@ -225,11 +225,11 @@ class PaymentDialog(QDialog):
             btn.setChecked(k == key)
 
     def _set_tender(self, amount: float):
-        self._tender_input.setText(f"{amount:.0f}")
+        self._tender_input.setText(f"{amount:,.0f}")
         self._tender_input.selectAll()
 
     def _update_change(self):
-        txt = self._tender_input.text().strip()
+        txt = self._tender_input.text().strip().replace(",", "")
         try:
             tendered = float(txt)
         except ValueError:
@@ -244,7 +244,7 @@ class PaymentDialog(QDialog):
             self._change_lbl.setStyleSheet("font-size:22px;font-weight:700;color:#c62828;")
 
     def _confirm(self):
-        txt = self._tender_input.text().strip()
+        txt = self._tender_input.text().strip().replace(",", "")
         try:
             self.tendered = float(txt)
         except ValueError:
