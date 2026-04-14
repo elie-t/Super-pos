@@ -1418,6 +1418,7 @@ class POSScreen(QWidget):
         self._last_invoice_id      = ""
         self._last_payment_method  = "cash"
         self._last_tendered        = 0.0
+        self._last_pack_qty        = 1    # pack_qty of the last selected cart line
         self._forced_warehouse_id  = forced_warehouse_id
         self._active_online_order_id = ""   # set when an online order is loaded into cart
         self._alert_sound = None            # QSoundEffect, created lazily
@@ -1618,6 +1619,40 @@ class POSScreen(QWidget):
 
         lay.addWidget(scan_bar)
 
+        # ── Box info bar (visible only for box items) ─────────────────────
+        self._box_bar = QFrame()
+        self._box_bar.setStyleSheet(
+            "QFrame{background:#fff8e1;border-bottom:2px solid #f57c00;}"
+            "QLabel{color:#1a1a2e;}"
+        )
+        self._box_bar.setFixedHeight(40)
+        self._box_bar.setVisible(False)
+        bl = QHBoxLayout(self._box_bar)
+        bl.setContentsMargins(10, 4, 10, 4)
+        bl.setSpacing(16)
+
+        self._box_item_lbl = QLabel("")
+        self._box_item_lbl.setStyleSheet("font-size:12px;font-weight:700;color:#e65100;")
+        bl.addWidget(self._box_item_lbl)
+
+        bl.addStretch()
+
+        bl.addWidget(QLabel("Box:"))
+        self._box_qty_lbl = QLabel("0")
+        self._box_qty_lbl.setStyleSheet("font-size:13px;font-weight:700;color:#e65100;min-width:30px;")
+        bl.addWidget(self._box_qty_lbl)
+
+        self._box_pcs_lbl = QLabel("")
+        self._box_pcs_lbl.setStyleSheet("font-size:12px;color:#555;")
+        bl.addWidget(self._box_pcs_lbl)
+
+        bl.addWidget(QLabel("Price:"))
+        self._box_price_lbl = QLabel("")
+        self._box_price_lbl.setStyleSheet("font-size:13px;font-weight:700;color:#e65100;")
+        bl.addWidget(self._box_price_lbl)
+
+        lay.addWidget(self._box_bar)
+
         # ── Items table ───────────────────────────────────────────────────
         self._table = QTableWidget()
         self._table.setColumnCount(8)
@@ -1634,6 +1669,9 @@ class POSScreen(QWidget):
         self._table.verticalHeader().setDefaultSectionSize(48)
         self._table.setShowGrid(True)
         self._table.itemChanged.connect(self._on_cell_edited)
+        self._table.currentCellChanged.connect(
+            lambda row, *_: self._update_box_bar(row)
+        )
 
         # Enter/Return while editing a table cell → commit + return to barcode
         class _TableFilter(QObject):
@@ -2465,6 +2503,31 @@ class POSScreen(QWidget):
         self._refresh_table()
         self._scan_input.clear()
         self._table.selectRow(len(self._lines) - 1)
+        self._update_box_bar(len(self._lines) - 1)
+
+    def _update_box_bar(self, row: int = -1):
+        """Show/update the box info bar for the given cart row."""
+        if row < 0 or row >= len(self._lines):
+            self._box_bar.setVisible(False)
+            self._last_pack_qty = 1
+            return
+        line = self._lines[row]
+        item = line["item"]
+        pack_qty = int(getattr(item, "qty", 1) or 1)
+        # Only show bar for box items
+        if pack_qty <= 1:
+            self._box_bar.setVisible(False)
+            self._last_pack_qty = 1
+            return
+        self._last_pack_qty = pack_qty
+        boxes = int(line["qty"] / pack_qty) if pack_qty else 1
+        pcs   = int(line["qty"])
+        price = line["price"] * pack_qty   # box price
+        self._box_item_lbl.setText(item.description[:30])
+        self._box_qty_lbl.setText(str(boxes))
+        self._box_pcs_lbl.setText(f"pcs ({pcs:g})")
+        self._box_price_lbl.setText(f"{price:,.0f}")
+        self._box_bar.setVisible(True)
 
     def _flash_scan(self, text, color):
         self._scan_input.setText(text)
@@ -2586,6 +2649,7 @@ class POSScreen(QWidget):
             tot_cell.setText(f"{self._lines[row]['total']:,.0f}")
         self._table_updating = False
         self._update_totals()
+        self._update_box_bar(row)
 
     def _recalc_line(self, row: int):
         line = self._lines[row]
@@ -3166,6 +3230,8 @@ class POSScreen(QWidget):
         self._delivery_lbl.setText("")
         self._delivery_lbl.setVisible(False)
         self._active_online_order_id = ""
+        self._box_bar.setVisible(False)
+        self._last_pack_qty = 1
         self._refresh_table()
         self._scan_input.setFocus()
 
@@ -3240,21 +3306,27 @@ class POSScreen(QWidget):
 
     def _increment_qty(self):
         row = self._table.currentRow()
+        if row < 0 and self._lines:
+            row = len(self._lines) - 1
         if 0 <= row < len(self._lines):
             step = getattr(self._lines[row]["item"], "qty", 1) or 1
             self._lines[row]["qty"] += step
             self._recalc_line(row)
             self._refresh_table()
             self._table.selectRow(row)
+            self._update_box_bar(row)
 
     def _decrement_qty(self):
         row = self._table.currentRow()
+        if row < 0 and self._lines:
+            row = len(self._lines) - 1
         if 0 <= row < len(self._lines):
             step = getattr(self._lines[row]["item"], "qty", 1) or 1
-            self._lines[row]["qty"] = max(0.001, self._lines[row]["qty"] - step)
+            self._lines[row]["qty"] = max(step, self._lines[row]["qty"] - step)
             self._recalc_line(row)
             self._refresh_table()
             self._table.selectRow(row)
+            self._update_box_bar(row)
 
     # ── Touch Mode ─────────────────────────────────────────────────────────────
 
