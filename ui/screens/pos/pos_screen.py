@@ -2620,6 +2620,8 @@ class POSScreen(QWidget):
         self._table_updating = False
         self._update_totals()
         self._items_count_lbl.setText(f"Lines: {len(self._lines)}")
+        if self._lines:
+            self._table.scrollToBottom()
 
     def _on_cell_edited(self, item):
         if self._table_updating:
