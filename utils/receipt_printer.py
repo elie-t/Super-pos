@@ -78,6 +78,8 @@ def _build_receipt_text(data: dict, payment_method: str, tendered: float) -> str
         rows.append(rrow("VAT (11%):", fmt(data.get("vat", 0.0))))
     rows.append("=" * W)
     rows.append(rrow("TOTAL:", fmt(data.get("total", 0.0))))
+    line_count = len(data.get("lines", []))
+    rows.append(rrow("Lines:", str(line_count)))
 
     method_label = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
         payment_method, payment_method.capitalize()
@@ -172,6 +174,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     if data.get("vat", 0.0):
         totals += row2("VAT (11%):", fmt(data.get("vat", 0.0)))
     totals += row2("TOTAL:", fmt(inv_total), bold=True)
+    totals += row2("Lines:", str(len(data.get("lines", []))))
     totals += row2(f"Paid ({method_label}):", fmt(data.get("amount_paid", 0.0)))
 
     # ── USD equivalent row ─────────────────────────────────────────────────
@@ -600,8 +603,9 @@ def print_receipt_escpos(
 
         p.set(align="left", bold=True, double_height=False, double_width=False)
         p.text(rrow("TOTAL:", fmt(data.get("total", 0.0))))
-
         p.set(align="left", bold=False, double_height=False, double_width=False)
+        p.text(rrow("Lines:", str(len(data.get("lines", [])))))
+
         method_label = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
             payment_method, payment_method.capitalize()
         )

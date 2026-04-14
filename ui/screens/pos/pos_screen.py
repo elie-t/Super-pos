@@ -1693,7 +1693,7 @@ class POSScreen(QWidget):
 
         th = self._table.horizontalHeader()
         th.setSectionResizeMode(COL_DESC, QHeaderView.Stretch)
-        for col, w_ in ((COL_NUM, 30), (COL_CODE, 110), (COL_QTY, 80),
+        for col, w_ in ((COL_NUM, 44), (COL_CODE, 110), (COL_QTY, 80),
                         (COL_PRICE, 115), (COL_DISC, 56), (COL_TOT, 130), (COL_DEL, 72)):
             th.setSectionResizeMode(col, QHeaderView.Fixed)
             self._table.setColumnWidth(col, w_)
@@ -1999,8 +1999,8 @@ class POSScreen(QWidget):
         bl.setContentsMargins(12, 0, 12, 0)
         bl.setSpacing(30)
 
-        self._items_count_lbl = QLabel("Items: 0")
-        self._items_count_lbl.setStyleSheet("color:#a8c8e8;font-size:11px;")
+        self._items_count_lbl = QLabel("Lines: 0")
+        self._items_count_lbl.setStyleSheet("color:#fff;font-size:12px;font-weight:700;")
         bl.addWidget(self._items_count_lbl)
 
         user = AuthService.current_user()
@@ -2619,7 +2619,7 @@ class POSScreen(QWidget):
 
         self._table_updating = False
         self._update_totals()
-        self._items_count_lbl.setText(f"Items: {len(self._lines)}")
+        self._items_count_lbl.setText(f"Lines: {len(self._lines)}")
 
     def _on_cell_edited(self, item):
         if self._table_updating:
