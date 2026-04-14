@@ -523,6 +523,17 @@ class SettingsScreen(QWidget):
         self._lbp_rate.setPlaceholderText("e.g. 89500")
         self._lbp_rate.setFixedWidth(140)
         gen_form.addRow("LBP Rate (LBP per 1 USD):", self._lbp_rate)
+
+        self._pole_port = QLineEdit()
+        self._pole_port.setPlaceholderText("e.g. COM3  (leave blank to disable)")
+        self._pole_port.setFixedWidth(180)
+        gen_form.addRow("Pole Display Port:", self._pole_port)
+
+        self._pole_baud = QLineEdit()
+        self._pole_baud.setPlaceholderText("e.g. 9600")
+        self._pole_baud.setFixedWidth(100)
+        gen_form.addRow("Pole Display Baud:", self._pole_baud)
+
         gen_lay.addLayout(gen_form)
 
         save_gen_btn = QPushButton("💾  Save General Settings")
@@ -824,6 +835,8 @@ class SettingsScreen(QWidget):
                 _load("shop_phone",     self._shop_phone)
                 _load("receipt_footer", self._receipt_footer)
                 _load("lbp_rate",       self._lbp_rate)
+                _load("pole_port",      self._pole_port)
+                _load("pole_baud",      self._pole_baud)
             finally:
                 session.close()
         except Exception:
@@ -848,6 +861,8 @@ class SettingsScreen(QWidget):
                 _save("shop_phone",     self._shop_phone)
                 _save("receipt_footer", self._receipt_footer)
                 _save("lbp_rate",       self._lbp_rate)
+                _save("pole_port",      self._pole_port)
+                _save("pole_baud",      self._pole_baud)
                 session.commit()
                 self._gen_status_lbl.setText("✔  Saved.")
                 self._gen_status_lbl.setStyleSheet("font-size:11px; color:#2e7d32;")

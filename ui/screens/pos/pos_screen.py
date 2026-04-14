@@ -2489,6 +2489,7 @@ class POSScreen(QWidget):
             self._recalc_line(existing)
             self._refresh_table()
             self._scan_input.clear()
+            self._pole_show_item(item.description, self._lines[existing]["qty"], item.unit_price)
             return
 
         price = item.unit_price
@@ -2504,6 +2505,7 @@ class POSScreen(QWidget):
         self._scan_input.clear()
         self._table.selectRow(len(self._lines) - 1)
         self._update_box_bar(len(self._lines) - 1)
+        self._pole_show_item(item.description, qty, price)
 
     def _update_box_bar(self, row: int = -1):
         """Show/update the box info bar for the given cart row."""
@@ -2528,6 +2530,15 @@ class POSScreen(QWidget):
         self._box_pcs_lbl.setText(f"pcs ({pcs:g})")
         self._box_price_lbl.setText(f"{price:,.0f}")
         self._box_bar.setVisible(True)
+
+    def _pole_show_item(self, description: str, qty: float, unit_price: float):
+        try:
+            from utils.pole_display import pole_show
+            line1 = description[:20]
+            line2 = f"{qty:g} x {unit_price:,.0f}"[:20]
+            pole_show(line1, line2)
+        except Exception:
+            pass
 
     def _flash_scan(self, text, color):
         self._scan_input.setText(text)
@@ -2736,6 +2747,11 @@ class POSScreen(QWidget):
             self._active_online_order_id = ""
             if self._print_copies == 1:   # ON only — ×2 is manual via F9
                 self._print_receipt(result, dlg.method, dlg.tendered)
+            try:
+                from utils.pole_display import pole_show
+                pole_show("Thank you!", f"Total {total:,.0f}"[:20])
+            except Exception:
+                pass
             self._new_sale()
         else:
             QMessageBox.critical(self, "Error", f"Failed to save sale:\n{result}")
@@ -3236,6 +3252,19 @@ class POSScreen(QWidget):
         self._last_pack_qty = 1
         self._refresh_table()
         self._scan_input.setFocus()
+        try:
+            from utils.pole_display import pole_welcome
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            _s = get_session()
+            try:
+                _sn = _s.get(Setting, "shop_name")
+                pole_welcome(_sn.value if _sn else "Welcome!")
+            finally:
+                _s.close()
+        except Exception:
+            pass
 
     # ── Elevation guard ────────────────────────────────────────────────────────
 
