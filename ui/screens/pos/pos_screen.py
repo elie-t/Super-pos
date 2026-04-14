@@ -2393,6 +2393,7 @@ class POSScreen(QWidget):
         })
         self._refresh_table()
         self._table.selectRow(len(self._lines) - 1)
+        self._pole_show_item("Vegetables", dlg.result_qty, dlg.result_price)
         self._scan_input.setFocus()
 
     def _open_manual_price_dialog(self):
@@ -2430,6 +2431,7 @@ class POSScreen(QWidget):
         })
         self._refresh_table()
         self._table.selectRow(len(self._lines) - 1)
+        self._pole_show_item(item_data.description, dlg.result_qty, dlg.result_price)
         self._scan_input.setFocus()
 
     def _open_free_amount_dialog(self):
