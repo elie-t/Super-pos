@@ -2668,9 +2668,7 @@ class POSScreen(QWidget):
             change_txt = f"  Change ل.ل {change:,.0f}" if change > 0 else ""
             self._last_inv_amt_lbl.setText(f"ل.ل {total:,.0f}{change_txt}")
             self._active_online_order_id = ""
-            if self._print_copies > 0:
-                self._print_receipt(result, dlg.method, dlg.tendered)
-            if self._print_copies >= 2:
+            if self._print_copies == 1:   # ON only — ×2 is manual via F9
                 self._print_receipt(result, dlg.method, dlg.tendered)
             self._new_sale()
         else:
@@ -3562,12 +3560,14 @@ class POSScreen(QWidget):
         if not self._last_invoice_id:
             QMessageBox.information(self, "Print", "No sale to print yet.")
             return
-        self._print_receipt(
-            self._last_invoice_id,
-            self._last_payment_method,
-            self._last_tendered,
-            show_preview=True,
-        )
+        copies = max(1, self._print_copies)  # always at least 1 on F9
+        for _ in range(copies):
+            self._print_receipt(
+                self._last_invoice_id,
+                self._last_payment_method,
+                self._last_tendered,
+                show_preview=True,
+            )
 
     def _print_receipt(
         self,
