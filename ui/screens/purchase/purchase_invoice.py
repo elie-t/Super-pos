@@ -750,6 +750,9 @@ class PurchaseInvoiceScreen(QWidget):
     def _make_table(self):
         self._table = QTableWidget()
         self._table.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
+        self._table.setMinimumHeight(0)
+        self._table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._table.setColumnCount(13)
         self._table.setHorizontalHeaderLabels([
             "#", "W", "Code", "Barcode", "Description",
