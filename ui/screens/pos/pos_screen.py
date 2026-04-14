@@ -3241,7 +3241,8 @@ class POSScreen(QWidget):
     def _increment_qty(self):
         row = self._table.currentRow()
         if 0 <= row < len(self._lines):
-            self._lines[row]["qty"] += 1
+            step = getattr(self._lines[row]["item"], "qty", 1) or 1
+            self._lines[row]["qty"] += step
             self._recalc_line(row)
             self._refresh_table()
             self._table.selectRow(row)
@@ -3249,7 +3250,8 @@ class POSScreen(QWidget):
     def _decrement_qty(self):
         row = self._table.currentRow()
         if 0 <= row < len(self._lines):
-            self._lines[row]["qty"] = max(0.001, self._lines[row]["qty"] - 1)
+            step = getattr(self._lines[row]["item"], "qty", 1) or 1
+            self._lines[row]["qty"] = max(0.001, self._lines[row]["qty"] - step)
             self._recalc_line(row)
             self._refresh_table()
             self._table.selectRow(row)
