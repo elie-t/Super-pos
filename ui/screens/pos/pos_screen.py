@@ -1635,6 +1635,24 @@ class POSScreen(QWidget):
         self._table.setShowGrid(True)
         self._table.itemChanged.connect(self._on_cell_edited)
 
+        # Enter/Return while editing a table cell → commit + return to barcode
+        class _TableFilter(QObject):
+            def __init__(self, screen):
+                super().__init__(screen)
+                self._screen = screen
+            def eventFilter(self, obj, event):
+                if event.type() == QEvent.Type.KeyPress:
+                    if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                        self._screen._table.clearFocus()
+                        QTimer.singleShot(0, lambda: (
+                            self._screen._scan_input.setFocus(),
+                            self._screen._scan_input.selectAll(),
+                        ))
+                        return False  # let table commit the edit first
+                return False
+        self._table_filter = _TableFilter(self)
+        self._table.installEventFilter(self._table_filter)
+
         th = self._table.horizontalHeader()
         th.setSectionResizeMode(COL_DESC, QHeaderView.Stretch)
         for col, w_ in ((COL_NUM, 30), (COL_CODE, 110), (COL_QTY, 80),
@@ -2126,9 +2144,11 @@ class POSScreen(QWidget):
             else:
                 self._add_item(item)
         else:
-            # Nothing found → beep and select text so next scan replaces it
+            # Nothing found → beep + blocking message so cashier must acknowledge
             self._beep_not_found()
-            self._scan_input.selectAll()
+            QMessageBox.warning(self, "Item Not Found",
+                                f"No item found for:\n\n{query}\n\nPlease check the barcode and try again.")
+            self._scan_input.clear()
             self._scan_input.setFocus()
 
     def _open_item_picker(self):
