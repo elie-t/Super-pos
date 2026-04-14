@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLineEdit, QLabel, QComboBox, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QAbstractItemView, QFrame, QGroupBox, QDoubleSpinBox,
+    QAbstractItemView, QAbstractScrollArea, QFrame, QGroupBox, QDoubleSpinBox,
     QDateEdit, QMessageBox, QDialog, QListWidget, QListWidgetItem,
     QDialogButtonBox, QSpinBox, QSizePolicy,
 )
@@ -749,6 +749,7 @@ class PurchaseInvoiceScreen(QWidget):
 
     def _make_table(self):
         self._table = QTableWidget()
+        self._table.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
         self._table.setColumnCount(13)
         self._table.setHorizontalHeaderLabels([
             "#", "W", "Code", "Barcode", "Description",
