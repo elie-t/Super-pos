@@ -715,6 +715,19 @@ class PurchaseInvoiceScreen(QWidget):
         self._add_btn.clicked.connect(self._add_line)
         lay.addWidget(self._add_btn)
 
+        # New item button — opens Item Maintenance with blank form
+        new_item_btn = QPushButton("＋ New Item")
+        new_item_btn.setFixedHeight(32)
+        new_item_btn.setFixedWidth(90)
+        new_item_btn.setCursor(Qt.PointingHandCursor)
+        new_item_btn.setStyleSheet(
+            "QPushButton{background:#1565c0;color:#fff;border:none;border-radius:4px;"
+            "font-size:12px;font-weight:700;}"
+            "QPushButton:hover{background:#0d47a1;}"
+        )
+        new_item_btn.clicked.connect(self._open_new_item)
+        lay.addWidget(new_item_btn)
+
         # Cancel edit button (hidden when not editing)
         self._cancel_edit_btn = QPushButton("✕  Cancel")
         self._cancel_edit_btn.setStyleSheet(
@@ -1394,6 +1407,11 @@ class PurchaseInvoiceScreen(QWidget):
         item_id = self._lines[row]["item"].item_id
         supplier_id = self._supplier.id if self._supplier else ""
         self.edit_item_requested.emit(item_id, supplier_id)
+
+    def _open_new_item(self):
+        """Open Item Maintenance with a blank form to create a new item."""
+        supplier_id = self._supplier.id if self._supplier else ""
+        self.edit_item_requested.emit("", supplier_id)
 
     def _cancel_edit(self):
         self._editing_row = -1
