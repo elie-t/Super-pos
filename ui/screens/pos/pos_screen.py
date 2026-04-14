@@ -2710,6 +2710,11 @@ class POSScreen(QWidget):
             QMessageBox.warning(self, "Empty", "No items in the sale.")
             return
         total = self._grand_total()
+        try:
+            from utils.pole_display import pole_show
+            pole_show("Total:", f"{total:,.0f}"[:20])
+        except Exception:
+            pass
         dlg = PaymentDialog(total, self)
         if not dlg.exec():
             return
@@ -2765,11 +2770,6 @@ class POSScreen(QWidget):
             self._active_online_order_id = ""
             if self._print_copies == 1:   # ON only — ×2 is manual via F9
                 self._print_receipt(result, dlg.method, dlg.tendered)
-            try:
-                from utils.pole_display import pole_show
-                pole_show("Thank you!", f"Total {total:,.0f}"[:20])
-            except Exception:
-                pass
             self._new_sale()
         else:
             QMessageBox.critical(self, "Error", f"Failed to save sale:\n{result}")
