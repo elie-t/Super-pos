@@ -2216,11 +2216,10 @@ class POSScreen(QWidget):
                 self._scan_input.clear()
                 return
 
-        # Cascade: barcode → code → name (exact then partial)
+        # Cascade: barcode → code only (name search requires Ctrl+Enter or "/" prefix)
         item = (
             PosService.lookup_item(query, "barcode", currency="USD", price_type=POS_PRICE_TYPE)
             or PosService.lookup_item(query, "code",    currency="USD", price_type=POS_PRICE_TYPE)
-            or PosService.lookup_item(query, "name",    currency="USD", price_type=POS_PRICE_TYPE)
         )
         if item:
             if negative_qty:
