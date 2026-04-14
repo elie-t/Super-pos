@@ -67,11 +67,12 @@ class PoleDisplay:
             self._ser = None   # force reconnect next time
 
     def show(self, line1: str, line2: str):
-        """Display two lines (each truncated/padded to 20 chars)."""
+        """Display two lines (each padded to exactly 20 chars).
+        Sends clear then both lines as a single 40-char block — the display
+        auto-wraps at column 20, no CR/LF needed (avoids line-order issues)."""
         l1 = _pad(line1)
         l2 = _pad(line2)
         self._write(_CLEAR + l1.encode("ascii", errors="replace")
-                    + _CR + _NL
                     + l2.encode("ascii", errors="replace"))
 
     def clear(self):
