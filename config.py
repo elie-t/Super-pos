@@ -38,7 +38,7 @@ CASH_CUSTOMER_NAME = "Cash Customer"
 DEFAULT_WAREHOUSE  = "Main Warehouse"
 
 # ── Sync ──────────────────────────────────────────────────────────────────────
-SYNC_INTERVAL_SEC  = 60            # background sync interval
+SYNC_INTERVAL_SEC  = 3600          # item/price pull interval (once per hour)
 SYNC_API_BASE_URL  = os.getenv("SYNC_API_BASE_URL", "")
 SYNC_API_KEY       = os.getenv("SYNC_API_KEY", "")
 

@@ -1,13 +1,16 @@
 """
 Sync Worker — runs in a background QThread.
-Every SYNC_INTERVAL_SEC seconds:
-  1. Drains the local sync_queue → pushes to Supabase
-  2. Pulls new online orders from Supabase
-  3. Emits signals so the POS UI can react (new order badge, etc.)
+
+Responsibilities:
+  - Pull item/price master data from Supabase once per hour (SYNC_INTERVAL_SEC)
+  - Drain the local sync_queue when explicitly triggered (shift-end)
+
+Online order notifications are handled separately by OrderWatcher (websocket).
+Sales invoice push happens at shift-end via trigger_drain().
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QThread, Signal, QTimer
+from PySide6.QtCore import QThread, Signal
 from config import SYNC_INTERVAL_SEC
 
 
@@ -19,94 +22,90 @@ def get_sync_worker() -> "SyncWorker | None":
 
 
 class SyncWorker(QThread):
-    """Background thread that syncs with Supabase."""
+    """Background thread: hourly item pull + on-demand queue drain."""
 
-    new_orders      = Signal(int)      # new online orders pulled
-    sync_done       = Signal(int, int) # (synced, failed)
-    items_updated   = Signal(int)      # item master data changes pulled
-    invoices_pulled = Signal(int)      # branch invoices pulled
-    users_changed   = Signal()         # user records added/updated/deactivated
+    sync_done       = Signal(int, int)  # (synced, failed) — after drain
+    items_updated   = Signal(int)       # item master data changes pulled
+    users_changed   = Signal()          # user records added/updated/deactivated
     error           = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._running = False
-        self._paused  = False
+        self._running       = False
+        self._drain_pending = False
         global _instance
         _instance = self
 
-    def pause(self):
-        """Pause sync ticks (e.g. during long DB operations like import)."""
-        self._paused = True
+    # ── Public API ────────────────────────────────────────────────────────────
 
-    def resume(self):
-        """Resume sync ticks."""
-        self._paused = False
+    def trigger_drain(self):
+        """
+        Request a sync_queue drain on the next loop iteration.
+        Call this after end-of-shift to push pending invoices/movements.
+        """
+        self._drain_pending = True
+
+    # ── Thread main loop ──────────────────────────────────────────────────────
 
     def run(self):
-        self._running = True
+        self._running    = True
+        ticks_since_pull = SYNC_INTERVAL_SEC  # pull immediately on first start
+
         while self._running:
-            if not self._paused:
-                self._tick()
-            # Sleep in small increments so stop()/pause() are responsive
-            for _ in range(SYNC_INTERVAL_SEC * 10):
+            # Drain if requested (shift-end push)
+            if self._drain_pending:
+                self._drain_pending = False
+                self._do_drain()
+
+            # Hourly item pull
+            ticks_since_pull += 1
+            if ticks_since_pull >= SYNC_INTERVAL_SEC:
+                ticks_since_pull = 0
+                self._do_items_pull()
+
+            # Sleep in 1-second increments so stop()/trigger_drain() are responsive
+            for _ in range(10):
                 if not self._running:
+                    break
+                if self._drain_pending:
                     break
                 self.msleep(100)
 
-    def _tick(self):
-        from sync.service import (
-            drain_sync_queue, pull_new_orders,
-            pull_sales_invoices, pull_master_items,
-            pull_stock_movements, is_configured,
-        )
+    # ── Internal operations ───────────────────────────────────────────────────
+
+    def _do_drain(self):
+        """Push all pending sync_queue rows to Supabase."""
+        from sync.service import drain_sync_queue, is_configured
         if not is_configured():
             return
-        from datetime import datetime as _dt
-        _log_path = __import__('pathlib').Path(__file__).parent.parent / "data" / "sync.log"
-        def _log(msg):
-            try:
-                with open(_log_path, "a") as _f:
-                    _f.write(f"{_dt.now().strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
-            except Exception:
-                pass
         try:
-            # Push queued local changes (item saves, invoices, etc.)
             synced, failed = drain_sync_queue()
-            if synced or failed:
-                self.sync_done.emit(synced, failed)
+            self.sync_done.emit(synced, failed)
+        except Exception as e:
+            self.error.emit(str(e))
 
-            # Pull new online orders
-            count, err = pull_new_orders()
-            if err:
-                self.error.emit(f"Order pull: {err}")
-            elif count > 0:
-                self.new_orders.emit(count)
+    def _do_items_pull(self):
+        """Pull item master data + user changes from Supabase."""
+        from sync.service import pull_master_items, is_configured
+        if not is_configured():
+            return
+        try:
+            from datetime import datetime as _dt
+            from pathlib import Path as _Path
+            _log_path = _Path(__file__).parent.parent / "data" / "sync.log"
 
-            # Pull sales invoices from other branches
-            pulled, err = pull_sales_invoices()
-            if err:
-                self.error.emit(f"Invoice pull: {err}")
-                _log(f"[ERROR] invoice pull: {err}")
-            elif pulled > 0:
-                self.invoices_pulled.emit(pulled)
-                _log(f"[OK] pulled {pulled} branch invoice(s)")
-
-            # Pull item master data from Supabase
             count, err = pull_master_items()
             if err:
                 self.error.emit(f"Items pull: {err}")
+                try:
+                    with open(_log_path, "a") as f:
+                        f.write(f"{_dt.now().strftime('%Y-%m-%d %H:%M:%S')} [ERROR] items pull: {err}\n")
+                except Exception:
+                    pass
             elif count > 0:
                 self.items_updated.emit(count)
-
-            # Pull stock movements from other branches
-            _, err = pull_stock_movements()
-            if err:
-                self.error.emit(f"Movements pull: {err}")
-
         except Exception as e:
             self.error.emit(str(e))
-            _log(f"[EXCEPTION] {e}")
 
     def stop(self):
         self._running = False

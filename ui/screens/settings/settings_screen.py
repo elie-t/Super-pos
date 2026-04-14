@@ -391,6 +391,23 @@ class SettingsScreen(QWidget):
         self._sync_btn.clicked.connect(self._do_force_sync)
         btn_row.addWidget(self._sync_btn)
 
+        self._sync_items_btn = QPushButton("📥  Sync Items Now")
+        self._sync_items_btn.setFixedHeight(38)
+        self._sync_items_btn.setCursor(Qt.PointingHandCursor)
+        self._sync_items_btn.setEnabled(configured)
+        self._sync_items_btn.setToolTip(
+            "Pull latest item names, prices, and barcodes from the main PC.\n"
+            "This also happens automatically every hour in the background."
+        )
+        self._sync_items_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;border:none;"
+            "border-radius:5px;font-size:13px;font-weight:700;padding:0 20px;}"
+            "QPushButton:hover{background:#1b5e20;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._sync_items_btn.clicked.connect(self._do_sync_items)
+        btn_row.addWidget(self._sync_items_btn)
+
         reconcile_btn = QPushButton("🔁  Reconcile Stock")
         reconcile_btn.setFixedHeight(38)
         reconcile_btn.setCursor(Qt.PointingHandCursor)
@@ -964,6 +981,64 @@ class SettingsScreen(QWidget):
         except Exception as e:
             self._stock_start_status.setText(f"Error: {e}")
             self._stock_start_status.setStyleSheet("font-size:11px; color:#c62828;")
+
+    def _do_sync_items(self):
+        """Pull latest item names, prices, and barcodes from Supabase."""
+        self._sync_items_btn.setEnabled(False)
+        self._sync_items_btn.setText("Syncing…")
+
+        from sync.worker import get_sync_worker
+        w = get_sync_worker()
+        if w:
+            # Reuse the existing SyncWorker thread — just trigger an items pull
+            # and listen for the one-time items_updated / error signal response
+            def _on_done(count):
+                w.items_updated.disconnect(_on_done)
+                try:
+                    w.error.disconnect(_on_err)
+                except Exception:
+                    pass
+                self._sync_items_btn.setEnabled(True)
+                self._sync_items_btn.setText("📥  Sync Items Now")
+                from PySide6.QtWidgets import QMessageBox
+                msg = f"{count} item(s) updated." if count else "Items are already up to date."
+                QMessageBox.information(self, "Sync Items", msg)
+
+            def _on_err(err):
+                try:
+                    w.items_updated.disconnect(_on_done)
+                except Exception:
+                    pass
+                w.error.disconnect(_on_err)
+                self._sync_items_btn.setEnabled(True)
+                self._sync_items_btn.setText("📥  Sync Items Now")
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Sync Items", f"Pull failed:\n{err}")
+
+            w.items_updated.connect(_on_done)
+            w.error.connect(_on_err)
+            w._do_items_pull()   # run directly (worker is already on its thread)
+        else:
+            # No worker running — run in a plain thread
+            import threading
+            from PySide6.QtCore import QTimer
+
+            def _run():
+                from sync.service import pull_master_items
+                count, err = pull_master_items()
+                QTimer.singleShot(0, lambda: self._finish_items_sync(count, err))
+
+            threading.Thread(target=_run, daemon=True).start()
+
+    def _finish_items_sync(self, count: int, err: str):
+        self._sync_items_btn.setEnabled(True)
+        self._sync_items_btn.setText("📥  Sync Items Now")
+        from PySide6.QtWidgets import QMessageBox
+        if err:
+            QMessageBox.warning(self, "Sync Items", f"Pull failed:\n{err}")
+        else:
+            msg = f"{count} item(s) updated." if count else "Items are already up to date."
+            QMessageBox.information(self, "Sync Items", msg)
 
     def _do_reconcile_stock(self):
         """Full stock reconcile: clear applied-movements log, reset cursor,

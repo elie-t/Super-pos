@@ -958,6 +958,16 @@ class DailySalesDialog(QDialog):
             wh_id = self._wh.currentData() or ""
             archived, path = DailySalesService.close_shift(wh_id)
             self._auto_print_shift_report()
+
+            # Push all pending queue items to Supabase (invoices, movements)
+            try:
+                from sync.worker import get_sync_worker
+                w = get_sync_worker()
+                if w:
+                    w.trigger_drain()
+            except Exception:
+                pass
+
             _EndOfShiftSuccessDialog(archived, total_lines, path, self).exec()
             self._shift_was_closed = True
             self.accept()

@@ -39,26 +39,47 @@ def main():
     window.showMaximized()
     window.setWindowState(window.windowState() | __import__('PySide6.QtCore', fromlist=['Qt']).Qt.WindowMaximized)
 
-    # Start background sync worker (only if Supabase is configured)
+    # Background sync (only if Supabase is configured)
     from sync.service import is_configured
     if is_configured():
+        # ── Hourly item/price pull ────────────────────────────────────────────
         from sync.worker import SyncWorker
         _sync_worker = SyncWorker(app)
-        _sync_worker.new_orders.connect(
-            lambda n: window.statusBar().showMessage(f"  {n} new online order(s) received!", 8000)
-        )
         _sync_worker.sync_done.connect(
-            lambda s, f: window.statusBar().showMessage(f"  Sync: {s} pushed" + (f", {f} failed" if f else ""), 5000)
+            lambda s, f: window.statusBar().showMessage(
+                f"  Sync: {s} pushed" + (f", {f} failed" if f else ""), 5000)
+        )
+        _sync_worker.items_updated.connect(
+            lambda n: window.statusBar().showMessage(f"  ✔ {n} item(s) updated from main", 6000)
         )
         _sync_worker.error.connect(
             lambda e: window.statusBar().showMessage(f"  ⚠ Sync error: {e}", 10000)
         )
-        _sync_worker.invoices_pulled.connect(
-            lambda n: window.statusBar().showMessage(f"  ✔ {n} branch invoice(s) synced", 8000)
-        )
-        _sync_worker.users_changed.connect(window.refresh_login)
         _sync_worker.start()
         app.aboutToQuit.connect(_sync_worker.stop)
+
+        # ── Instant order notifications via Supabase Realtime ─────────────────
+        try:
+            from sync.order_watcher import OrderWatcher
+            import threading
+
+            _order_watcher = OrderWatcher(app)
+
+            def _on_new_order():
+                """Pull the new order in a background thread, then notify."""
+                def _pull():
+                    from sync.service import pull_new_orders
+                    count, _ = pull_new_orders()
+                    if count > 0:
+                        window.statusBar().showMessage(
+                            f"  🛒 {count} new online order(s) received!", 10000)
+                threading.Thread(target=_pull, daemon=True).start()
+
+            _order_watcher.new_order.connect(_on_new_order)
+            _order_watcher.start()
+            app.aboutToQuit.connect(_order_watcher.stop)
+        except Exception:
+            pass   # QtWebSockets not available — orders still pulled at shift-end
 
     sys.exit(app.exec())
 

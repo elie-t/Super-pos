@@ -219,6 +219,9 @@ def pull_new_orders() -> tuple[int, str]:
     """
     Fetch new orders from Supabase that haven't been imported yet.
     Returns (count_imported, error).
+
+    DB session is closed before any HTTP write (PATCH) so no SQLite lock
+    is held during network calls — prevents UI freezes.
     """
     from database.engine import get_session, init_db
     from database.models.invoices import OnlineOrder
@@ -226,10 +229,8 @@ def pull_new_orders() -> tuple[int, str]:
     if not is_configured():
         return 0, "Supabase not configured"
 
-    init_db()
-    session = get_session()
+    # ── 1. Fetch remote orders (no DB session open) ───────────────────────────
     try:
-        # Fetch orders with status='new' from Supabase
         r = requests.get(
             f"{_url('orders')}?status=eq.new&order=created_at.asc",
             headers={**_headers(), "Prefer": ""},
@@ -237,17 +238,38 @@ def pull_new_orders() -> tuple[int, str]:
         )
         if r.status_code != 200:
             return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+        remote_orders = r.json()
+    except Exception as e:
+        return 0, str(e)
 
-        orders = r.json()
-        imported = 0
+    if not remote_orders:
+        return 0, ""
 
-        for o in orders:
+    # ── 2. Filter out already-imported IDs (quick read, session closed fast) ──
+    init_db()
+    session = get_session()
+    try:
+        known_ids = {
+            row[0] for row in
+            session.execute(
+                __import__("sqlalchemy").text("SELECT id FROM online_orders")
+            ).fetchall()
+        }
+    except Exception:
+        known_ids = set()
+    finally:
+        session.close()
+
+    new_orders = [o for o in remote_orders if o.get("id", "") not in known_ids]
+    if not new_orders:
+        return 0, ""
+
+    # ── 3. Insert new orders into local DB (write session, close before HTTP) ─
+    session = get_session()
+    imported_ids = []
+    try:
+        for o in new_orders:
             order_id = o.get("id", "")
-            # Skip if already imported
-            existing = session.get(OnlineOrder, order_id)
-            if existing:
-                continue
-
             order = OnlineOrder(
                 id             = order_id,
                 customer_name  = o.get("customer_name", ""),
@@ -263,25 +285,27 @@ def pull_new_orders() -> tuple[int, str]:
                 ordered_at     = o.get("created_at", datetime.now(timezone.utc).isoformat()),
             )
             session.add(order)
+            imported_ids.append(order_id)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        return 0, str(e)
+    finally:
+        session.close()   # ← DB lock fully released before any HTTP call
 
-            # Mark as 'confirmed' on Supabase so we don't pull it again
+    # ── 4. Mark confirmed on Supabase (no DB session open) ───────────────────
+    for order_id in imported_ids:
+        try:
             requests.patch(
                 f"{_url('orders')}?id=eq.{order_id}",
                 headers=_headers(),
                 json={"status": "confirmed"},
                 timeout=10,
             )
+        except Exception:
+            pass   # non-fatal — worst case we re-import on next pull (idempotent)
 
-            imported += 1
-
-        session.commit()
-        return imported, ""
-
-    except Exception as e:
-        session.rollback()
-        return 0, str(e)
-    finally:
-        session.close()
+    return len(imported_ids), ""
 
 
 # ── Sync queue drain ──────────────────────────────────────────────────────────
