@@ -379,7 +379,7 @@ class PurchaseService:
             session.commit()
             PurchaseService.increment_invoice_number(warehouse_id)
 
-            # Sync to central
+            # Sync to central in background — don't block the UI
             try:
                 from sync.service import (
                     push_stock_movements_for_invoice,
@@ -387,8 +387,15 @@ class PurchaseService:
                     is_configured,
                 )
                 if is_configured():
-                    push_stock_movements_for_invoice(inv.id)
-                    push_purchase_invoice(inv.id)
+                    import threading
+                    _inv_id = inv.id
+                    def _sync():
+                        try:
+                            push_stock_movements_for_invoice(_inv_id)
+                            push_purchase_invoice(_inv_id)
+                        except Exception:
+                            pass
+                    threading.Thread(target=_sync, daemon=True).start()
             except Exception:
                 pass
 
