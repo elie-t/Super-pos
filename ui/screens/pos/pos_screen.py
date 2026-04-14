@@ -3268,7 +3268,6 @@ class POSScreen(QWidget):
         self._last_pack_qty = 1
         self._refresh_table()
         self._scan_input.setFocus()
-        QTimer.singleShot(3000, self._pole_show_welcome)
 
     # ── Elevation guard ────────────────────────────────────────────────────────
 
