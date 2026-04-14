@@ -367,11 +367,22 @@ def _process_sync_row(row) -> tuple[bool, str]:
             ok, err = push_invoice(row.entity_id)
             if not ok:
                 return False, err
+            # Push stock movements for this sale to central
+            push_stock_movements_for_invoice(row.entity_id)
             # Update stock levels for each sold item
             for iid in item_ids:
                 push_stock_update(iid)
                 push_stock_level(iid)
             return True, ""
+        except Exception as e:
+            return False, str(e)
+
+    if row.entity_type == "purchase_invoice":
+        try:
+            ok, err = push_stock_movements_for_invoice(row.entity_id)
+            if not ok:
+                return False, err
+            return push_purchase_invoice(row.entity_id)
         except Exception as e:
             return False, str(e)
 

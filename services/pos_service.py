@@ -451,20 +451,12 @@ class PosService:
             session.commit()
             PosService.increment_sale_number(warehouse_id)
 
-            # Sync to central in background — never block a sale
+            # Queue for background sync — SyncWorker picks it up on next tick
             try:
-                from sync.service import enqueue, push_stock_movements_for_invoice, is_configured
-                item_ids = list({l.item_id for l in lines})
-                enqueue("sales_invoice", inv.id, "create", {"item_ids": item_ids})
+                from sync.service import enqueue, is_configured
                 if is_configured():
-                    import threading
-                    _inv_id = inv.id
-                    def _sync():
-                        try:
-                            push_stock_movements_for_invoice(_inv_id)
-                        except Exception:
-                            pass
-                    threading.Thread(target=_sync, daemon=True).start()
+                    item_ids = list({l.item_id for l in lines})
+                    enqueue("sales_invoice", inv.id, "create", {"item_ids": item_ids})
             except Exception:
                 pass
 
