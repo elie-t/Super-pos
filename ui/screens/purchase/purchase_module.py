@@ -406,14 +406,15 @@ class PurchaseModule(QWidget):
 
     def _open_item_maintenance(self, item_id: str, supplier_id: str = ""):
         from ui.screens.stock.item_maintenance import ItemMaintenanceScreen
+        self._new_item_id = None   # reset; set on save
         screen = ItemMaintenanceScreen(item_id=item_id, supplier_id=supplier_id)
-        screen.back.connect(self._close_item_maintenance)
-        screen.saved.connect(lambda _: self._close_item_maintenance())
+        screen.back.connect(lambda: self._close_item_maintenance(None))
+        screen.saved.connect(self._close_item_maintenance)
         self._stack.addWidget(screen)
         self._stack.setCurrentWidget(screen)
         self._item_maintenance_screen = screen
 
-    def _close_item_maintenance(self):
+    def _close_item_maintenance(self, saved_item_id: str | None = None):
         screen = getattr(self, "_item_maintenance_screen", None)
         if screen:
             prev = getattr(self, "_active_invoice", None) or self._hub
@@ -421,6 +422,27 @@ class PurchaseModule(QWidget):
             self._stack.removeWidget(screen)
             screen.deleteLater()
             self._item_maintenance_screen = None
+
+        # If a new item was just saved, pre-fill the barcode field with its code
+        # so Ctrl+Enter immediately finds it at the top of the picker
+        if saved_item_id:
+            inv = getattr(self, "_active_invoice", None)
+            if inv and hasattr(inv, "_bc_input"):
+                try:
+                    from database.engine import get_session, init_db
+                    from database.models.items import Item
+                    init_db()
+                    db = get_session()
+                    try:
+                        item = db.get(Item, saved_item_id)
+                        code = item.code if item else ""
+                    finally:
+                        db.close()
+                    if code:
+                        inv._bc_input.setText(code)
+                except Exception:
+                    pass
+                inv._bc_input.setFocus()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
