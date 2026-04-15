@@ -3191,7 +3191,7 @@ def pull_delivery_invoices(status_filter: str = "pending") -> tuple[list[dict], 
         params = (
             f"invoice_type=eq.delivery"
             f"&status=eq.{status_filter}"
-            f"&order=created_at.desc"
+            f"&order=invoice_date.desc,id.desc"
             f"&limit=200"
         )
         r = requests.get(
