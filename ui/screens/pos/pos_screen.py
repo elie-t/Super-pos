@@ -1476,14 +1476,46 @@ class POSScreen(QWidget):
         self._build_ui()
         self._load_defaults()
         self._setup_shortcuts()
-        from PySide6.QtCore import QTimer
+        self._install_focus_return_filter()
         QTimer.singleShot(0, self._scan_input.setFocus)
         QTimer.singleShot(2000, self._poll_online_orders)  # first poll 2s after load
 
     def showEvent(self, event):
         super().showEvent(event)
-        from PySide6.QtCore import QTimer
         QTimer.singleShot(100, self._scan_input.setFocus)
+
+    def _install_focus_return_filter(self):
+        """After any mouse click on the POS screen, return focus to the barcode input
+        unless the user intentionally clicked into a text/spin input."""
+        from PySide6.QtWidgets import QApplication, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox
+        screen = self
+
+        class _FocusReturnFilter(QObject):
+            def eventFilter(self, obj, event):
+                if event.type() == QEvent.Type.MouseButtonRelease:
+                    # Walk up to check if this widget belongs to our POS screen
+                    w = obj
+                    while w is not None:
+                        if w is screen:
+                            QTimer.singleShot(150, screen._return_focus_to_scan)
+                            break
+                        w = w.parent()
+                return False  # never consume the event
+
+        self._focus_return_filter = _FocusReturnFilter(self)
+        QApplication.instance().installEventFilter(self._focus_return_filter)
+
+    def _return_focus_to_scan(self):
+        """Set focus to barcode input unless user is actively typing in another field."""
+        from PySide6.QtWidgets import QApplication, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox
+        fw = QApplication.focusWidget()
+        if fw is None or fw is self._scan_input:
+            self._scan_input.setFocus()
+            return
+        # Don't steal focus from intentional input fields
+        if isinstance(fw, (QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox)):
+            return
+        self._scan_input.setFocus()
 
     # ── Build UI ───────────────────────────────────────────────────────────────
 
