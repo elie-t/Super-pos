@@ -414,6 +414,117 @@ def _escpos_row(name: str, right: str, name_w: int, right_w: int) -> str:
     return out
 
 
+def _build_transfer_html(
+    no: str, from_wh: str, to_wh: str, date_str: str,
+    lines: list, currency: str = "",
+) -> str:
+    """Build an HTML receipt for a warehouse transfer (mirrors _build_html layout)."""
+    import html as _h
+
+    def e(s) -> str:
+        return _h.escape(str(s))
+
+    total = sum(float(l.get("total", 0)) for l in lines)
+    is_lbp = currency == "LBP"
+
+    def fmt(v: float) -> str:
+        return f"{v:,.0f} L" if is_lbp else f"$ {v:,.2f}"
+
+    L = "width:70%;padding:0 1px 0 0;white-space:nowrap;overflow:hidden;vertical-align:top;"
+    R = "width:30%;text-align:right;padding:0 0 0 1px;white-space:nowrap;overflow:hidden;vertical-align:top;"
+
+    def row2(left, right, bold=False) -> str:
+        b0, b1 = ("<b>", "</b>") if bold else ("", "")
+        return (
+            f"<tr><td style='{L}'>{b0}{e(left)}{b1}</td>"
+            f"<td style='{R}'>{b0}{e(right)}{b1}</td></tr>"
+        )
+
+    def sep(dbl=False) -> str:
+        return (
+            f"<tr><td colspan='2' style='border-top:1px {'solid' if dbl else 'dashed'} #000;"
+            f"padding:0;margin:0;height:2px;line-height:2px;font-size:1pt;'></td></tr>"
+        )
+
+    header = (
+        f"<div style='text-align:center;font-size:13pt;font-weight:700;'>Warehouse Transfer</div>"
+        f"<div style='text-align:center;font-size:11pt;font-weight:700;'>{e(no)}</div>"
+        f"<div style='text-align:center;font-size:9pt;line-height:1.2;'>{e(from_wh)} → {e(to_wh)}</div>"
+        f"<div style='text-align:center;font-size:9pt;line-height:1.2;'>Date: {e(date_str)}</div>"
+    )
+
+    items_html = ""
+    for line in lines:
+        name = line.get("name", "")
+        qty  = f"{float(line.get('qty', 0)):g}"
+        items_html += row2(name, qty)
+
+    totals = row2("Lines:", str(len(lines)))
+    totals += row2("Total:", fmt(total), bold=True)
+
+    return f"""<html dir='ltr'><head><meta charset='utf-8'></head>
+<body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:7pt;line-height:1.2;color:#000000;'>{header}
+<table style='width:100%;table-layout:fixed;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
+  {sep()}{items_html}{sep()}{totals}{sep()}
+</table>
+</body></html>"""
+
+
+def print_transfer(
+    no: str, from_wh: str, to_wh: str, date_str: str,
+    lines: list, currency: str = "", parent=None,
+) -> None:
+    """
+    Print a warehouse transfer receipt.
+    Priority (same as print_receipt):
+      1. ESC/POS printer → direct thermal print
+      2. Windows Qt printer → auto-print via Qt
+      3. Fallback → Qt print preview dialog
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    # ── 1. ESC/POS ─────────────────────────────────────────────────────────
+    try:
+        p = get_escpos_printer()
+        if p is not None:
+            ok, err = print_transfer_escpos(
+                no=no, from_wh=from_wh, to_wh=to_wh,
+                date_str=date_str, lines=lines, currency=currency,
+            )
+            if not ok and parent:
+                QMessageBox.warning(parent, "Printer Error", err)
+            return
+    except Exception as exc:
+        if parent:
+            QMessageBox.warning(parent, "Printer Error", str(exc))
+        return
+
+    html = _build_transfer_html(no, from_wh, to_wh, date_str, lines, currency)
+
+    # ── 2. Windows Qt system printer ───────────────────────────────────────
+    qt_name = _get_qt_printer_name()
+    if qt_name:
+        printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
+        printer.setPrinterName(qt_name)
+        printer.setFullPage(False)
+        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+        _render_to_printer(html, printer)
+        return
+
+    # ── 3. Preview dialog ──────────────────────────────────────────────────
+    printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
+    printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
+    printer.setFullPage(True)
+    printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+    _try_set_thermal_printer(printer)
+
+    from PySide6.QtPrintSupport import QPrintPreviewDialog
+    dlg = QPrintPreviewDialog(printer, parent)
+    dlg.setWindowTitle("Transfer Preview")
+    dlg.paintRequested.connect(lambda p: _render_to_printer(html, p))
+    dlg.exec()
+
+
 def print_transfer_escpos(
     no: str,
     from_wh: str,
