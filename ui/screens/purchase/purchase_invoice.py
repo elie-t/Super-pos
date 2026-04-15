@@ -203,15 +203,9 @@ class ItemPickerDialog(QDialog):
             self._table.selectRow(0)
 
     def _on_main_search_changed(self):
-        self._deep_search.blockSignals(True)
-        self._deep_search.clear()
-        self._deep_search.blockSignals(False)
         self._timer.start()
 
     def _on_deep_search_changed(self):
-        self._search.blockSignals(True)
-        self._search.clear()
-        self._search.blockSignals(False)
         self._deep_timer.start()
 
     def _deep_load(self):
