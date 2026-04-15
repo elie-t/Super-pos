@@ -352,7 +352,8 @@ class PosService:
             from database.models.stock import StockMovement
             from database.models.items import ItemStock
             from database.models.base import new_uuid
-            from datetime import date
+            from datetime import date, datetime as _dt, timezone as _tz
+            _now = _dt.now(_tz.utc)
 
             subtotal = sum(
                 l.qty * l.unit_price * (1 - l.disc_pct / 100)
@@ -377,6 +378,7 @@ class PosService:
                 operator_id    = operator_id,
                 warehouse_id   = warehouse_id,
                 invoice_date   = date.today().isoformat(),
+                created_at     = _now,
                 invoice_type   = "sale",
                 source         = "pos",
                 subtotal       = subtotal,
@@ -731,7 +733,9 @@ class PosService:
             try:
                 from datetime import datetime as _dtt
                 if _cat and not isinstance(_cat, str):
-                    _date_str = _cat.strftime("%Y-%m-%d  %H:%M")
+                    # datetime object — convert to local naive then format
+                    _local = _cat.astimezone().replace(tzinfo=None) if _cat.tzinfo else _cat
+                    _date_str = _local.strftime("%Y-%m-%d  %H:%M")
                 elif _cat and isinstance(_cat, str) and len(_cat) > 10:
                     _date_str = _dtt.fromisoformat(_cat[:19]).strftime("%Y-%m-%d  %H:%M")
                 else:
