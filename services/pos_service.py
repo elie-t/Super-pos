@@ -726,9 +726,23 @@ class PosService:
 
             lines = session.query(SalesInvoiceItem).filter_by(invoice_id=invoice_id).all()
 
+            # Build date+time string for printing
+            _cat = inv.created_at
+            try:
+                from datetime import datetime as _dtt
+                if _cat and not isinstance(_cat, str):
+                    _date_str = _cat.strftime("%Y-%m-%d  %H:%M")
+                elif _cat and isinstance(_cat, str) and len(_cat) > 10:
+                    _date_str = _dtt.fromisoformat(_cat[:19]).strftime("%Y-%m-%d  %H:%M")
+                else:
+                    _date_str = inv.invoice_date or ""
+            except Exception:
+                _date_str = inv.invoice_date or ""
+
             return {
                 "invoice_number": inv.invoice_number,
                 "date":           inv.invoice_date or "",
+                "sale_datetime":  _date_str,
                 "created_at":     inv.created_at or "",
                 "customer":       customer.name if customer else "Walk-In",
                 "cashier":        operator.full_name if operator else "",

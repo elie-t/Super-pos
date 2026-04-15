@@ -679,19 +679,7 @@ def print_receipt_escpos(
         # meta
         p.set(align="left", bold=False, double_height=False, double_width=False)
         p.text(rrow("Receipt #:", data.get("invoice_number", "")))
-        # Show date + time; prefer created_at (has time), fall back to date-only field
-        _created = data.get("created_at")
-        if _created:
-            try:
-                from datetime import datetime as _dt
-                if isinstance(_created, str):
-                    _created = _dt.fromisoformat(_created)
-                _date_str = _created.strftime("%Y-%m-%d  %H:%M")
-            except Exception:
-                _date_str = str(data.get("date", ""))
-        else:
-            _date_str = str(data.get("date", ""))
-        p.text(rrow("Date:", _date_str))
+        p.text(rrow("Date:", data.get("sale_datetime") or data.get("date", "")))
         p.text(rrow("Cashier:", data.get("cashier", "")))
 
         if data.get("customer"):
