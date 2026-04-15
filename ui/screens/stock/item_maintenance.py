@@ -1314,7 +1314,7 @@ class ItemMaintenanceScreen(QWidget):
                     net = unit_cost * (1 - disc / 100)
                     self._net_cost_lbl.setText(f"{net:.4f}")
                     self._avg_cost_lbl.setText(f"{net:.4f}")
-                # Recalc all prices using existing %
+                # Recalc prices for this row using existing %
                 for i, (pct_col, price_col) in enumerate(PRICE_PAIRS):
                     pct_item   = self._price_table.item(row, pct_col)
                     price_item = self._price_table.item(row, price_col)
@@ -1325,6 +1325,33 @@ class ItemMaintenanceScreen(QWidget):
                             price_item.setText(f"{base * (1 + pct / 100):.4f}")
                         except ValueError:
                             pass
+
+                # If this is a pkg=1 row, propagate cost to all other pkg=1 rows
+                if pkg == 1:
+                    for other_r in range(self._price_table.rowCount()):
+                        if other_r == row:
+                            continue
+                        other_pkg_item = self._price_table.item(other_r, 2)
+                        try:
+                            other_pkg = int(other_pkg_item.text()) if other_pkg_item else 1
+                        except ValueError:
+                            other_pkg = 1
+                        if other_pkg != 1:
+                            continue
+                        other_cost_item = self._price_table.item(other_r, 3)
+                        if other_cost_item:
+                            other_cost_item.setText(f"{cost_usd:.4f}")
+                        # Recalc prices for the other row using its existing %
+                        for i, (pct_col, price_col) in enumerate(PRICE_PAIRS):
+                            other_pct_item   = self._price_table.item(other_r, pct_col)
+                            other_price_item = self._price_table.item(other_r, price_col)
+                            if other_pct_item and other_price_item and cost_usd > 0:
+                                try:
+                                    pct  = float(other_pct_item.text())
+                                    base = self._base_cost_for_currency(cost_usd, i)
+                                    other_price_item.setText(f"{base * (1 + pct / 100):.4f}")
+                                except ValueError:
+                                    pass
 
             elif col in (4, 6, 8, 10):
                 # % changed → recalc price for this row AND propagate same % to all other rows
