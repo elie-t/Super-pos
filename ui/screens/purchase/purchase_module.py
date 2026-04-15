@@ -357,6 +357,8 @@ class PurchaseModule(QWidget):
             self._choose_invoice_mode()
         elif key == "suppliers_list":
             self._open_suppliers()
+        elif key == "delivery_invoices":
+            self._open_delivery_invoices()
         else:
             self._show_placeholder(key)
 
@@ -454,6 +456,19 @@ class PurchaseModule(QWidget):
             screen.back.connect(self._go_hub)
             self._screens[key] = screen
             self._stack.addWidget(screen)
+        self._stack.setCurrentWidget(self._screens[key])
+
+    def _open_delivery_invoices(self):
+        key = "delivery_invoices"
+        if key not in self._screens:
+            from ui.screens.purchase.delivery_screen import DeliveryInvoicesScreen
+            screen = DeliveryInvoicesScreen()
+            screen.back.connect(self._go_hub)
+            screen.invoice_selected.connect(self._open_existing_invoice)
+            self._screens[key] = screen
+            self._stack.addWidget(screen)
+        else:
+            self._screens[key].refresh()
         self._stack.setCurrentWidget(self._screens[key])
 
     def _show_placeholder(self, key: str):

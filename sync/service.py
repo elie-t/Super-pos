@@ -3179,3 +3179,69 @@ def enqueue(entity_type: str, entity_id: str, action: str, payload: dict) -> Non
         session.rollback()
     finally:
         session.close()
+
+
+# ── Delivery invoice helpers ──────────────────────────────────────────────────
+
+def pull_delivery_invoices(status_filter: str = "pending") -> tuple[list[dict], str]:
+    """Fetch delivery invoices from Supabase filtered by status."""
+    if not is_configured():
+        return [], "Supabase not configured"
+    try:
+        params = (
+            f"invoice_type=eq.delivery"
+            f"&status=eq.{status_filter}"
+            f"&order=created_at.desc"
+            f"&limit=200"
+        )
+        r = requests.get(
+            f"{_url('purchase_invoices_central')}?{params}",
+            headers={**_headers(), "Prefer": ""},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return [], f"HTTP {r.status_code}: {r.text[:200]}"
+        return r.json(), ""
+    except Exception as exc:
+        return [], str(exc)
+
+
+def pull_delivery_invoice_items(invoice_id: str) -> tuple[list[dict], str]:
+    """Fetch line items for a delivery invoice from Supabase."""
+    if not is_configured():
+        return [], "Supabase not configured"
+    try:
+        params = f"invoice_id=eq.{invoice_id}&order=id.asc"
+        r = requests.get(
+            f"{_url('purchase_invoice_items_central')}?{params}",
+            headers={**_headers(), "Prefer": ""},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return [], f"HTTP {r.status_code}: {r.text[:200]}"
+        return r.json(), ""
+    except Exception as exc:
+        return [], str(exc)
+
+
+def mark_delivery_converted(invoice_id: str, purchase_invoice_number: str) -> tuple[bool, str]:
+    """Mark a delivery invoice as converted in Supabase."""
+    if not is_configured():
+        return False, "Supabase not configured"
+    try:
+        payload = {
+            "status":        "converted",
+            "converted_at":  datetime.now(timezone.utc).isoformat(),
+            "converted_by":  purchase_invoice_number,
+        }
+        r = requests.patch(
+            f"{_url('purchase_invoices_central')}?id=eq.{invoice_id}",
+            headers=_headers(),
+            json=payload,
+            timeout=15,
+        )
+        if r.status_code not in (200, 204):
+            return False, f"HTTP {r.status_code}: {r.text[:200]}"
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)

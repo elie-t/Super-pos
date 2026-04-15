@@ -19,6 +19,7 @@ PURCHASE_TOOLS = [
     ("Merge\nSuppliers",            "merge_suppliers"),
     # Row 3
     ("Calculate\nSalesman\nCommission", "salesman_commission"),
+    ("Delivery\nInvoices",             "delivery_invoices"),
 ]
 
 
