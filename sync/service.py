@@ -841,28 +841,36 @@ def pull_master_items() -> tuple[int, str]:
     latest_ts = last_pull
 
     init_db()
-    session = get_session()
 
+    # ── Load lookup dicts (short read-only session, closed immediately) ────────
+    # This releases the SQLite connection before any network I/O begins.
+    _s = get_session()
     try:
         from sqlalchemy import func as sa_func
-        cats       = {c.name: c.id          for c in session.query(Category).all()}
-        cat_touch  = {c.name: c.show_on_touch for c in session.query(Category).all()}
-        brands = {b.name: b.id for b in session.query(Brand).all()}
-        seen_codes: set[str] = set()  # tracks codes processed in this sync run only
+        cats      = {c.name: c.id           for c in _s.query(Category).all()}
+        cat_touch = {c.name: c.show_on_touch for c in _s.query(Category).all()}
+        brands    = {b.name: b.id            for b in _s.query(Brand).all()}
+    finally:
+        _s.close()
 
+    seen_codes: set[str] = set()  # tracks codes processed in this sync run only
+
+    try:
         while True:
             if full_sync_mode:
-                # ID-cursor pagination — fast, no offset scanning
                 if last_id:
                     url = (f"{_url('items_central')}?id=gt.{last_id}"
                            f"&order=id.asc&limit={PAGE}")
                 else:
                     url = f"{_url('items_central')}?order=id.asc&limit={PAGE}"
             else:
-                # Incremental — only items changed since last sync
                 url = (f"{_url('items_central')}?updated_at=gt.{last_pull}"
                        f"&order=updated_at.asc,id.asc&limit={PAGE}")
 
+            # ── ALL network I/O happens here with NO session open ──────────────
+            # This is the key: we fetch everything from Supabase first, then
+            # open the SQLite session only for the brief write phase so we never
+            # hold the write lock while waiting on network.
             try:
                 r = requests.get(url, headers={**_headers(), "Prefer": ""}, timeout=30)
             except Exception as e:
@@ -875,7 +883,7 @@ def pull_master_items() -> tuple[int, str]:
             if not remote_items:
                 break
 
-            item_ids = [i["id"] for i in remote_items]
+            item_ids   = [i["id"] for i in remote_items]
             ids_filter = ",".join(item_ids)
 
             prices_by_item: dict[str, list] = {}
@@ -896,155 +904,153 @@ def pull_master_items() -> tuple[int, str]:
                 for b in rb.json():
                     barcodes_by_item.setdefault(b["item_id"], []).append(b)
 
-            for ri in remote_items:
-                if ri.get("pushed_by") == BRANCH_ID:
-                    latest_ts = ri.get("updated_at", latest_ts)
-                    continue
-
-                item = session.get(Item, ri["id"])
-                is_new = False
-                if not item:
-                    code_str = ri.get("code") or ri["id"][:12]
-                    if code_str in seen_codes:
+            # ── Open session only for the write phase (no network I/O inside) ──
+            session = get_session()
+            try:
+                for ri in remote_items:
+                    if ri.get("pushed_by") == BRANCH_ID:
                         latest_ts = ri.get("updated_at", latest_ts)
-                        total_updated += 1
                         continue
-                    existing = session.query(Item).filter_by(code=code_str).first()
-                    if existing:
-                        # Local item has same code but different UUID — stale local UUID.
-                        # Deactivate the old UUID in products so it doesn't duplicate on app.
-                        if existing.is_online:
-                            upsert_rows("products", [{
-                                "id": existing.id,
-                                "is_active": False,
-                                "updated_at": datetime.now(timezone.utc).isoformat(),
-                            }])
-                            existing.is_online = False
-                        # Still apply price/name updates to the local item so changes
-                        # made on the main PC propagate to the branch.
-                        existing.name       = ri.get("name") or existing.name
-                        existing.name_ar    = ri.get("name_ar") or existing.name_ar
-                        existing.cost_price = ri.get("cost_price") or existing.cost_price
-                        existing.vat_rate   = ri.get("vat_rate") or existing.vat_rate
-                        existing.is_active  = ri.get("is_active", existing.is_active)
-                        existing.is_pos_featured = ri.get("is_pos_featured", existing.is_pos_featured)
-                        for rp_row in prices_by_item.get(ri["id"], []):
-                            r_pack_qty = rp_row.get("pack_qty", 1) or 1
+
+                    item = session.get(Item, ri["id"])
+                    is_new = False
+                    if not item:
+                        code_str = ri.get("code") or ri["id"][:12]
+                        if code_str in seen_codes:
+                            latest_ts = ri.get("updated_at", latest_ts)
+                            total_updated += 1
+                            continue
+                        existing = session.query(Item).filter_by(code=code_str).first()
+                        if existing:
+                            # Local item has same code but different UUID — stale local UUID.
+                            # Deactivate the old UUID in products so it doesn't duplicate on app.
+                            if existing.is_online:
+                                upsert_rows("products", [{
+                                    "id": existing.id,
+                                    "is_active": False,
+                                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                                }])
+                                existing.is_online = False
+                            # Still apply price/name updates to the local item so changes
+                            # made on the main PC propagate to the branch.
+                            existing.name       = ri.get("name") or existing.name
+                            existing.name_ar    = ri.get("name_ar") or existing.name_ar
+                            existing.cost_price = ri.get("cost_price") or existing.cost_price
+                            existing.vat_rate   = ri.get("vat_rate") or existing.vat_rate
+                            existing.is_active  = ri.get("is_active", existing.is_active)
+                            existing.is_pos_featured = ri.get("is_pos_featured", existing.is_pos_featured)
+                            for rp_row in prices_by_item.get(ri["id"], []):
+                                r_pack_qty = rp_row.get("pack_qty", 1) or 1
+                                price = session.query(ItemPrice).filter_by(
+                                    item_id=existing.id,
+                                    price_type=rp_row["price_type"],
+                                    currency=rp_row["currency"],
+                                    pack_qty=r_pack_qty,
+                                ).first()
+                                if not price:
+                                    price = ItemPrice(id=new_uuid(), item_id=existing.id)
+                                    session.add(price)
+                                price.price_type = rp_row["price_type"]
+                                price.amount     = rp_row["amount"]
+                                price.currency   = rp_row["currency"]
+                                price.pack_qty   = r_pack_qty
+                            seen_codes.add(code_str)
+                            latest_ts = ri.get("updated_at", latest_ts)
+                            total_updated += 1
+                            continue
+                        item = Item(id=ri["id"])
+                        session.add(item)
+                        seen_codes.add(code_str)
+                        is_new = True
+
+                    item.code            = ri.get("code") or ri["id"][:12]
+                    item.name            = ri.get("name") or ri.get("code") or ri["id"][:12]
+                    item.name_ar         = ri.get("name_ar") or ""
+                    item.unit            = ri.get("unit") or "PCS"
+                    item.cost_price      = ri.get("cost_price") or 0
+                    item.cost_currency   = ri.get("cost_currency") or "USD"
+                    item.vat_rate        = ri.get("vat_rate") or 0
+                    item.is_active       = ri.get("is_active", True)
+                    item.is_online       = ri.get("is_online", False)
+                    item.is_pos_featured = ri.get("is_pos_featured", False)
+                    item.show_on_touch   = ri.get("show_on_touch", False)
+                    item.photo_url       = ri.get("photo_url") or ""
+                    item.notes           = ri.get("notes") or ""
+
+                    cat_name   = ri.get("category") or ""
+                    brand_name = ri.get("brand") or ""
+                    item.category_id = cats.get(cat_name)
+                    item.brand_id    = brands.get(brand_name)
+
+                    if is_new and not item.show_on_touch and cat_touch.get(cat_name):
+                        item.show_on_touch = True
+
+                    seen_price_keys: set[tuple] = set()
+                    for rp_row in prices_by_item.get(ri["id"], []):
+                        r_pack_qty = rp_row.get("pack_qty", 1) or 1
+                        price = session.get(ItemPrice, rp_row["id"])
+                        if not price:
                             price = session.query(ItemPrice).filter_by(
-                                item_id=existing.id,
+                                item_id=ri["id"],
                                 price_type=rp_row["price_type"],
                                 currency=rp_row["currency"],
                                 pack_qty=r_pack_qty,
                             ).first()
-                            if not price:
-                                price = ItemPrice(id=new_uuid(), item_id=existing.id)
-                                session.add(price)
-                            price.price_type = rp_row["price_type"]
-                            price.amount     = rp_row["amount"]
-                            price.currency   = rp_row["currency"]
-                            price.pack_qty   = r_pack_qty
-                        seen_codes.add(code_str)
-                        latest_ts = ri.get("updated_at", latest_ts)
-                        total_updated += 1
-                        continue
-                    item = Item(id=ri["id"])
-                    session.add(item)
-                    seen_codes.add(code_str)
-                    is_new = True
+                        if not price:
+                            price = ItemPrice(id=rp_row["id"], item_id=ri["id"])
+                            session.add(price)
+                        price.price_type = rp_row["price_type"]
+                        price.amount     = rp_row["amount"]
+                        price.currency   = rp_row["currency"]
+                        price.pack_qty   = r_pack_qty
+                        seen_price_keys.add((rp_row["price_type"], rp_row["currency"], r_pack_qty))
 
-                item.code            = ri.get("code") or ri["id"][:12]
-                item.name            = ri.get("name") or ri.get("code") or ri["id"][:12]
-                item.name_ar         = ri.get("name_ar") or ""
-                item.unit            = ri.get("unit") or "PCS"
-                item.cost_price      = ri.get("cost_price") or 0
-                item.cost_currency   = ri.get("cost_currency") or "USD"
-                item.vat_rate        = ri.get("vat_rate") or 0
-                item.is_active       = ri.get("is_active", True)
-                item.is_online       = ri.get("is_online", False)
-                item.is_pos_featured = ri.get("is_pos_featured", False)
-                item.show_on_touch   = ri.get("show_on_touch", False)
-                item.photo_url       = ri.get("photo_url") or ""
-                item.notes           = ri.get("notes") or ""
+                    if seen_price_keys:
+                        for dup in session.query(ItemPrice).filter_by(item_id=ri["id"]).all():
+                            if (dup.price_type, dup.currency, getattr(dup, "pack_qty", 1)) not in seen_price_keys:
+                                session.delete(dup)
 
-                cat_name   = ri.get("category") or ""
-                brand_name = ri.get("brand") or ""
-                item.category_id = cats.get(cat_name)
-                item.brand_id    = brands.get(brand_name)
+                    for rb_row in barcodes_by_item.get(ri["id"], []):
+                        bc = session.get(ItemBarcode, rb_row["id"])
+                        if not bc:
+                            conflict = session.query(ItemBarcode).filter(
+                                sa_func.lower(ItemBarcode.barcode) == rb_row["barcode"].lower(),
+                                ItemBarcode.item_id != ri["id"],
+                            ).first()
+                            if conflict:
+                                continue
+                            bc = ItemBarcode(id=rb_row["id"], item_id=ri["id"])
+                            session.add(bc)
+                        bc.barcode    = rb_row["barcode"]
+                        bc.is_primary = rb_row.get("is_primary", False)
+                        bc.pack_qty   = rb_row.get("pack_qty", 1)
 
-                # New items with no show_on_touch set inherit from their category
-                if is_new and not item.show_on_touch and cat_touch.get(cat_name):
-                    item.show_on_touch = True
+                    latest_ts = ri.get("updated_at", latest_ts)
+                    total_updated += 1
 
-                seen_price_keys: set[tuple] = set()
-                for rp_row in prices_by_item.get(ri["id"], []):
-                    r_pack_qty = rp_row.get("pack_qty", 1) or 1
-                    price = session.get(ItemPrice, rp_row["id"])
-                    if not price:
-                        price = session.query(ItemPrice).filter_by(
-                            item_id=ri["id"],
-                            price_type=rp_row["price_type"],
-                            currency=rp_row["currency"],
-                            pack_qty=r_pack_qty,
-                        ).first()
-                    if not price:
-                        price = ItemPrice(id=rp_row["id"], item_id=ri["id"])
-                        session.add(price)
-                    price.price_type = rp_row["price_type"]
-                    price.amount     = rp_row["amount"]
-                    price.currency   = rp_row["currency"]
-                    price.pack_qty   = r_pack_qty
-                    seen_price_keys.add((rp_row["price_type"], rp_row["currency"], r_pack_qty))
-
-                if seen_price_keys:
-                    for dup in session.query(ItemPrice).filter_by(item_id=ri["id"]).all():
-                        if (dup.price_type, dup.currency, getattr(dup, "pack_qty", 1)) not in seen_price_keys:
-                            session.delete(dup)
-
-                for rb_row in barcodes_by_item.get(ri["id"], []):
-                    bc = session.get(ItemBarcode, rb_row["id"])
-                    if not bc:
-                        conflict = session.query(ItemBarcode).filter(
-                            sa_func.lower(ItemBarcode.barcode) == rb_row["barcode"].lower(),
-                            ItemBarcode.item_id != ri["id"],
-                        ).first()
-                        if conflict:
-                            continue
-                        bc = ItemBarcode(id=rb_row["id"], item_id=ri["id"])
-                        session.add(bc)
-                    bc.barcode    = rb_row["barcode"]
-                    bc.is_primary = rb_row.get("is_primary", False)
-                    bc.pack_qty   = rb_row.get("pack_qty", 1)
-
-                latest_ts = ri.get("updated_at", latest_ts)
-                total_updated += 1
-
-            try:
                 session.commit()
             except Exception:
                 session.rollback()
+            finally:
+                session.close()  # ← release connection before next HTTP round-trip
 
             if full_sync_mode:
                 last_id = remote_items[-1]["id"]
                 _state_set("items_pull_last_id", last_id)
             else:
-                # Incremental: save latest timestamp seen so next run starts here
                 _state_set("items_pull", latest_ts)
 
             if len(remote_items) < PAGE:
                 break  # Last page
 
         if full_sync_mode:
-            # Full sync done — switch to incremental mode from now
             _state_set("items_pull", datetime.now(timezone.utc).isoformat())
             _state_set("items_pull_last_id", "")
 
         return total_updated, ""
 
     except Exception as e:
-        session.rollback()
         return total_updated, str(e)
-    finally:
-        session.close()
 
 
 def pull_master_customers() -> tuple[int, str]:
