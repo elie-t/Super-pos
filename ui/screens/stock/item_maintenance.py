@@ -1299,7 +1299,22 @@ class ItemMaintenanceScreen(QWidget):
                     pass
 
             elif col == 3:
-                # Cost (USD) changed → recalc all prices using existing %
+                # Cost (USD) changed → update _brut_cost (unit cost = row_cost / pkg)
+                pkg_item = self._price_table.item(row, 2)
+                try:
+                    pkg = int(pkg_item.text()) if pkg_item else 1
+                except ValueError:
+                    pkg = 1
+                if cost_usd > 0 and pkg > 0:
+                    unit_cost = cost_usd / pkg
+                    self._brut_cost.blockSignals(True)
+                    self._brut_cost.setValue(unit_cost)
+                    self._brut_cost.blockSignals(False)
+                    disc = self._discount_spin.value()
+                    net = unit_cost * (1 - disc / 100)
+                    self._net_cost_lbl.setText(f"{net:.4f}")
+                    self._avg_cost_lbl.setText(f"{net:.4f}")
+                # Recalc all prices using existing %
                 for i, (pct_col, price_col) in enumerate(PRICE_PAIRS):
                     pct_item   = self._price_table.item(row, pct_col)
                     price_item = self._price_table.item(row, price_col)
