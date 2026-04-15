@@ -352,8 +352,8 @@ class PosService:
             from database.models.stock import StockMovement
             from database.models.items import ItemStock
             from database.models.base import new_uuid
-            from datetime import date, datetime as _dt, timezone as _tz
-            _now = _dt.now(_tz.utc)
+            from datetime import date, datetime as _dt
+            _now = _dt.now()
 
             subtotal = sum(
                 l.qty * l.unit_price * (1 - l.disc_pct / 100)
@@ -378,7 +378,7 @@ class PosService:
                 operator_id    = operator_id,
                 warehouse_id   = warehouse_id,
                 invoice_date   = date.today().isoformat(),
-                created_at     = _now,
+                sale_time      = _now.strftime("%H:%M"),
                 invoice_type   = "sale",
                 source         = "pos",
                 subtotal       = subtotal,
@@ -728,20 +728,8 @@ class PosService:
 
             lines = session.query(SalesInvoiceItem).filter_by(invoice_id=invoice_id).all()
 
-            # Build date+time string for printing
-            _cat = inv.created_at
-            try:
-                from datetime import datetime as _dtt
-                if _cat and not isinstance(_cat, str):
-                    # datetime object — convert to local naive then format
-                    _local = _cat.astimezone().replace(tzinfo=None) if _cat.tzinfo else _cat
-                    _date_str = _local.strftime("%Y-%m-%d  %H:%M")
-                elif _cat and isinstance(_cat, str) and len(_cat) > 10:
-                    _date_str = _dtt.fromisoformat(_cat[:19]).strftime("%Y-%m-%d  %H:%M")
-                else:
-                    _date_str = inv.invoice_date or ""
-            except Exception:
-                _date_str = inv.invoice_date or ""
+            _t = (inv.sale_time or "").strip()
+            _date_str = f"{inv.invoice_date}  {_t}" if _t else (inv.invoice_date or "")
 
             return {
                 "invoice_number": inv.invoice_number,

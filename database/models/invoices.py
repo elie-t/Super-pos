@@ -18,6 +18,7 @@ class SalesInvoice(Base, TimestampMixin, SyncMixin):
     warehouse_id:   Mapped[str]        = mapped_column(String(36), ForeignKey("warehouses.id"), nullable=False)
 
     invoice_date:   Mapped[str]        = mapped_column(String(20), nullable=False)   # ISO date string
+    sale_time:      Mapped[str]        = mapped_column(String(5),  nullable=False, default="")  # HH:MM
     due_date:       Mapped[str | None]  = mapped_column(String(20), nullable=True)
 
     invoice_type:   Mapped[str]        = mapped_column(String(20), default="sale")   # sale | refund | proforma
