@@ -87,7 +87,7 @@ class ItemPickerDialog(QDialog):
         # Search bar
         top = QHBoxLayout()
         self._search = QLineEdit(query)
-        self._search.setPlaceholderText("Type to filter…")
+        self._search.setPlaceholderText("Code / barcode / name…")
         self._search.setFixedHeight(34)
         self._search.setStyleSheet("font-size:13px;")
         top.addWidget(self._search)
@@ -97,6 +97,30 @@ class ItemPickerDialog(QDialog):
         search_btn.clicked.connect(self._load)
         top.addWidget(search_btn)
         lay.addLayout(top)
+
+        # Deep search bar
+        deep_row = QHBoxLayout()
+        deep_lbl = QLabel("🔎  Deep:")
+        deep_lbl.setStyleSheet("font-size:12px; font-weight:700; color:#c2185b;")
+        deep_row.addWidget(deep_lbl)
+        self._deep_search = QLineEdit()
+        self._deep_search.setPlaceholderText("Type any part of item name — searches all items…")
+        self._deep_search.setFixedHeight(32)
+        self._deep_search.setStyleSheet(
+            "font-size:13px; border:2px solid #c2185b; border-radius:4px; padding:0 6px;"
+        )
+        deep_row.addWidget(self._deep_search, 1)
+        deep_clear_btn = QPushButton("✕")
+        deep_clear_btn.setFixedSize(32, 32)
+        deep_clear_btn.setToolTip("Clear deep search")
+        deep_clear_btn.setStyleSheet(
+            "QPushButton{background:#fce4ec;color:#c2185b;font-weight:700;"
+            "border:1px solid #c2185b;border-radius:4px;}"
+            "QPushButton:hover{background:#f48fb1;}"
+        )
+        deep_clear_btn.clicked.connect(self._clear_deep)
+        deep_row.addWidget(deep_clear_btn)
+        lay.addLayout(deep_row)
 
         # Hint
         hint = QLabel("Sorted by most purchased first.  Ctrl+Enter or double-click to select.")
@@ -133,13 +157,21 @@ class ItemPickerDialog(QDialog):
 
         self._rows: list[dict] = []
 
-        # debounce search
+        # debounce — main search
         self._timer = QTimer()
         self._timer.setSingleShot(True)
         self._timer.setInterval(300)
         self._timer.timeout.connect(self._load)
-        self._search.textChanged.connect(lambda _: self._timer.start())
+        self._search.textChanged.connect(self._on_main_search_changed)
         self._search.returnPressed.connect(self._load)
+
+        # debounce — deep search
+        self._deep_timer = QTimer()
+        self._deep_timer.setSingleShot(True)
+        self._deep_timer.setInterval(300)
+        self._deep_timer.timeout.connect(self._deep_load)
+        self._deep_search.textChanged.connect(self._on_deep_search_changed)
+        self._deep_search.returnPressed.connect(self._deep_load)
 
         self._load()
         self._table.setFocus()
@@ -169,6 +201,50 @@ class ItemPickerDialog(QDialog):
 
         if self._rows:
             self._table.selectRow(0)
+
+    def _on_main_search_changed(self):
+        self._deep_search.blockSignals(True)
+        self._deep_search.clear()
+        self._deep_search.blockSignals(False)
+        self._timer.start()
+
+    def _on_deep_search_changed(self):
+        self._search.blockSignals(True)
+        self._search.clear()
+        self._search.blockSignals(False)
+        self._deep_timer.start()
+
+    def _deep_load(self):
+        query = self._deep_search.text().strip()
+        if not query:
+            self._load()
+            return
+        self._rows = PurchaseService.search_items_by_usage(query, limit=300)
+        self._table.setRowCount(0)
+        self._table.setRowCount(len(self._rows))
+        for i, row in enumerate(self._rows):
+            vals = [
+                str(i + 1),
+                row["code"],
+                row["barcode"],
+                row["name"],
+                str(row["pack_qty"]),
+                str(row["usage"]) if row["usage"] else "—",
+            ]
+            for col, val in enumerate(vals):
+                cell = QTableWidgetItem(val)
+                if col == 5:
+                    cell.setTextAlignment(Qt.AlignCenter)
+                    if row["usage"]:
+                        cell.setForeground(QColor("#2e7d32"))
+                        cell.setFont(QFont("", -1, QFont.Bold))
+                self._table.setItem(i, col, cell)
+        if self._rows:
+            self._table.selectRow(0)
+
+    def _clear_deep(self):
+        self._deep_search.clear()
+        self._load()
 
     def _accept(self):
         r = self._table.currentRow()
