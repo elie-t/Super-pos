@@ -78,7 +78,7 @@ class ItemMaintenanceScreen(QWidget):
         # Top section — fixed height so it never steals space from the price grid
         top_widget = QWidget()
         top_widget.setStyleSheet("background:#ffffff; border-bottom:1px solid #c0ccd8;")
-        top_widget.setFixedHeight(340)
+        top_widget.setFixedHeight(300)
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 8, 10, 8)
         top_layout.setSpacing(10)
@@ -674,7 +674,7 @@ class ItemMaintenanceScreen(QWidget):
 
         # Barcode entry
         bc_grp = QGroupBox("Barcode And Price Entry")
-        bc_grp.setFixedWidth(320)
+        bc_grp.setMinimumWidth(420)
         bc_layout = QVBoxLayout(bc_grp)
         bc_layout.setSpacing(6)
 
@@ -811,7 +811,7 @@ class ItemMaintenanceScreen(QWidget):
         self._price_table.setSelectionBehavior(QAbstractItemView.SelectItems)  # per-cell selection
         self._price_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self._price_table.setAlternatingRowColors(True)
-        self._price_table.setMinimumHeight(120)
+        self._price_table.setMinimumHeight(230)
         self._price_table.setEditTriggers(
             QAbstractItemView.DoubleClicked |
             QAbstractItemView.SelectedClicked |
