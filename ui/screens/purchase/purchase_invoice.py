@@ -1857,7 +1857,8 @@ class PurchaseInvoiceScreen(QWidget):
                     added += 1
                     break
             else:
-                price = item.last_cost * item.pack_qty if item.pack_qty > 1 else item.last_cost
+                # Collector always fills by pcs — always use pcs price, never box price
+                price = item.last_cost
                 if self._cur_combo.currentText() == "LBP":
                     price = price * self._lbp_rate
                 self._lines.append({
