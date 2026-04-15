@@ -1124,23 +1124,36 @@ class ItemMaintenanceScreen(QWidget):
         net  = cost * (1 - disc / 100)
         self._net_cost_lbl.setText(f"{net:.4f}")
         self._avg_cost_lbl.setText(f"{net:.4f}")
-        # Recalc margins in table
-        for r in range(self._price_table.rowCount()):
-            pkg_item = self._price_table.item(r, 2)
-            pkg = int(pkg_item.text()) if pkg_item else 1
-            row_cost_usd = net * pkg
-            for i, (price_col, pct_col) in enumerate([(5, 4), (7, 6), (9, 8), (11, 10)]):
-                price_item = self._price_table.item(r, price_col)
-                if price_item:
-                    try:
-                        price_val = float(price_item.text())
-                        base = self._base_cost_for_currency(row_cost_usd, i)
-                        margin = self._calc_margin(base, price_val)
-                        pct_item = self._price_table.item(r, pct_col)
-                        if pct_item:
-                            pct_item.setText(f"{margin:.2f}")
-                    except ValueError:
-                        pass
+        # Update cost column and recalc margins for every row
+        self._price_table.blockSignals(True)
+        try:
+            for r in range(self._price_table.rowCount()):
+                pkg_item = self._price_table.item(r, 2)
+                try:
+                    pkg = int(pkg_item.text()) if pkg_item else 1
+                except ValueError:
+                    pkg = 1
+                row_cost_usd = net * pkg
+                # Keep cost column (col 3) in sync with brut_cost × pkg
+                cost_item = self._price_table.item(r, 3)
+                if cost_item:
+                    cost_item.setText(f"{row_cost_usd:.4f}")
+                # Recalc % margins (keep prices fixed, update %)
+                for i, (price_col, pct_col) in enumerate([(5, 4), (7, 6), (9, 8), (11, 10)]):
+                    price_item = self._price_table.item(r, price_col)
+                    if price_item:
+                        try:
+                            price_val = float(price_item.text())
+                            base = self._base_cost_for_currency(row_cost_usd, i)
+                            margin = self._calc_margin(base, price_val)
+                            pct_item = self._price_table.item(r, pct_col)
+                            if pct_item:
+                                pct_item.setText(f"{margin:.2f}")
+                        except ValueError:
+                            pass
+        finally:
+            self._price_table.blockSignals(False)
+            self._price_table.viewport().update()
 
     def _focus_barcode_input(self):
         self._bc_input.setFocus()
@@ -1299,17 +1312,39 @@ class ItemMaintenanceScreen(QWidget):
                             pass
 
             elif col in (4, 6, 8, 10):
-                # % changed → recalc the matching price (respecting currency)
-                price_idx  = (col - 4) // 2
-                price_col  = col + 1
-                price_item = self._price_table.item(row, price_col)
-                if price_item and cost_usd > 0:
-                    try:
-                        pct  = float(item.text())
+                # % changed → recalc price for this row AND propagate same % to all other rows
+                price_idx = (col - 4) // 2
+                price_col = col + 1
+                try:
+                    pct = float(item.text())
+                except ValueError:
+                    pct = None
+
+                if pct is not None:
+                    # Update price for the changed row
+                    price_item = self._price_table.item(row, price_col)
+                    if price_item and cost_usd > 0:
                         base = self._base_cost_for_currency(cost_usd, price_idx)
                         price_item.setText(f"{base * (1 + pct / 100):.4f}")
-                    except ValueError:
-                        pass
+
+                    # Propagate same % to ALL other rows and recalc their prices
+                    for other_r in range(self._price_table.rowCount()):
+                        if other_r == row:
+                            continue
+                        other_cost_item  = self._price_table.item(other_r, 3)
+                        other_pct_item   = self._price_table.item(other_r, col)
+                        other_price_item = self._price_table.item(other_r, price_col)
+                        if not other_cost_item:
+                            continue
+                        try:
+                            other_cost = float(other_cost_item.text().replace(",", ""))
+                            other_base = self._base_cost_for_currency(other_cost, price_idx)
+                            if other_pct_item:
+                                other_pct_item.setText(f"{pct:.2f}")
+                            if other_price_item and other_base > 0:
+                                other_price_item.setText(f"{other_base * (1 + pct / 100):.4f}")
+                        except ValueError:
+                            pass
 
             elif col in (5, 7, 9, 11):
                 # Price changed → recalc % for this row, then sync to all other rows
