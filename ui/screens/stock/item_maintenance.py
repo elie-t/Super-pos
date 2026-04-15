@@ -1371,14 +1371,21 @@ class ItemMaintenanceScreen(QWidget):
                 except ValueError:
                     new_price = None
 
+                # Find pkg of the edited row
+                edited_pkg_item = self._price_table.item(row, 2)
+                try:
+                    edited_pkg = int(edited_pkg_item.text()) if edited_pkg_item else 1
+                except ValueError:
+                    edited_pkg = 1
+
                 if pct_item and cost_usd > 0 and new_price is not None:
                     base = self._base_cost_for_currency(cost_usd, price_idx)
                     pct  = (new_price / base - 1) * 100 if base > 0 else 0.0
                     pct_item.setText(f"{pct:.2f}")
 
-                # Propagate the new price to other pcs rows (pack_qty=1) only.
-                # Box rows (pack_qty > 1) have independent prices — do not touch them.
-                if new_price is not None:
+                # Only propagate when editing a unit (pkg=1) row.
+                # Box rows (pkg>1) have independent prices — do not touch other rows.
+                if new_price is not None and edited_pkg == 1:
                     for other_r in range(self._price_table.rowCount()):
                         if other_r == row:
                             continue
