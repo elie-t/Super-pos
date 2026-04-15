@@ -139,7 +139,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     # ── Meta rows ─────────────────────────────────────────────────────────────
     meta = (
         row2("Receipt #:", data.get("invoice_number", "")) +
-        row2("Date:",       data.get("date", "")) +
+        row2("Date:",       data.get("sale_datetime") or data.get("date", "")) +
         row2("Cashier:",    data.get("cashier", ""))
     )
     if data.get("customer"):
