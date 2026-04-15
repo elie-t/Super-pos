@@ -210,6 +210,23 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
 </body></html>"""
 
 
+def _is_escpos_configured() -> bool:
+    """Return True if an ESC/POS printer type is saved in settings (no device open)."""
+    try:
+        from database.engine import get_session, init_db
+        from database.models.items import Setting
+        init_db()
+        session = get_session()
+        try:
+            s = session.get(Setting, "escpos_type")
+            return bool(s and s.value and s.value != "windows_qt")
+        finally:
+            session.close()
+    except Exception:
+        pass
+    return False
+
+
 def _get_qt_printer_name() -> str:
     """Return the Windows Qt system printer name from settings, or '' if not configured."""
     try:
@@ -418,7 +435,7 @@ def _build_transfer_html(
     no: str, from_wh: str, to_wh: str, date_str: str,
     lines: list, currency: str = "",
 ) -> str:
-    """Build an HTML receipt for a warehouse transfer (mirrors _build_html layout)."""
+    """Build an HTML receipt for a warehouse transfer — name | qty rows, grand total only."""
     import html as _h
 
     def e(s) -> str:
@@ -430,44 +447,43 @@ def _build_transfer_html(
     def fmt(v: float) -> str:
         return f"{v:,.0f} L" if is_lbp else f"$ {v:,.2f}"
 
-    L = "width:70%;padding:0 1px 0 0;white-space:nowrap;overflow:hidden;vertical-align:top;"
-    R = "width:30%;text-align:right;padding:0 0 0 1px;white-space:nowrap;overflow:hidden;vertical-align:top;"
-
-    def row2(left, right, bold=False) -> str:
-        b0, b1 = ("<b>", "</b>") if bold else ("", "")
-        return (
-            f"<tr><td style='{L}'>{b0}{e(left)}{b1}</td>"
-            f"<td style='{R}'>{b0}{e(right)}{b1}</td></tr>"
-        )
-
-    def sep(dbl=False) -> str:
-        return (
-            f"<tr><td colspan='2' style='border-top:1px {'solid' if dbl else 'dashed'} #000;"
-            f"padding:0;margin:0;height:2px;line-height:2px;font-size:1pt;'></td></tr>"
-        )
+    L  = "width:72%;padding:1px 2px 1px 0;white-space:normal;word-break:break-word;vertical-align:top;"
+    R  = "width:28%;text-align:right;padding:1px 0 1px 2px;white-space:nowrap;vertical-align:top;"
+    HL = "width:72%;padding:0 2px 2px 0;font-weight:700;"
+    HR = "width:28%;text-align:right;padding:0 0 2px 2px;font-weight:700;"
+    SEP = "<tr><td colspan='2' style='border-top:1px dashed #000;padding:0;height:2px;font-size:1pt;'></td></tr>"
+    SEP2 = "<tr><td colspan='2' style='border-top:1px solid #000;padding:0;height:2px;font-size:1pt;'></td></tr>"
 
     header = (
-        f"<div style='text-align:center;font-size:13pt;font-weight:700;'>Warehouse Transfer</div>"
+        "<div style='text-align:center;font-size:13pt;font-weight:700;'>Warehouse Transfer</div>"
         f"<div style='text-align:center;font-size:11pt;font-weight:700;'>{e(no)}</div>"
-        f"<div style='text-align:center;font-size:9pt;line-height:1.2;'>{e(from_wh)} → {e(to_wh)}</div>"
-        f"<div style='text-align:center;font-size:9pt;line-height:1.2;'>Date: {e(date_str)}</div>"
+        f"<div style='text-align:center;font-size:9pt;line-height:1.3;'>{e(from_wh)} &rarr; {e(to_wh)}</div>"
+        f"<div style='text-align:center;font-size:9pt;line-height:1.3;'>Date: {e(date_str)}</div>"
     )
+
+    col_header = f"<tr><td style='{HL}'>Item</td><td style='{HR}'>Qty</td></tr>"
 
     items_html = ""
     for line in lines:
         name = line.get("name", "")
         qty  = f"{float(line.get('qty', 0)):g}"
-        items_html += row2(name, qty)
+        items_html += f"<tr><td style='{L}'>{e(name)}</td><td style='{R}'>{e(qty)}</td></tr>"
 
-    totals = row2("Lines:", str(len(lines)))
-    totals += row2("Total:", fmt(total), bold=True)
+    total_row = (
+        f"<tr><td style='{HL}'>TOTAL</td>"
+        f"<td style='{HR}'>{e(fmt(total))}</td></tr>"
+    )
 
-    return f"""<html dir='ltr'><head><meta charset='utf-8'></head>
-<body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:7pt;line-height:1.2;color:#000000;'>{header}
-<table style='width:100%;table-layout:fixed;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
-  {sep()}{items_html}{sep()}{totals}{sep()}
-</table>
-</body></html>"""
+    return (
+        f"<html dir='ltr'><head><meta charset='utf-8'></head>"
+        f"<body dir='ltr' style='margin:0;padding:0;"
+        f"font-family:\"Courier New\",Courier,monospace;font-size:7pt;line-height:1.2;color:#000;'>"
+        f"{header}"
+        f"<table style='width:100%;table-layout:fixed;border-collapse:collapse;"
+        f"font-family:inherit;font-size:inherit;color:#000;'>"
+        f"{SEP}{col_header}{SEP}{items_html}{SEP2}{total_row}{SEP2}"
+        f"</table></body></html>"
+    )
 
 
 def print_transfer(
@@ -483,20 +499,14 @@ def print_transfer(
     """
     from PySide6.QtWidgets import QMessageBox
 
-    # ── 1. ESC/POS ─────────────────────────────────────────────────────────
-    try:
-        p = get_escpos_printer()
-        if p is not None:
-            ok, err = print_transfer_escpos(
-                no=no, from_wh=from_wh, to_wh=to_wh,
-                date_str=date_str, lines=lines, currency=currency,
-            )
-            if not ok and parent:
-                QMessageBox.warning(parent, "Printer Error", err)
-            return
-    except Exception as exc:
-        if parent:
-            QMessageBox.warning(parent, "Printer Error", str(exc))
+    # ── 1. ESC/POS — check settings only (no live device open) ────────────
+    if _is_escpos_configured():
+        ok, err = print_transfer_escpos(
+            no=no, from_wh=from_wh, to_wh=to_wh,
+            date_str=date_str, lines=lines, currency=currency,
+        )
+        if not ok and parent:
+            QMessageBox.warning(parent, "Printer Error", err)
         return
 
     html = _build_transfer_html(no, from_wh, to_wh, date_str, lines, currency)
