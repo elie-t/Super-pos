@@ -674,7 +674,7 @@ class ItemMaintenanceScreen(QWidget):
 
         # Barcode entry
         bc_grp = QGroupBox("Barcode And Price Entry")
-        bc_grp.setMinimumWidth(420)
+        bc_grp.setFixedWidth(320)
         bc_layout = QVBoxLayout(bc_grp)
         bc_layout.setSpacing(6)
 
@@ -820,10 +820,11 @@ class ItemMaintenanceScreen(QWidget):
         self._price_table.itemChanged.connect(self._on_price_cell_changed)
 
         hdr = self._price_table.horizontalHeader()
-        hdr.setSectionResizeMode(1, QHeaderView.Stretch)
         for col in range(len(col_headers)):
-            if col != 1:
-                hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        # Barcode column: interactive so user can resize; fixed default width fits full barcode
+        hdr.setSectionResizeMode(1, QHeaderView.Interactive)
+        self._price_table.setColumnWidth(1, 150)
 
         # Color price column headers
         price_colors = {5: "#b2ebf2", 7: "#e8f5e9", 9: "#fce4ec", 11: "#e8eaf6"}
