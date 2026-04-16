@@ -10,7 +10,8 @@ import threading
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QLabel, QFrame, QHeaderView, QAbstractItemView,
-    QMessageBox, QComboBox, QProgressDialog,
+    QMessageBox, QComboBox, QProgressDialog, QDialog, QDialogButtonBox,
+    QSizePolicy,
 )
 from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtGui import QColor, QFont
@@ -47,6 +48,149 @@ class _ConvertWorker(QThread):
             self.done.emit(inv_id, "")
         except Exception as e:
             self.done.emit("", str(e))
+
+
+# ── View-items worker ──────────────────────────────────────────────────────────
+
+class _ItemsWorker(QThread):
+    done = Signal(list, str)   # (items, error)
+
+    def __init__(self, invoice_id: str, parent=None):
+        super().__init__(parent)
+        self._invoice_id = invoice_id
+
+    def run(self):
+        try:
+            from sync.service import pull_delivery_invoice_items
+            items, err = pull_delivery_invoice_items(self._invoice_id)
+            self.done.emit(items, err)
+        except Exception as e:
+            self.done.emit([], str(e))
+
+
+# ── Delivery detail dialog ─────────────────────────────────────────────────────
+
+class DeliveryDetailDialog(QDialog):
+    """Shows full delivery invoice details before conversion."""
+
+    def __init__(self, delivery: dict, parent=None):
+        super().__init__(parent)
+        self._delivery = delivery
+        self._worker: _ItemsWorker | None = None
+        self.setWindowTitle(f"Delivery Invoice — {delivery.get('invoice_number', '')}")
+        self.resize(820, 540)
+        self._build_ui()
+        self._load_items()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
+        root.setContentsMargins(16, 16, 16, 12)
+
+        # Header info
+        d = self._delivery
+        currency = d.get("currency", "USD")
+        total = float(d.get("total", 0))
+        total_str = (
+            f"{total:,.0f} L.L." if currency == "LBP" else f"$ {total:,.2f}"
+        )
+
+        info = QLabel(
+            f"<b>Supplier:</b> {d.get('supplier_name') or '—'}  &nbsp;|&nbsp; "
+            f"<b>Date:</b> {d.get('invoice_date', '')}  &nbsp;|&nbsp; "
+            f"<b>Currency:</b> {currency}  &nbsp;|&nbsp; "
+            f"<b>Total:</b> {total_str}  &nbsp;|&nbsp; "
+            f"<b>Status:</b> {d.get('status', '').upper()}"
+        )
+        info.setStyleSheet("font-size:13px; padding:6px 4px;")
+        info.setWordWrap(True)
+        root.addWidget(info)
+
+        if d.get("notes"):
+            notes_lbl = QLabel(f"<i>Notes: {d['notes']}</i>")
+            notes_lbl.setStyleSheet("font-size:12px; color:#666; padding:0 4px 4px;")
+            root.addWidget(notes_lbl)
+
+        # Items table
+        self._table = QTableWidget()
+        self._table.setColumnCount(6)
+        self._table.setHorizontalHeaderLabels(["#", "Item Name", "Barcode", "Qty", "Unit Cost", "Line Total"])
+        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(26)
+        hdr = self._table.horizontalHeader()
+        hdr.setSectionResizeMode(1, QHeaderView.Stretch)
+        for c in (0, 2, 3, 4, 5):
+            hdr.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+        hdr.setStyleSheet(
+            "QHeaderView::section{background:#1b5e20;color:#fff;font-weight:700;"
+            "border:none;padding:4px;}"
+        )
+        root.addWidget(self._table, stretch=1)
+
+        self._loading_lbl = QLabel("Loading items…")
+        self._loading_lbl.setAlignment(Qt.AlignCenter)
+        self._loading_lbl.setStyleSheet("color:#888; font-size:13px;")
+        root.addWidget(self._loading_lbl)
+
+        # Total row
+        self._total_lbl = QLabel()
+        self._total_lbl.setAlignment(Qt.AlignRight)
+        self._total_lbl.setStyleSheet("font-size:14px; font-weight:700; color:#1b5e20; padding:4px;")
+        root.addWidget(self._total_lbl)
+
+        # Close button
+        btns = QDialogButtonBox(QDialogButtonBox.Close)
+        btns.rejected.connect(self.reject)
+        root.addWidget(btns)
+
+    def _load_items(self):
+        self._worker = _ItemsWorker(self._delivery["id"], self)
+        self._worker.done.connect(self._on_items)
+        self._worker.start()
+
+    def _on_items(self, items: list, err: str):
+        self._loading_lbl.hide()
+        if err:
+            self._loading_lbl.setText(f"Error: {err}")
+            self._loading_lbl.show()
+            return
+
+        currency = self._delivery.get("currency", "USD")
+        self._table.setRowCount(len(items))
+        grand_total = 0.0
+
+        for i, line in enumerate(items):
+            unit_cost  = float(line.get("unit_cost", 0))
+            line_total = float(line.get("line_total", 0))
+            qty        = float(line.get("quantity", 0))
+            grand_total += line_total
+
+            def fmt(val):
+                if currency == "LBP":
+                    return f"{val:,.0f} L"
+                return f"$ {val:,.2f}"
+
+            cells = [
+                (str(i + 1),                             Qt.AlignCenter),
+                (line.get("item_name", ""),               Qt.AlignLeft | Qt.AlignVCenter),
+                (line.get("barcode", "") or "—",          Qt.AlignCenter),
+                (f"{qty:g}",                              Qt.AlignCenter),
+                (fmt(unit_cost),                          Qt.AlignRight | Qt.AlignVCenter),
+                (fmt(line_total),                         Qt.AlignRight | Qt.AlignVCenter),
+            ]
+            for col, (val, align) in enumerate(cells):
+                cell = QTableWidgetItem(val)
+                cell.setTextAlignment(align)
+                self._table.setItem(i, col, cell)
+
+        if currency == "LBP":
+            total_str = f"Total: {grand_total:,.0f} L.L."
+        else:
+            total_str = f"Total: $ {grand_total:,.2f}"
+        self._total_lbl.setText(total_str)
 
 
 # ── Core conversion logic ──────────────────────────────────────────────────────
@@ -317,6 +461,7 @@ class DeliveryInvoicesScreen(QWidget):
             "border:none;padding:4px;}"
         )
         self._table.selectionModel().selectionChanged.connect(self._on_selection)
+        self._table.doubleClicked.connect(self._view_selected)
         root.addWidget(self._table, stretch=1)
 
         # Footer
@@ -330,6 +475,19 @@ class DeliveryInvoicesScreen(QWidget):
         self._status_lbl.setStyleSheet("font-size:12px; color:#555;")
         foot_lay.addWidget(self._status_lbl)
         foot_lay.addStretch()
+
+        self._view_btn = QPushButton("🔍  View Details")
+        self._view_btn.setFixedHeight(32)
+        self._view_btn.setEnabled(False)
+        self._view_btn.setStyleSheet(
+            "QPushButton{background:#1a3a5c;color:#fff;border:none;border-radius:5px;"
+            "font-size:13px;font-weight:700;padding:0 18px;}"
+            "QPushButton:hover{background:#122540;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._view_btn.setCursor(Qt.PointingHandCursor)
+        self._view_btn.clicked.connect(self._view_selected)
+        foot_lay.addWidget(self._view_btn)
 
         self._convert_btn = QPushButton("✅  Convert to Purchase Invoice")
         self._convert_btn.setFixedHeight(32)
@@ -408,6 +566,7 @@ class DeliveryInvoicesScreen(QWidget):
                 self._table.setItem(i, col, cell)
 
         self._status_lbl.setText(f"Loaded {len(invoices)} invoice(s).")
+        self._view_btn.setEnabled(False)
         self._convert_btn.setEnabled(False)
 
     # ── Selection ─────────────────────────────────────────────────────────────
@@ -415,11 +574,20 @@ class DeliveryInvoicesScreen(QWidget):
     def _on_selection(self):
         row = self._table.currentRow()
         if row < 0 or row >= len(self._invoices):
+            self._view_btn.setEnabled(False)
             self._convert_btn.setEnabled(False)
             return
         inv = self._invoices[row]
         is_pending = inv.get("status") == "pending"
+        self._view_btn.setEnabled(True)
         self._convert_btn.setEnabled(is_pending)
+
+    def _view_selected(self, *_):
+        row = self._table.currentRow()
+        if row < 0 or row >= len(self._invoices):
+            return
+        dlg = DeliveryDetailDialog(self._invoices[row], self)
+        dlg.exec()
 
     # ── Convert ───────────────────────────────────────────────────────────────
 
