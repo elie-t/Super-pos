@@ -98,6 +98,8 @@ class DeliveryDetailDialog(QDialog):
         info = QLabel(
             f"<b>Supplier:</b> {d.get('supplier_name') or '—'}  &nbsp;|&nbsp; "
             f"<b>Date:</b> {d.get('invoice_date', '')}  &nbsp;|&nbsp; "
+            f"<b>Branch:</b> {d.get('warehouse_name') or '—'}  &nbsp;|&nbsp; "
+            f"<b>Operator:</b> {d.get('operator_name') or '—'}  &nbsp;|&nbsp; "
             f"<b>Currency:</b> {currency}  &nbsp;|&nbsp; "
             f"<b>Total:</b> {total_str}  &nbsp;|&nbsp; "
             f"<b>Status:</b> {d.get('status', '').upper()}"
@@ -441,9 +443,9 @@ class DeliveryInvoicesScreen(QWidget):
 
         # Table
         self._table = QTableWidget()
-        self._table.setColumnCount(8)
+        self._table.setColumnCount(9)
         self._table.setHorizontalHeaderLabels([
-            "#", "Invoice No", "Date", "Branch / Warehouse", "Supplier", "Lines", "Total", "Status"
+            "#", "Invoice No", "Date", "Branch", "Operator", "Supplier", "Lines", "Total", "Status"
         ])
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -452,9 +454,10 @@ class DeliveryInvoicesScreen(QWidget):
         self._table.verticalHeader().setVisible(False)
         self._table.verticalHeader().setDefaultSectionSize(28)
         hdr = self._table.horizontalHeader()
-        hdr.setSectionResizeMode(3, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(4, QHeaderView.Stretch)
-        for c in (0, 1, 2, 5, 6, 7):
+        hdr.setSectionResizeMode(3, QHeaderView.Stretch)   # Branch
+        hdr.setSectionResizeMode(4, QHeaderView.Stretch)   # Operator
+        hdr.setSectionResizeMode(5, QHeaderView.Stretch)   # Supplier
+        for c in (0, 1, 2, 6, 7, 8):
             hdr.setSectionResizeMode(c, QHeaderView.ResizeToContents)
         hdr.setStyleSheet(
             "QHeaderView::section{background:#1b5e20;color:#fff;font-weight:700;"
@@ -540,27 +543,30 @@ class DeliveryInvoicesScreen(QWidget):
         self._table.setRowCount(len(invoices))
 
         for i, inv in enumerate(invoices):
-            status = inv.get("status", "pending")
-            color  = self.STATUS_COLOR.get(status, QColor("#888"))
-            notes  = inv.get("notes", "")
-            # Derive warehouse name from notes or fall back to warehouse_id
-            wh_name = inv.get("warehouse_id", "")[:8] if not notes else ""
+            status   = inv.get("status", "pending")
+            color    = self.STATUS_COLOR.get(status, QColor("#888"))
+            currency = inv.get("currency", "")
+            total    = float(inv.get("total", 0))
+            total_str = (
+                f"{total:,.0f} L.L." if currency == "LBP"
+                else f"$ {total:,.2f}"
+            )
 
             cells = [
                 (str(i + 1),                               Qt.AlignCenter),
                 (inv.get("invoice_number", ""),             Qt.AlignLeft | Qt.AlignVCenter),
                 (inv.get("invoice_date", ""),               Qt.AlignCenter),
-                (wh_name,                                   Qt.AlignLeft | Qt.AlignVCenter),
-                (inv.get("supplier_name", ""),              Qt.AlignLeft | Qt.AlignVCenter),
+                (inv.get("warehouse_name", "—"),            Qt.AlignLeft | Qt.AlignVCenter),
+                (inv.get("operator_name",  "—"),            Qt.AlignLeft | Qt.AlignVCenter),
+                (inv.get("supplier_name",  ""),             Qt.AlignLeft | Qt.AlignVCenter),
                 (str(len(inv.get("lines", []))),            Qt.AlignCenter),
-                (f"{float(inv.get('total', 0)):,.2f} {inv.get('currency', '')}",
-                                                            Qt.AlignRight | Qt.AlignVCenter),
+                (total_str,                                 Qt.AlignRight | Qt.AlignVCenter),
                 (status.upper(),                            Qt.AlignCenter),
             ]
             for col, (val, align) in enumerate(cells):
                 cell = QTableWidgetItem(val)
                 cell.setTextAlignment(align)
-                if col == 7:
+                if col == 8:   # Status column
                     cell.setForeground(color)
                     cell.setFont(QFont("", -1, QFont.Bold))
                 self._table.setItem(i, col, cell)

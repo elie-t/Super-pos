@@ -3184,13 +3184,22 @@ def enqueue(entity_type: str, entity_id: str, action: str, payload: dict) -> Non
 # ── Delivery invoice helpers ──────────────────────────────────────────────────
 
 def pull_delivery_invoices(status_filter: str = "pending") -> tuple[list[dict], str]:
-    """Fetch delivery invoices from Supabase filtered by status."""
+    """Fetch delivery invoices from Supabase filtered by status.
+    Embeds warehouse name and operator name via PostgREST foreign-key joins.
+    """
     if not is_configured():
         return [], "Supabase not configured"
     try:
         status_part = f"&status=eq.{status_filter}" if status_filter != "all" else ""
+        select = (
+            "id,invoice_number,supplier_name,invoice_date,total,currency,"
+            "status,notes,warehouse_id,operator_id,"
+            "warehouses_central!warehouse_id(name),"
+            "delivery_users!operator_id(full_name,username)"
+        )
         params = (
-            f"invoice_type=eq.delivery"
+            f"select={select}"
+            f"&invoice_type=eq.delivery"
             f"{status_part}"
             f"&order=invoice_date.desc,id.desc"
             f"&limit=200"
@@ -3202,7 +3211,15 @@ def pull_delivery_invoices(status_filter: str = "pending") -> tuple[list[dict], 
         )
         if r.status_code != 200:
             return [], f"HTTP {r.status_code}: {r.text[:200]}"
-        return r.json(), ""
+
+        rows = r.json()
+        # Flatten embedded relations into flat fields for easy access
+        for row in rows:
+            wh = row.pop("warehouses_central", None) or {}
+            op = row.pop("delivery_users", None) or {}
+            row["warehouse_name"] = wh.get("name") or row.get("warehouse_id", "")[:8]
+            row["operator_name"]  = op.get("full_name") or op.get("username") or "—"
+        return rows, ""
     except Exception as exc:
         return [], str(exc)
 
