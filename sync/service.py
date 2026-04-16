@@ -3185,20 +3185,16 @@ def enqueue(entity_type: str, entity_id: str, action: str, payload: dict) -> Non
 
 def pull_delivery_invoices(status_filter: str = "pending") -> tuple[list[dict], str]:
     """Fetch delivery invoices from Supabase filtered by status.
-    Embeds warehouse name and operator name via PostgREST foreign-key joins.
+    Resolves warehouse names and operator names via separate lookups
+    (no FK constraints required).
     """
     if not is_configured():
         return [], "Supabase not configured"
     try:
         status_part = f"&status=eq.{status_filter}" if status_filter != "all" else ""
-        select = (
-            "id,invoice_number,supplier_name,invoice_date,total,currency,"
-            "status,notes,warehouse_id,operator_id,"
-            "warehouses_central!warehouse_id(name),"
-            "delivery_users!operator_id(full_name,username)"
-        )
         params = (
-            f"select={select}"
+            f"select=id,invoice_number,supplier_name,invoice_date,total,currency,"
+            f"status,notes,warehouse_id,operator_id"
             f"&invoice_type=eq.delivery"
             f"{status_part}"
             f"&order=invoice_date.desc,id.desc"
@@ -3211,14 +3207,41 @@ def pull_delivery_invoices(status_filter: str = "pending") -> tuple[list[dict], 
         )
         if r.status_code != 200:
             return [], f"HTTP {r.status_code}: {r.text[:200]}"
-
         rows = r.json()
-        # Flatten embedded relations into flat fields for easy access
+
+        # Collect unique IDs for batch lookups
+        wh_ids = list({row["warehouse_id"] for row in rows if row.get("warehouse_id")})
+        op_ids = list({row["operator_id"]  for row in rows if row.get("operator_id")})
+
+        wh_map: dict[str, str] = {}
+        op_map: dict[str, str] = {}
+
+        if wh_ids:
+            id_list = ",".join(wh_ids)
+            wr = requests.get(
+                f"{_url('warehouses_central')}?select=id,name&id=in.({id_list})",
+                headers={**_headers(), "Prefer": ""},
+                timeout=10,
+            )
+            if wr.status_code == 200:
+                for wh in wr.json():
+                    wh_map[wh["id"]] = wh.get("name", "")
+
+        if op_ids:
+            id_list = ",".join(op_ids)
+            ur = requests.get(
+                f"{_url('delivery_users')}?select=id,full_name,username&id=in.({id_list})",
+                headers={**_headers(), "Prefer": ""},
+                timeout=10,
+            )
+            if ur.status_code == 200:
+                for u in ur.json():
+                    op_map[u["id"]] = u.get("full_name") or u.get("username") or "—"
+
         for row in rows:
-            wh = row.pop("warehouses_central", None) or {}
-            op = row.pop("delivery_users", None) or {}
-            row["warehouse_name"] = wh.get("name") or row.get("warehouse_id", "")[:8]
-            row["operator_name"]  = op.get("full_name") or op.get("username") or "—"
+            row["warehouse_name"] = wh_map.get(row.get("warehouse_id", ""), "—")
+            row["operator_name"]  = op_map.get(row.get("operator_id",  ""), "—")
+
         return rows, ""
     except Exception as exc:
         return [], str(exc)
