@@ -3188,9 +3188,10 @@ def pull_delivery_invoices(status_filter: str = "pending") -> tuple[list[dict], 
     if not is_configured():
         return [], "Supabase not configured"
     try:
+        status_part = f"&status=eq.{status_filter}" if status_filter != "all" else ""
         params = (
             f"invoice_type=eq.delivery"
-            f"&status=eq.{status_filter}"
+            f"{status_part}"
             f"&order=invoice_date.desc,id.desc"
             f"&limit=200"
         )

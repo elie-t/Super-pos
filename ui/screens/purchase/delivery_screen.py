@@ -449,6 +449,10 @@ class DeliveryInvoicesScreen(QWidget):
         self._convert_worker = worker
         worker.start()
 
+    def refresh(self):
+        """Called by PurchaseModule when the screen is revisited."""
+        self._refresh()
+
     def _on_convert_done(self, inv_id: str, err: str):
         self._pull_btn.setEnabled(True)
         if err:
