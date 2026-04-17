@@ -1036,7 +1036,7 @@ class PurchaseInvoiceScreen(QWidget):
         tlay.setHorizontalSpacing(16)
         tlay.setVerticalSpacing(3)
 
-        def stat_row(row_idx, label, big=False, color="#1a3a5c"):
+        def stat_lbl(row_idx, label, big=False, color="#1a3a5c"):
             lbl = QLabel(label)
             lbl.setStyleSheet("color:#555;font-size:12px;font-weight:500;")
             lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -1049,14 +1049,34 @@ class PurchaseInvoiceScreen(QWidget):
             tlay.addWidget(val, row_idx, 1)
             return val
 
-        self._lines_count_lbl = stat_row(0, "Lines:")
-        self._subtotal_lbl    = stat_row(1, "Sub-Total:")
-        self._disc_lbl        = stat_row(2, "Discount:")
-        self._vat_lbl         = stat_row(3, "VAT:")
+        def stat_edit(row_idx, label, color="#c0392b"):
+            lbl = QLabel(label)
+            lbl.setStyleSheet("color:#555;font-size:12px;font-weight:500;")
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            edit = QLineEdit("0.00")
+            edit.setAlignment(Qt.AlignRight)
+            edit.setFixedWidth(110)
+            edit.setStyleSheet(
+                f"font-weight:700;font-size:13px;color:{color};"
+                "border:1px solid #b0c4de;border-radius:4px;padding:1px 4px;"
+                "background:#fff;"
+            )
+            tlay.addWidget(lbl, row_idx, 0)
+            tlay.addWidget(edit, row_idx, 1)
+            return edit
+
+        self._lines_count_lbl = stat_lbl(0, "Lines:")
+        self._subtotal_lbl    = stat_lbl(1, "Sub-Total:")
+        self._disc_edit       = stat_edit(2, "Discount:", color="#c0392b")
+        self._vat_edit        = stat_edit(3, "VAT:", color="#1565c0")
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         sep.setStyleSheet("color:#bbd0ee;")
         tlay.addWidget(sep, 4, 0, 1, 2)
-        self._grand_total_lbl = stat_row(5, "Grand Total:", big=True, color="#c62828")
+        self._grand_total_lbl = stat_lbl(5, "Grand Total:", big=True, color="#c62828")
+
+        # live recalc when disc or vat edited
+        self._disc_edit.textEdited.connect(self._on_totals_edited)
+        self._vat_edit.textEdited.connect(self._on_totals_edited)
 
         outer.addWidget(totals_frame)
         return frame
@@ -1759,8 +1779,25 @@ class PurchaseInvoiceScreen(QWidget):
 
         self._lines_count_lbl.setText(str(len(self._lines)))
         self._subtotal_lbl.setText(f"{subtotal:,.2f}")
-        self._disc_lbl.setText(f"{disc_val:,.2f}")
-        self._vat_lbl.setText(f"{vat_val:,.2f}")
+        self._disc_edit.setText(f"{disc_val:.2f}")
+        self._vat_edit.setText(f"{vat_val:.2f}")
+        self._grand_total_lbl.setText(f"{grand:,.2f}")
+
+    def _on_totals_edited(self):
+        """Recompute grand total when user manually edits discount or VAT."""
+        try:
+            subtotal = float(self._subtotal_lbl.text().replace(",", ""))
+        except ValueError:
+            subtotal = 0.0
+        try:
+            disc = float(self._disc_edit.text().replace(",", ""))
+        except ValueError:
+            disc = 0.0
+        try:
+            vat = float(self._vat_edit.text().replace(",", ""))
+        except ValueError:
+            vat = 0.0
+        grand = subtotal - disc + vat
         self._grand_total_lbl.setText(f"{grand:,.2f}")
 
     # ── Save ──────────────────────────────────────────────────────────────────
