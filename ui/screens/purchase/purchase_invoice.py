@@ -1756,37 +1756,35 @@ class PurchaseInvoiceScreen(QWidget):
     # ── Totals ────────────────────────────────────────────────────────────────
 
     def _refresh_totals(self):
-        subtotal = 0.0
-        disc_val = 0.0
-        vat_val  = 0.0
+        """
+        Sub-Total = sum of line totals (already net of per-line disc/vat).
+        Discount % = invoice-level extra discount typed by user — never auto-filled.
+        VAT = sum of per-line VAT amounts (editable override).
+        Grand = subtotal * (1 - disc%/100) + vat
+        """
+        net_total = 0.0
+        vat_val   = 0.0
         for line in self._lines:
-            box    = line.get("box", 0)
-            pcs    = line["pcs"]
-            pkg    = line.get("pkg", 1)
-            price  = line["price"]
-            disc   = line["disc"]
-            vat    = line["vat"]
-            qty    = box if (pkg > 1 and box > 0) else pcs
-            gross  = qty * price
-            d      = gross * disc / 100
-            net_hd = gross - d
-            v      = net_hd * vat / 100
-            subtotal += gross
-            disc_val += d
-            vat_val  += v
-
-        grand = subtotal - disc_val + vat_val
-
-        disc_pct = (disc_val / subtotal * 100) if subtotal else 0.0
+            net_total += line.get("total", 0.0)
+            box   = line.get("box", 0)
+            pcs   = line["pcs"]
+            pkg   = line.get("pkg", 1)
+            price = line["price"]
+            disc  = line["disc"]
+            vat   = line["vat"]
+            qty   = box if (pkg > 1 and box > 0) else pcs
+            gross = qty * price
+            d     = gross * disc / 100
+            vat_val += (gross - d) * vat / 100
 
         self._lines_count_lbl.setText(str(len(self._lines)))
-        self._subtotal_lbl.setText(f"{subtotal:,.2f}")
-        self._disc_edit.setText(f"{disc_pct:.2f}")
+        self._subtotal_lbl.setText(f"{net_total:,.2f}")
+        # do NOT reset _disc_edit — user controls it; only reset on clear
         self._vat_edit.setText(f"{vat_val:.2f}")
-        self._grand_total_lbl.setText(f"{grand:,.2f}")
+        self._recompute_grand()
 
-    def _on_totals_edited(self):
-        """Recompute grand total when user manually edits discount % or VAT."""
+    def _recompute_grand(self):
+        """Grand = subtotal * (1 - disc%/100) + vat."""
         try:
             subtotal = float(self._subtotal_lbl.text().replace(",", ""))
         except ValueError:
@@ -1799,9 +1797,12 @@ class PurchaseInvoiceScreen(QWidget):
             vat = float(self._vat_edit.text().replace(",", ""))
         except ValueError:
             vat = 0.0
-        disc_amt = subtotal * disc_pct / 100
-        grand = subtotal - disc_amt + vat
+        grand = subtotal * (1 - disc_pct / 100) + vat
         self._grand_total_lbl.setText(f"{grand:,.2f}")
+
+    def _on_totals_edited(self):
+        """Called when user edits Discount % or VAT — recompute grand total."""
+        self._recompute_grand()
 
     # ── Save ──────────────────────────────────────────────────────────────────
 
@@ -1955,6 +1956,7 @@ class PurchaseInvoiceScreen(QWidget):
         self._date_edit.setDate(QDate.currentDate())
         self._notes_input.clear()
         self._order_input.clear()
+        self._disc_edit.setText("0.00")
         self._refresh_table()
         self._refresh_totals()
         self._clear_entry()
