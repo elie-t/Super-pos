@@ -326,12 +326,12 @@ def drain_sync_queue(batch_size: int = 50) -> tuple[int, int]:
     synced = failed = 0
 
     try:
-        # Reset recently-failed rows so they get retried (handles transient errors)
+        # Reset failed rows so they get retried (up to 30 days back)
         import sqlalchemy
         session.execute(sqlalchemy.text(
             "UPDATE sync_queue SET sync_status='pending', retry_count=0 "
             "WHERE sync_status='failed' "
-            "AND created_at > datetime('now', '-1 day')"
+            "AND created_at > datetime('now', '-30 days')"
         ))
         session.commit()
 
@@ -1894,6 +1894,108 @@ def pull_sales_invoices() -> tuple[int, str]:
         return pulled, ""
 
     except Exception as e:
+        return 0, str(e)
+
+
+def push_missed_shifts(days_back: int = 60) -> tuple[int, str]:
+    """
+    Directly push all local pos_shift invoices from the last N days to Supabase.
+    Bypasses sync_queue entirely — safe to run multiple times (upsert).
+    Use this on a branch to recover invoices that failed to sync.
+    Returns (count_pushed, error).
+    """
+    from database.engine import get_session, init_db
+    from database.models.invoices import SalesInvoice, SalesInvoiceItem
+
+    if not is_configured():
+        return 0, "Supabase not configured"
+
+    init_db()
+    session = get_session()
+    try:
+        cutoff = (datetime.now(timezone.utc).date() -
+                  __import__('datetime').timedelta(days=days_back)).isoformat()
+        shifts = session.query(SalesInvoice).filter(
+            SalesInvoice.source == "pos_shift",
+            SalesInvoice.invoice_date >= cutoff,
+        ).all()
+
+        if not shifts:
+            session.close()
+            return 0, ""
+
+        pushed = 0
+        for inv in shifts:
+            lines = session.query(SalesInvoiceItem).filter_by(
+                invoice_id=inv.id
+            ).all()
+
+            wh_name = ""
+            try:
+                from database.models.stock import Warehouse
+                wh = session.get(Warehouse, inv.warehouse_id)
+                wh_name = wh.name if wh else ""
+            except Exception:
+                pass
+
+            inv_row = {
+                "id":             inv.id,
+                "invoice_number": inv.invoice_number,
+                "invoice_date":   inv.invoice_date,
+                "warehouse_id":   inv.warehouse_id or "",
+                "warehouse_name": wh_name,
+                "customer_id":    inv.customer_id or "",
+                "operator_id":    inv.operator_id or "",
+                "source":         inv.source or "pos_shift",
+                "invoice_type":   inv.invoice_type or "sale",
+                "subtotal":       float(inv.subtotal or 0),
+                "discount_value": float(inv.discount_value or 0),
+                "vat_value":      float(inv.vat_value or 0),
+                "total":          float(inv.total or 0),
+                "currency":       inv.currency or "LBP",
+                "status":         inv.status or "finalized",
+                "payment_status": inv.payment_status or "paid",
+                "amount_paid":    float(inv.amount_paid or 0),
+                "notes":          inv.notes or "",
+                "branch_id":      BRANCH_ID,
+                "synced_at":      datetime.now(timezone.utc).isoformat(),
+            }
+            ok, err = upsert_rows("sales_invoices_central", [inv_row])
+            if not ok:
+                session.close()
+                return pushed, f"Invoice {inv.invoice_number}: {err}"
+
+            if lines:
+                line_rows = []
+                for li in lines:
+                    line_rows.append({
+                        "id":           li.id,
+                        "invoice_id":   inv.id,
+                        "item_id":      li.item_id or "",
+                        "item_name":    li.item_name or "",
+                        "barcode":      li.barcode or "",
+                        "quantity":     float(li.quantity or 0),
+                        "unit_price":   float(li.unit_price or 0),
+                        "currency":     li.currency or inv.currency or "LBP",
+                        "discount_pct": float(li.discount_pct or 0),
+                        "vat_pct":      float(li.vat_pct or 0),
+                        "line_total":   float(li.line_total or 0),
+                    })
+                ok2, err2 = upsert_rows("sales_invoice_items_central", line_rows)
+                if not ok2:
+                    session.close()
+                    return pushed, f"Lines for {inv.invoice_number}: {err2}"
+
+            pushed += 1
+
+        session.close()
+        return pushed, ""
+
+    except Exception as e:
+        try:
+            session.close()
+        except Exception:
+            pass
         return 0, str(e)
 
 

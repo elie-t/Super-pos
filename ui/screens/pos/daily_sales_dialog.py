@@ -462,6 +462,20 @@ class DailySalesDialog(QDialog):
 
         bl2.addSpacing(8)
 
+        push_btn = QPushButton("☁  Push Shifts to Cloud")
+        push_btn.setFixedHeight(28)
+        push_btn.setStyleSheet(
+            "QPushButton{background:#1a3a5c;color:#fff;border:none;"
+            "border-radius:5px;font-size:11px;font-weight:700;padding:0 12px;}"
+            "QPushButton:hover{background:#1a6cb5;}"
+        )
+        push_btn.setCursor(Qt.PointingHandCursor)
+        push_btn.setToolTip("Force-push any shift invoices that failed to sync (last 60 days)")
+        push_btn.clicked.connect(self._push_missed_shifts)
+        bl2.addWidget(push_btn)
+
+        bl2.addSpacing(4)
+
         self._shift_btn = QPushButton("🔴  End of Shift")
         self._shift_btn.setFixedHeight(34)
         self._shift_btn.setStyleSheet(
@@ -933,6 +947,31 @@ class DailySalesDialog(QDialog):
             preview.exec()
         except Exception:
             pass  # never block the shift close on a print failure
+
+    def _push_missed_shifts(self):
+        """Force-push all local pos_shift invoices from last 60 days to Supabase."""
+        from sync.service import is_configured, push_missed_shifts, drain_sync_queue
+        if not is_configured():
+            QMessageBox.warning(self, "Not Configured",
+                                "Supabase is not configured. Check your .env file.")
+            return
+        from PySide6.QtWidgets import QProgressDialog, QApplication
+        prog = QProgressDialog("Pushing shift invoices to cloud…", None, 0, 0, self)
+        prog.setWindowTitle("Push Shifts")
+        prog.setMinimumDuration(0)
+        prog.setValue(0)
+        QApplication.processEvents()
+        # First drain any pending queue items (resets failed rows up to 30 days)
+        drain_sync_queue()
+        # Then directly push all local shift invoices (bypasses queue)
+        n, err = push_missed_shifts(days_back=60)
+        prog.close()
+        if err:
+            QMessageBox.warning(self, "Error", f"Push failed:\n{err}")
+        else:
+            QMessageBox.information(self, "Done",
+                                    f"✔ {n} shift invoice{'s' if n != 1 else ''} pushed to cloud.\n"
+                                    "The main laptop will receive them within 15 minutes.")
 
     def _end_of_shift(self):
         self._refresh()

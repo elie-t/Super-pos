@@ -206,6 +206,13 @@ class _SyncAllWorker(QThread):
         synced, failed = drain_sync_queue()
         results.append(f"Queue: {synced} pushed, {failed} failed")
 
+        # ── Always: directly push any local pos_shift invoices (last 60 days) ─
+        # This catches shifts whose sync_queue entry was lost or permanently failed.
+        self.progress.emit("Pushing missed shift invoices…")
+        from sync.service import push_missed_shifts
+        n_shifts, err_shifts = push_missed_shifts(days_back=60)
+        results.append(f"Shift invoices pushed: {n_shifts}" + (f" ⚠ {err_shifts}" if err_shifts else ""))
+
         # ── Always: pull incremental item changes ─────────────────────────────
         self.progress.emit("Pulling item master data…")
         n, err = pull_master_items()
