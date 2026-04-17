@@ -637,6 +637,7 @@ class PurchaseInvoiceScreen(QWidget):
         self._date_edit.setDate(QDate.currentDate())
         self._date_edit.setFixedHeight(30)
         self._date_edit.setFixedWidth(120)
+        self._date_edit.installEventFilter(self)
         lay.addWidget(self._date_edit)
 
         lay.addSpacing(16)
@@ -657,6 +658,7 @@ class PurchaseInvoiceScreen(QWidget):
         self._cur_combo = QComboBox()
         self._cur_combo.setFixedHeight(30)
         self._cur_combo.addItems(["USD", "LBP"])
+        self._cur_combo.installEventFilter(self)
         lay.addWidget(self._cur_combo)
 
         return frame
@@ -1401,9 +1403,15 @@ class PurchaseInvoiceScreen(QWidget):
                     return True
 
             if key in (Qt.Key_Return, Qt.Key_Enter):
-                if obj is self._wh_combo:
+                if obj is self._date_edit:
+                    self._wh_combo.setFocus()
+                    return True
+                if obj is self._cur_combo:
                     self._bc_input.setFocus()
                     self._bc_input.selectAll()
+                    return True
+                if obj is self._wh_combo:
+                    self._cur_combo.setFocus()
                     return True
                 if obj is self._box_spin:
                     if self._current_pack_qty > 1 and self._box_spin.value() > 0:
