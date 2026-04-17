@@ -282,9 +282,11 @@ class _SyncAllWorker(QThread):
         n, err = pull_sales_invoices()
         results.append(f"Sales invoices pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
-        self.progress.emit("Pulling purchase invoices…")
-        n, err = pull_purchase_invoices()
-        results.append(f"Purchase invoices pulled: {n}" + (f" ⚠ {err}" if err else ""))
+        # Purchase invoices are only relevant on the main branch
+        if IS_MAIN_BRANCH:
+            self.progress.emit("Pulling purchase invoices…")
+            n, err = pull_purchase_invoices()
+            results.append(f"Purchase invoices pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
         self.progress.emit("Pulling categories…")
         n, err = pull_categories()
