@@ -3,7 +3,9 @@ Sync Worker — runs in a background QThread.
 
 Responsibilities:
   - Pull item/price master data from Supabase once per hour (SYNC_INTERVAL_SEC)
+  - Pull sales invoices from other branches every 15 minutes (INVOICE_PULL_SEC)
   - Drain the local sync_queue when explicitly triggered (shift-end)
+  - Also pull invoices immediately after a drain (catches same-day shifts)
 
 Online order notifications are handled separately by OrderWatcher (websocket).
 Sales invoice push happens at shift-end via trigger_drain().
@@ -13,6 +15,7 @@ from __future__ import annotations
 from PySide6.QtCore import QThread, Signal
 from config import SYNC_INTERVAL_SEC
 
+INVOICE_PULL_SEC = 900   # pull other branches' invoices every 15 minutes
 
 _instance: "SyncWorker | None" = None
 
@@ -22,12 +25,13 @@ def get_sync_worker() -> "SyncWorker | None":
 
 
 class SyncWorker(QThread):
-    """Background thread: hourly item pull + on-demand queue drain."""
+    """Background thread: hourly item pull + 15-min invoice pull + on-demand drain."""
 
-    sync_done       = Signal(int, int)  # (synced, failed) — after drain
-    items_updated   = Signal(int)       # item master data changes pulled
-    users_changed   = Signal()          # user records added/updated/deactivated
-    error           = Signal(str)
+    sync_done          = Signal(int, int)  # (synced, failed) — after drain
+    items_updated      = Signal(int)       # item master data changes pulled
+    invoices_received  = Signal(int)       # new invoices pulled from other branches
+    users_changed      = Signal()          # user records added/updated/deactivated
+    error              = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -48,16 +52,25 @@ class SyncWorker(QThread):
     # ── Thread main loop ──────────────────────────────────────────────────────
 
     def run(self):
-        self._running    = True
-        ticks_since_pull = SYNC_INTERVAL_SEC  # pull immediately on first start
+        self._running         = True
+        ticks_since_pull      = SYNC_INTERVAL_SEC   # pull items immediately on first start
+        ticks_since_inv_pull  = INVOICE_PULL_SEC     # pull invoices immediately on first start
 
         while self._running:
-            # Drain if requested (shift-end push)
+            # Drain if requested (shift-end push), then pull invoices right after
             if self._drain_pending:
                 self._drain_pending = False
                 self._do_drain()
+                self._do_invoice_pull()          # pick up other branches' shifts immediately
+                ticks_since_inv_pull = 0         # reset invoice pull timer
 
-            # Hourly item pull
+            # 15-minute invoice pull from other branches
+            ticks_since_inv_pull += 1
+            if ticks_since_inv_pull >= INVOICE_PULL_SEC:
+                ticks_since_inv_pull = 0
+                self._do_invoice_pull()
+
+            # Hourly item/price master pull
             ticks_since_pull += 1
             if ticks_since_pull >= SYNC_INTERVAL_SEC:
                 ticks_since_pull = 0
@@ -81,6 +94,34 @@ class SyncWorker(QThread):
         try:
             synced, failed = drain_sync_queue()
             self.sync_done.emit(synced, failed)
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def _do_invoice_pull(self):
+        """Pull sales invoices from other branches (runs every 15 min + after drain)."""
+        from sync.service import pull_sales_invoices, is_configured
+        if not is_configured():
+            return
+        try:
+            from datetime import datetime as _dt
+            from pathlib import Path as _Path
+            _log_path = _Path(__file__).parent.parent / "data" / "sync.log"
+
+            pulled, err = pull_sales_invoices()
+            if err:
+                self.error.emit(f"Invoice pull: {err}")
+                try:
+                    with open(_log_path, "a") as f:
+                        f.write(f"{_dt.now().strftime('%Y-%m-%d %H:%M:%S')} [ERROR] invoice pull: {err}\n")
+                except Exception:
+                    pass
+            elif pulled > 0:
+                self.invoices_received.emit(pulled)
+                try:
+                    with open(_log_path, "a") as f:
+                        f.write(f"{_dt.now().strftime('%Y-%m-%d %H:%M:%S')} [INFO] invoice pull: {pulled} new invoice(s)\n")
+                except Exception:
+                    pass
         except Exception as e:
             self.error.emit(str(e))
 

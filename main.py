@@ -52,6 +52,10 @@ def main():
         _sync_worker.items_updated.connect(
             lambda n: window.statusBar().showMessage(f"  ✔ {n} item(s) updated from main", 6000)
         )
+        _sync_worker.invoices_received.connect(
+            lambda n: window.statusBar().showMessage(
+                f"  ⬇ {n} new shift invoice{'s' if n != 1 else ''} received from branches", 8000)
+        )
         _sync_worker.error.connect(
             lambda e: window.statusBar().showMessage(f"  ⚠ Sync error: {e}", 10000)
         )
