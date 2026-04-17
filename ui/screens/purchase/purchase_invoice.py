@@ -1110,7 +1110,7 @@ class PurchaseInvoiceScreen(QWidget):
                 _s.close()
         except Exception:
             self._lbp_rate = 90_000
-        self._sup_input.setFocus()
+        QTimer.singleShot(0, self._sup_input.setFocus)
 
     def _refresh_invoice_number(self):
         wh_id = self._wh_combo.currentData() or ""
@@ -1955,7 +1955,7 @@ class PurchaseInvoiceScreen(QWidget):
         self._refresh_table()
         self._refresh_totals()
         self._clear_entry()
-        self._sup_input.setFocus()
+        QTimer.singleShot(0, self._sup_input.setFocus)
 
     def load_invoice(self, invoice_id: str):
         """Populate screen from an existing saved invoice."""
