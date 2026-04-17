@@ -886,20 +886,32 @@ def pull_master_items() -> tuple[int, str]:
             item_ids   = [i["id"] for i in remote_items]
             ids_filter = ",".join(item_ids)
 
-            prices_by_item: dict[str, list] = {}
-            rp = requests.get(
-                f"{_url('item_prices_central')}?item_id=in.({ids_filter})",
-                headers={**_headers(), "Prefer": ""}, timeout=60,
-            )
+            # Fetch prices and barcodes in parallel to cut round-trip time
+            import concurrent.futures as _cf
+            prices_by_item:   dict[str, list] = {}
+            barcodes_by_item: dict[str, list] = {}
+
+            def _fetch_prices():
+                return requests.get(
+                    f"{_url('item_prices_central')}?item_id=in.({ids_filter})",
+                    headers={**_headers(), "Prefer": ""}, timeout=60,
+                )
+
+            def _fetch_barcodes():
+                return requests.get(
+                    f"{_url('item_barcodes_central')}?item_id=in.({ids_filter})",
+                    headers={**_headers(), "Prefer": ""}, timeout=60,
+                )
+
+            with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
+                _fp = _ex.submit(_fetch_prices)
+                _fb = _ex.submit(_fetch_barcodes)
+                rp = _fp.result()
+                rb = _fb.result()
+
             if rp.status_code == 200:
                 for p in rp.json():
                     prices_by_item.setdefault(p["item_id"], []).append(p)
-
-            barcodes_by_item: dict[str, list] = {}
-            rb = requests.get(
-                f"{_url('item_barcodes_central')}?item_id=in.({ids_filter})",
-                headers={**_headers(), "Prefer": ""}, timeout=60,
-            )
             if rb.status_code == 200:
                 for b in rb.json():
                     barcodes_by_item.setdefault(b["item_id"], []).append(b)
