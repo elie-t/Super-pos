@@ -105,6 +105,19 @@ class WarehouseTransferScreen(QWidget):
         self._editing_row  = -1
         self._table_updating  = False
         self._total_editing   = False
+        self._lbp_rate        = 90_000  # fallback; loaded below
+        try:
+            from database.engine import get_session, init_db
+            from database.models.items import Setting
+            init_db()
+            _s = get_session()
+            try:
+                r = _s.get(Setting, "lbp_rate")
+                self._lbp_rate = (int(r.value) if r and r.value else 0) or 90_000
+            finally:
+                _s.close()
+        except Exception:
+            pass
         self._build_ui()
         self._load_warehouses()
 
@@ -738,7 +751,13 @@ class WarehouseTransferScreen(QWidget):
         ptype = self._price_type_combo.currentData() or "cost"
         cur   = self._cur_combo.currentText()
         if ptype == "cost":
-            cost = item.last_cost
+            cost          = item.last_cost
+            cost_currency = getattr(item, "last_cost_currency", "USD") or "USD"
+            # Convert to the transfer currency if they differ
+            if cur == "USD" and cost_currency == "LBP":
+                cost = cost / self._lbp_rate if self._lbp_rate else cost
+            elif cur == "LBP" and cost_currency == "USD":
+                cost = cost * self._lbp_rate
             if box_mode and getattr(item, "pack_qty", 1) > 1:
                 cost = cost * item.pack_qty
             return cost
