@@ -16,6 +16,16 @@ from services.sales_invoice_service import SalesInvoiceService
 from services.auth_service import AuthService
 
 
+# ── Numeric-sortable table item ────────────────────────────────────────────────
+class _NumericItem(QTableWidgetItem):
+    """QTableWidgetItem that sorts by a numeric key stored in UserRole+1."""
+    def __lt__(self, other):
+        try:
+            return float(self.data(Qt.UserRole + 1)) < float(other.data(Qt.UserRole + 1))
+        except (TypeError, ValueError):
+            return super().__lt__(other)
+
+
 # ── Print helper ───────────────────────────────────────────────────────────────
 
 def _print_invoice(d: dict, parent=None):
@@ -426,6 +436,7 @@ class SalesInvoiceListScreen(QWidget):
         self._table.verticalHeader().setDefaultSectionSize(30)
         self._table.setAlternatingRowColors(True)
         self._table.setShowGrid(True)
+        self._table.setSortingEnabled(True)
         self._table.doubleClicked.connect(self._open_detail)
         self._table.selectionModel().selectionChanged.connect(self._on_selection)
         hdr = self._table.horizontalHeader()
@@ -481,6 +492,7 @@ class SalesInvoiceListScreen(QWidget):
         self._fill(rows)
 
     def _fill(self, rows: list[dict]):
+        self._table.setSortingEnabled(False)  # disable during fill to prevent mid-insert sort
         self._table.setRowCount(len(rows))
         grand_lbp = 0.0
         grand_usd = 0.0
@@ -497,6 +509,7 @@ class SalesInvoiceListScreen(QWidget):
             total_fmt = f"{amt:,.0f} ل.ل" if cur == "LBP" else f"$ {amt:,.2f}"
             wn = r["warehouse_num"]
             wn_str = str(wn) if wn != "" else "—"
+            wn_num = wn if isinstance(wn, (int, float)) else 0
 
             def cell(txt, align=Qt.AlignCenter, bold=False, color=None, _r=r):
                 it = QTableWidgetItem(str(txt))
@@ -509,13 +522,27 @@ class SalesInvoiceListScreen(QWidget):
                 return it
 
             self._table.setItem(i, 0, cell(r["invoice_number"], Qt.AlignLeft | Qt.AlignVCenter))
-            wn_cell = cell(wn_str, bold=True, color="#1565c0")
-            self._table.setItem(i, 1, wn_cell)
+            # W — numeric sort
+            wn_item = _NumericItem(wn_str)
+            wn_item.setTextAlignment(Qt.AlignCenter)
+            wn_item.setData(Qt.UserRole, r["id"])
+            wn_item.setData(Qt.UserRole + 1, wn_num)
+            wn_item.setFont(QFont("", -1, QFont.Bold))
+            wn_item.setForeground(QColor("#1565c0"))
+            self._table.setItem(i, 1, wn_item)
             self._table.setItem(i, 2, cell(r["date"]))
             self._table.setItem(i, 3, cell(r["warehouse_name"], Qt.AlignLeft | Qt.AlignVCenter))
-            self._table.setItem(i, 4, cell(total_fmt, Qt.AlignRight | Qt.AlignVCenter, bold=True))
+            # Amount — numeric sort
+            amt_item = _NumericItem(total_fmt)
+            amt_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            amt_item.setData(Qt.UserRole, r["id"])
+            amt_item.setData(Qt.UserRole + 1, amt)
+            amt_item.setFont(QFont("", -1, QFont.Bold))
+            self._table.setItem(i, 4, amt_item)
             self._table.setItem(i, 5, cell(r["cashier"], Qt.AlignLeft | Qt.AlignVCenter))
             self._table.setItem(i, 6, cell(r["payment_status"].upper(), color=paid_color, bold=True))
+
+        self._table.setSortingEnabled(True)  # re-enable after fill
 
         parts = []
         if grand_lbp:
