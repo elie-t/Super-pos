@@ -19,6 +19,9 @@ def _set_sqlite_pragmas(dbapi_conn, _connection_record):
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA cache_size=-32000")   # 32 MB page cache (default is ~2 MB)
+    cursor.execute("PRAGMA mmap_size=134217728")  # 128 MB memory-mapped I/O
+    cursor.execute("PRAGMA temp_store=MEMORY")    # temp tables in RAM not disk
     cursor.close()
 
 
@@ -217,3 +220,26 @@ def init_db() -> None:
             conn.commit()
         except Exception:
             pass
+
+        # ── Performance indexes (idempotent — IF NOT EXISTS) ──────────────────
+        perf_indexes = [
+            # item_stock: 27k+ rows, queried heavily by warehouse
+            "CREATE INDEX IF NOT EXISTS ix_item_stock_warehouse_id ON item_stock (warehouse_id)",
+            "CREATE INDEX IF NOT EXISTS ix_item_stock_item_id ON item_stock (item_id)",
+            # sales_invoices: filtered by source, archived, date, warehouse constantly
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_source ON sales_invoices (source)",
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_is_archived ON sales_invoices (is_archived)",
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_invoice_date ON sales_invoices (invoice_date)",
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_warehouse_id ON sales_invoices (warehouse_id)",
+            # stock_movements: date-range queries for reports
+            "CREATE INDEX IF NOT EXISTS ix_stock_movements_created_at ON stock_movements (created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_stock_movements_movement_type ON stock_movements (movement_type)",
+            # sales_invoice_items: item-level reporting
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoice_items_item_id ON sales_invoice_items (item_id)",
+        ]
+        for idx_sql in perf_indexes:
+            try:
+                conn.execute(__import__("sqlalchemy").text(idx_sql))
+                conn.commit()
+            except Exception:
+                pass
