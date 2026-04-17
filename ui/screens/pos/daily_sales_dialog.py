@@ -640,13 +640,10 @@ class DailySalesDialog(QDialog):
         cd_rows = r.get("by_cashier_date", [])
         t_cd = self._cashier_date_table
         t_cd.setRowCount(len(cd_rows))
-        prev_date = None
         for i, row in enumerate(cd_rows):
-            date_txt = row["date"] if row["date"] != prev_date else ""
-            prev_date = row["date"]
             lbp_amt = row["totals"].get("LBP", 0)
             total_txt = f"ل.ل {lbp_amt:,.0f}" if lbp_amt else "—"
-            t_cd.setItem(i, 0, self._cell(date_txt, Qt.AlignCenter))
+            t_cd.setItem(i, 0, self._cell(row["date"], Qt.AlignCenter))
             t_cd.setItem(i, 1, self._cell(row["cashier"]))
             t_cd.setItem(i, 2, self._cell(str(row["invoices"]), Qt.AlignCenter))
             amt_cell = self._cell(total_txt, Qt.AlignRight | Qt.AlignVCenter)
