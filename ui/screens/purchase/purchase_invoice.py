@@ -1067,7 +1067,7 @@ class PurchaseInvoiceScreen(QWidget):
 
         self._lines_count_lbl = stat_lbl(0, "Lines:")
         self._subtotal_lbl    = stat_lbl(1, "Sub-Total:")
-        self._disc_edit       = stat_edit(2, "Discount:", color="#c0392b")
+        self._disc_edit       = stat_edit(2, "Discount %:", color="#c0392b")
         self._vat_edit        = stat_edit(3, "VAT:", color="#1565c0")
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         sep.setStyleSheet("color:#bbd0ee;")
@@ -1777,27 +1777,30 @@ class PurchaseInvoiceScreen(QWidget):
 
         grand = subtotal - disc_val + vat_val
 
+        disc_pct = (disc_val / subtotal * 100) if subtotal else 0.0
+
         self._lines_count_lbl.setText(str(len(self._lines)))
         self._subtotal_lbl.setText(f"{subtotal:,.2f}")
-        self._disc_edit.setText(f"{disc_val:.2f}")
+        self._disc_edit.setText(f"{disc_pct:.2f}")
         self._vat_edit.setText(f"{vat_val:.2f}")
         self._grand_total_lbl.setText(f"{grand:,.2f}")
 
     def _on_totals_edited(self):
-        """Recompute grand total when user manually edits discount or VAT."""
+        """Recompute grand total when user manually edits discount % or VAT."""
         try:
             subtotal = float(self._subtotal_lbl.text().replace(",", ""))
         except ValueError:
             subtotal = 0.0
         try:
-            disc = float(self._disc_edit.text().replace(",", ""))
+            disc_pct = float(self._disc_edit.text().replace(",", ""))
         except ValueError:
-            disc = 0.0
+            disc_pct = 0.0
         try:
             vat = float(self._vat_edit.text().replace(",", ""))
         except ValueError:
             vat = 0.0
-        grand = subtotal - disc + vat
+        disc_amt = subtotal * disc_pct / 100
+        grand = subtotal - disc_amt + vat
         self._grand_total_lbl.setText(f"{grand:,.2f}")
 
     # ── Save ──────────────────────────────────────────────────────────────────
