@@ -1958,17 +1958,15 @@ def push_missed_shifts(days_back: int = 60) -> tuple[int, str]:
                 line_rows = []
                 for li in lines:
                     line_rows.append({
-                        "id":           li.id,
-                        "invoice_id":   inv.id,
-                        "item_id":      li.item_id or "",
-                        "item_name":    li.item_name or "",
-                        "barcode":      li.barcode or "",
-                        "quantity":     float(li.quantity or 0),
-                        "unit_price":   float(li.unit_price or 0),
-                        "currency":     li.currency or inv.currency or "LBP",
-                        "discount_pct": float(li.discount_pct or 0),
-                        "vat_pct":      float(li.vat_pct or 0),
-                        "line_total":   float(li.line_total or 0),
+                        "id":         li.id,
+                        "invoice_id": inv.id,
+                        "item_id":    li.item_id or "",
+                        "item_name":  li.item_name or "",
+                        "barcode":    li.barcode or "",
+                        "quantity":   float(li.quantity or 0),
+                        "unit_price": float(li.unit_price or 0),
+                        "currency":   li.currency or inv.currency or "LBP",
+                        "line_total": float(li.line_total or 0),
                     })
                 ok2, err2 = upsert_rows("sales_invoice_items_central", line_rows)
                 if not ok2:
