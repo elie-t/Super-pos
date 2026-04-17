@@ -997,68 +997,22 @@ class SettingsScreen(QWidget):
         self._sync_items_btn.setEnabled(False)
         self._sync_items_btn.setText("Syncing…")
 
-        from sync.worker import get_sync_worker
-        w = get_sync_worker()
-        if w:
-            # Reuse the existing SyncWorker thread.
-            # On the main branch: drain first (push pending price edits), then pull.
-            # On branch PCs: pull only.
+        import threading
+        from PySide6.QtCore import QTimer
 
-            def _on_items_done(count):
-                try:
-                    w.items_updated.disconnect(_on_items_done)
-                except Exception:
-                    pass
-                try:
-                    w.error.disconnect(_on_err)
-                except Exception:
-                    pass
-                self._sync_items_btn.setEnabled(True)
-                self._sync_items_btn.setText("📥  Sync Items Now")
-                from PySide6.QtWidgets import QMessageBox
-                msg = f"{count} item(s) updated." if count else "Items are already up to date."
-                QMessageBox.information(self, "Sync Items", msg)
-
-            def _on_err(err):
-                try:
-                    w.items_updated.disconnect(_on_items_done)
-                except Exception:
-                    pass
-                try:
-                    w.error.disconnect(_on_err)
-                except Exception:
-                    pass
-                self._sync_items_btn.setEnabled(True)
-                self._sync_items_btn.setText("📥  Sync Items Now")
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, "Sync Items", f"Sync failed:\n{err}")
-
-            w.items_updated.connect(_on_items_done)
-            w.error.connect(_on_err)
-
-            # Always run in a background thread — never block the UI
-            import threading
-            def _run():
+        def _run():
+            from sync.service import pull_master_items, drain_sync_queue, is_configured
+            count, err = 0, ""
+            if is_configured():
                 if IS_MAIN_BRANCH:
-                    w._do_drain()   # push pending price edits first
-                w._do_items_pull()
-            threading.Thread(target=_run, daemon=True).start()
-        else:
-            # No worker running — run in a plain thread
-            import threading
-            from PySide6.QtCore import QTimer
-
-            def _run():
-                from sync.service import pull_master_items, drain_sync_queue, is_configured
-                if IS_MAIN_BRANCH and is_configured():
                     try:
                         drain_sync_queue()
                     except Exception:
                         pass
                 count, err = pull_master_items()
-                QTimer.singleShot(0, lambda: self._finish_items_sync(count, err))
+            QTimer.singleShot(0, lambda: self._finish_items_sync(count, err))
 
-            threading.Thread(target=_run, daemon=True).start()
+        threading.Thread(target=_run, daemon=True).start()
 
     def _finish_items_sync(self, count: int, err: str):
         self._sync_items_btn.setEnabled(True)
