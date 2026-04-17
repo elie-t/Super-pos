@@ -1930,20 +1930,11 @@ def push_missed_shifts(days_back: int = 60) -> tuple[int, str]:
                 invoice_id=inv.id
             ).all()
 
-            wh_name = ""
-            try:
-                from database.models.stock import Warehouse
-                wh = session.get(Warehouse, inv.warehouse_id)
-                wh_name = wh.name if wh else ""
-            except Exception:
-                pass
-
             inv_row = {
                 "id":             inv.id,
                 "invoice_number": inv.invoice_number,
                 "invoice_date":   inv.invoice_date,
                 "warehouse_id":   inv.warehouse_id or "",
-                "warehouse_name": wh_name,
                 "customer_id":    inv.customer_id or "",
                 "customer_name":  "",
                 "operator_id":    inv.operator_id or "",
