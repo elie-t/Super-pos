@@ -3535,22 +3535,28 @@ class POSScreen(QWidget):
     # ── Customer ───────────────────────────────────────────────────────────────
 
     def _refresh_prices(self):
-        """Pull latest items/prices from Supabase, then reload cart prices."""
+        """Push pending price changes then pull latest items/prices from Supabase."""
         self._refresh_prices_btn.setEnabled(False)
         self._refresh_prices_btn.setText("↻  Syncing…")
 
         import threading
+        from config import IS_MAIN_BRANCH
 
         def _pull_then_refresh():
-            # 1. Pull fresh items/prices from Supabase (background — no UI block)
             try:
-                from sync.service import pull_master_items, is_configured
+                from sync.service import pull_master_items, drain_sync_queue, is_configured
                 if is_configured():
+                    # On main branch: push pending price edits first, then pull
+                    if IS_MAIN_BRANCH:
+                        try:
+                            drain_sync_queue()
+                        except Exception:
+                            pass
                     pull_master_items()
             except Exception:
                 pass
 
-            # 2. Back on main thread: re-read cart prices from (now-updated) local DB
+            # Back on main thread: re-read cart prices from (now-updated) local DB
             from PySide6.QtCore import QTimer
             QTimer.singleShot(0, self._apply_fresh_cart_prices)
 
