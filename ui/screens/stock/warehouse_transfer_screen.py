@@ -754,9 +754,18 @@ class WarehouseTransferScreen(QWidget):
 
     # ── Recalc / back-calc ────────────────────────────────────────────────────
 
+    def _effective_pcs_price(self) -> float:
+        """Return the per-piece price regardless of whether box mode is active."""
+        price    = self._price_spin.value()
+        boxes    = self._box_spin.value()
+        pack_qty = self._current_pack_qty
+        if pack_qty > 1 and boxes > 0:
+            return price / pack_qty   # price shown is per-box → convert to per-pcs
+        return price
+
     def _recalc_total(self):
-        qty   = self._qty_spin.value()
-        price = self._price_spin.value()
+        qty   = self._qty_spin.value()          # always in pcs
+        price = self._effective_pcs_price()     # always per-pcs
         disc  = self._disc_spin.value()
         self._block_total(True)
         self._total_spin.setValue(round(qty * price * (1 - disc / 100), 2))
@@ -769,8 +778,15 @@ class WarehouseTransferScreen(QWidget):
         disc = self._disc_spin.value()
         denom = qty * (1 - disc / 100)
         if denom > 0:
+            pcs_price = round(val / denom, 4)
             self._price_spin.blockSignals(True)
-            self._price_spin.setValue(round(val / denom, 4))
+            # If box mode active, show as box price in the spin
+            boxes    = self._box_spin.value()
+            pack_qty = self._current_pack_qty
+            if pack_qty > 1 and boxes > 0:
+                self._price_spin.setValue(pcs_price * pack_qty)
+            else:
+                self._price_spin.setValue(pcs_price)
             self._price_spin.blockSignals(False)
 
     def _block_total(self, block: bool):
@@ -802,7 +818,7 @@ class WarehouseTransferScreen(QWidget):
             "subgroup":    getattr(item, "subgroup", ""),
             "last_cost":   getattr(item, "last_cost", 0.0),
             "qty":         qty,
-            "price":       self._price_spin.value(),
+            "price":       self._effective_pcs_price(),   # always per-pcs
             "disc":        self._disc_spin.value(),
             "total":       self._total_spin.value(),
             "src_stock":   src,
