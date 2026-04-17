@@ -381,36 +381,22 @@ class VegeDialog(QDialog):
         self.result_price = 0.0
         self.result_total = 0.0
         self._build()
-        # Capture keystrokes from this moment — before OS focus arrives on slow PCs
-        from PySide6.QtWidgets import QApplication
-        QApplication.instance().installEventFilter(self)
 
     def showEvent(self, event):
         super().showEvent(event)
         self.activateWindow()
         self.raise_()
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(0, self._inp.setFocus)
-
-    def eventFilter(self, obj, event):
-        from PySide6.QtCore import QEvent
-        if (event.type() == QEvent.KeyPress
-                and obj is not self._inp
-                and not self._inp.hasFocus()):
-            key = event.key()
-            if key in (Qt.Key_0, Qt.Key_1, Qt.Key_2, Qt.Key_3, Qt.Key_4,
-                       Qt.Key_5, Qt.Key_6, Qt.Key_7, Qt.Key_8, Qt.Key_9,
-                       Qt.Key_Period, Qt.Key_Comma, Qt.Key_Asterisk,
-                       Qt.Key_Backspace, Qt.Key_Delete):
-                from PySide6.QtWidgets import QApplication
-                QApplication.sendEvent(self._inp, event)
-                return True
-        return super().eventFilter(obj, event)
-
-    def done(self, result):
-        from PySide6.QtWidgets import QApplication
-        QApplication.instance().removeEventFilter(self)
-        super().done(result)
+        # If the cashier typed digits before this dialog got OS focus,
+        # those chars landed in the parent's scan_input (still focused then).
+        # Grab them and pre-fill our input field.
+        parent = self.parent()
+        if parent and hasattr(parent, '_scan_input'):
+            pre = parent._scan_input.text().strip()
+            if pre:
+                self._inp.setText(pre)
+                self._inp.setCursorPosition(len(pre))
+                parent._scan_input.clear()
+        self._inp.setFocus()
 
     def _build(self):
         lay = QVBoxLayout(self)
@@ -458,6 +444,8 @@ class VegeDialog(QDialog):
         btn_row.addWidget(cancel)
         btn_row.addWidget(add)
         lay.addLayout(btn_row)
+
+        self._inp.setFocus()
 
     def _parse(self):
         text = self._inp.text().strip()
@@ -532,35 +520,19 @@ class FreeAmountDialog(QDialog):
         self.result_price = 0.0
         self.result_total = 0.0
         self._build()
-        from PySide6.QtWidgets import QApplication
-        QApplication.instance().installEventFilter(self)
 
     def showEvent(self, event):
         super().showEvent(event)
         self.activateWindow()
         self.raise_()
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(0, self._inp.setFocus)
-
-    def eventFilter(self, obj, event):
-        from PySide6.QtCore import QEvent
-        if (event.type() == QEvent.KeyPress
-                and obj is not self._inp
-                and not self._inp.hasFocus()):
-            key = event.key()
-            if key in (Qt.Key_0, Qt.Key_1, Qt.Key_2, Qt.Key_3, Qt.Key_4,
-                       Qt.Key_5, Qt.Key_6, Qt.Key_7, Qt.Key_8, Qt.Key_9,
-                       Qt.Key_Period, Qt.Key_Comma, Qt.Key_Asterisk,
-                       Qt.Key_Backspace, Qt.Key_Delete):
-                from PySide6.QtWidgets import QApplication
-                QApplication.sendEvent(self._inp, event)
-                return True
-        return super().eventFilter(obj, event)
-
-    def done(self, result):
-        from PySide6.QtWidgets import QApplication
-        QApplication.instance().removeEventFilter(self)
-        super().done(result)
+        parent = self.parent()
+        if parent and hasattr(parent, '_scan_input'):
+            pre = parent._scan_input.text().strip()
+            if pre:
+                self._inp.setText(pre)
+                self._inp.setCursorPosition(len(pre))
+                parent._scan_input.clear()
+        self._inp.setFocus()
 
     def _build(self):
         lay = QVBoxLayout(self)
@@ -613,6 +585,7 @@ class FreeAmountDialog(QDialog):
         btn_row.addWidget(add)
         lay.addLayout(btn_row)
 
+        self._inp.setFocus()
         # Tab from desc goes to amount
         self._desc.returnPressed.connect(self._inp.setFocus)
 
