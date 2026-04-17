@@ -493,7 +493,8 @@ class SalesInvoiceListScreen(QWidget):
 
             paid_color = "#2e7d32" if r["payment_status"] == "paid" else "#e65100"
             cur = r["currency"]
-            total_fmt = f"ل.ل {r['total']:,.0f}" if cur == "LBP" else f"${r['total']:,.2f}"
+            amt = r.get("total") or 0
+            total_fmt = f"{amt:,.0f} ل.ل" if cur == "LBP" else f"$ {amt:,.2f}"
             wn = r["warehouse_num"]
             wn_str = str(wn) if wn != "" else "—"
 
@@ -518,9 +519,9 @@ class SalesInvoiceListScreen(QWidget):
 
         parts = []
         if grand_lbp:
-            parts.append(f"ل.ل {grand_lbp:,.0f}")
+            parts.append(f"{grand_lbp:,.0f} ل.ل")
         if grand_usd:
-            parts.append(f"${grand_usd:,.2f}")
+            parts.append(f"$ {grand_usd:,.2f}")
         total_str = "  ·  ".join(parts) if parts else "0"
         self._footer_lbl.setText(
             f"  {len(rows)} invoice{'s' if len(rows) != 1 else ''}  ·  {total_str}"
