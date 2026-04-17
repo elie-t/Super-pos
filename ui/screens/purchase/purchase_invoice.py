@@ -209,11 +209,20 @@ class ItemPickerDialog(QDialog):
         self._deep_timer.start()
 
     def _deep_load(self):
-        query = self._deep_search.text().strip()
-        if not query:
+        deep_q = self._deep_search.text().strip().lower()
+        if not deep_q:
             self._load()
             return
-        self._rows = PurchaseService.search_items_by_usage(query, limit=300)
+        # Fetch a broad set using the MAIN search term (iceberg), then
+        # client-side filter to only rows that also contain the deep term.
+        main_q = self._search.text().strip()
+        base = PurchaseService.search_items_by_usage(main_q, limit=500)
+        self._rows = [
+            r for r in base
+            if deep_q in r.get("name", "").lower()
+            or deep_q in r.get("code", "").lower()
+            or deep_q in r.get("barcode", "").lower()
+        ]
         self._table.setRowCount(0)
         self._table.setRowCount(len(self._rows))
         for i, row in enumerate(self._rows):
