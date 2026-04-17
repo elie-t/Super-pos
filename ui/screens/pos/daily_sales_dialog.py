@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QComboBox, QDateEdit, QTabWidget, QWidget, QMessageBox,
 )
-from PySide6.QtCore import Qt, QDate
+from PySide6.QtCore import Qt, QDate, QThread, Signal
 from PySide6.QtGui import QColor, QFont
 
 from services.daily_sales_service import DailySalesService
@@ -950,28 +950,42 @@ class DailySalesDialog(QDialog):
 
     def _push_missed_shifts(self):
         """Force-push all local pos_shift invoices from last 60 days to Supabase."""
-        from sync.service import is_configured, push_missed_shifts, drain_sync_queue
+        from sync.service import is_configured
         if not is_configured():
             QMessageBox.warning(self, "Not Configured",
                                 "Supabase is not configured. Check your .env file.")
             return
-        from PySide6.QtWidgets import QProgressDialog, QApplication
+
+        from PySide6.QtWidgets import QProgressDialog
         prog = QProgressDialog("Pushing shift invoices to cloud…", None, 0, 0, self)
         prog.setWindowTitle("Push Shifts")
         prog.setMinimumDuration(0)
-        prog.setValue(0)
-        QApplication.processEvents()
-        # First drain any pending queue items (resets failed rows up to 30 days)
-        drain_sync_queue()
-        # Then directly push all local shift invoices (bypasses queue)
-        n, err = push_missed_shifts(days_back=60)
-        prog.close()
-        if err:
-            QMessageBox.warning(self, "Error", f"Push failed:\n{err}")
-        else:
-            QMessageBox.information(self, "Done",
-                                    f"✔ {n} shift invoice{'s' if n != 1 else ''} pushed to cloud.\n"
-                                    "The main laptop will receive them within 15 minutes.")
+        prog.setModal(True)
+        prog.show()
+
+        class _Worker(QThread):
+            done = Signal(int, str)
+            def run(self):
+                from sync.service import drain_sync_queue, push_missed_shifts
+                drain_sync_queue()
+                n, err = push_missed_shifts(days_back=60)
+                self.done.emit(n, err or "")
+
+        self._push_worker = _Worker(self)
+
+        def _on_done(n, err):
+            prog.close()
+            if err:
+                QMessageBox.warning(self, "Error", f"Push failed:\n{err}")
+            else:
+                QMessageBox.information(
+                    self, "Done",
+                    f"✔ {n} shift invoice{'s' if n != 1 else ''} pushed to cloud.\n"
+                    "The main laptop will receive them within 15 minutes."
+                )
+
+        self._push_worker.done.connect(_on_done)
+        self._push_worker.start()
 
     def _end_of_shift(self):
         self._refresh()
