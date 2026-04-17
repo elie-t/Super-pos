@@ -1036,15 +1036,13 @@ class SettingsScreen(QWidget):
             w.items_updated.connect(_on_items_done)
             w.error.connect(_on_err)
 
-            if IS_MAIN_BRANCH:
-                # Drain queue (push price/item edits) then pull — run sequentially
-                import threading
-                def _drain_then_pull():
-                    w._do_drain()
-                    w._do_items_pull()
-                threading.Thread(target=_drain_then_pull, daemon=True).start()
-            else:
+            # Always run in a background thread — never block the UI
+            import threading
+            def _run():
+                if IS_MAIN_BRANCH:
+                    w._do_drain()   # push pending price edits first
                 w._do_items_pull()
+            threading.Thread(target=_run, daemon=True).start()
         else:
             # No worker running — run in a plain thread
             import threading
