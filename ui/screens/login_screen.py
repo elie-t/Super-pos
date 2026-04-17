@@ -143,7 +143,20 @@ class LoginScreen(QWidget):
         subtitle.setAlignment(Qt.AlignCenter)
         card_lay.addWidget(subtitle)
 
-        card_lay.addSpacing(28)
+        # Branch name badge
+        branch_name = self._get_branch_name()
+        if branch_name:
+            branch_lbl = QLabel(f"📍  {branch_name}")
+            branch_lbl.setAlignment(Qt.AlignCenter)
+            branch_lbl.setStyleSheet(
+                "background:#1b5e20;color:#fff;font-size:13px;font-weight:700;"
+                "border-radius:6px;padding:5px 18px;"
+            )
+            branch_lbl.setFixedHeight(32)
+            card_lay.addSpacing(10)
+            card_lay.addWidget(branch_lbl, alignment=Qt.AlignCenter)
+
+        card_lay.addSpacing(20)
 
         who = QLabel("WHO IS LOGGING IN?")
         who.setObjectName("loginLabel")
@@ -249,19 +262,58 @@ class LoginScreen(QWidget):
         else:
             self._load_users()
 
+    def _get_branch_name(self) -> str:
+        """Return the warehouse name for this branch, or '' if not found."""
+        try:
+            import os
+            from dotenv import load_dotenv
+            load_dotenv()
+            branch_id = os.getenv("BRANCH_ID", "")
+            if not branch_id:
+                return ""
+            from database.engine import get_session, init_db
+            import sqlalchemy as sa
+            init_db()
+            session = get_session()
+            try:
+                row = session.execute(
+                    sa.text("SELECT name FROM warehouses WHERE id=:id"),
+                    {"id": branch_id}
+                ).fetchone()
+                return row[0] if row else ""
+            finally:
+                session.close()
+        except Exception:
+            return ""
+
     def _fetch_active_users(self) -> list[tuple]:
-        """Returns list of (id, username, full_name, role) for all active users."""
+        """Returns active users for this branch: branch cashiers + all admins/managers."""
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        branch_id = os.getenv("BRANCH_ID", "")
+
         from database.engine import get_session, init_db
         from database.models.users import User
+        import sqlalchemy as sa
         init_db()
         session = get_session()
         try:
-            users = (
-                session.query(User)
-                .filter_by(is_active=True)
-                .order_by(User.full_name)
-                .all()
-            )
+            q = session.query(User).filter_by(is_active=True)
+            if branch_id:
+                # Show users assigned to this branch OR admins/managers (any branch)
+                q = q.filter(
+                    sa.or_(
+                        User.warehouse_id == branch_id,
+                        User.role.in_(["admin", "manager"]),
+                        User.warehouse_id == None,   # unassigned users visible everywhere
+                    )
+                )
+            users = q.order_by(
+                # Admins first, then alphabetical
+                sa.case({"admin": 0, "manager": 1}, value=User.role, else_=2),
+                User.full_name
+            ).all()
             return [(u.id, u.username, u.full_name, u.role) for u in users]
         finally:
             session.close()
