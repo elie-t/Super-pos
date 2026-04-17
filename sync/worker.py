@@ -16,6 +16,7 @@ from PySide6.QtCore import QThread, Signal
 from config import SYNC_INTERVAL_SEC
 
 INVOICE_PULL_SEC = 900   # pull other branches' invoices every 15 minutes
+DRAIN_INTERVAL_SEC = 600  # push queued changes (prices, items) every 10 minutes
 
 _instance: "SyncWorker | None" = None
 
@@ -55,6 +56,7 @@ class SyncWorker(QThread):
         self._running         = True
         ticks_since_pull      = SYNC_INTERVAL_SEC   # pull items immediately on first start
         ticks_since_inv_pull  = INVOICE_PULL_SEC     # pull invoices immediately on first start
+        ticks_since_drain     = DRAIN_INTERVAL_SEC   # drain queue immediately on first start
 
         while self._running:
             # Drain if requested (shift-end push), then pull invoices right after
@@ -62,7 +64,14 @@ class SyncWorker(QThread):
                 self._drain_pending = False
                 self._do_drain()
                 self._do_invoice_pull()          # pick up other branches' shifts immediately
-                ticks_since_inv_pull = 0         # reset invoice pull timer
+                ticks_since_inv_pull = 0
+                ticks_since_drain    = 0
+
+            # 10-minute periodic drain — pushes price/item changes without waiting for shift-end
+            ticks_since_drain += 1
+            if ticks_since_drain >= DRAIN_INTERVAL_SEC:
+                ticks_since_drain = 0
+                self._do_drain()
 
             # 15-minute invoice pull from other branches
             ticks_since_inv_pull += 1
