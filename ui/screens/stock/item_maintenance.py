@@ -811,7 +811,12 @@ class ItemMaintenanceScreen(QWidget):
         self._price_table.setSelectionBehavior(QAbstractItemView.SelectItems)  # per-cell selection
         self._price_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self._price_table.setAlternatingRowColors(True)
-        self._price_table.setMinimumHeight(230)
+        # Fixed height: header + 3 rows + frame — scrollbar appears when there are more rows
+        _row_h   = 28
+        _hdr_h   = self._price_table.horizontalHeader().sizeHint().height()
+        self._price_table.setFixedHeight(_hdr_h + 3 * _row_h + 4)
+        self._price_table.verticalHeader().setDefaultSectionSize(_row_h)
+        self._price_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self._price_table.setEditTriggers(
             QAbstractItemView.DoubleClicked |
             QAbstractItemView.SelectedClicked |
