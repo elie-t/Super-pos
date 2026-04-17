@@ -992,17 +992,23 @@ class SettingsScreen(QWidget):
             self._stock_start_status.setStyleSheet("font-size:11px; color:#c62828;")
 
     def _do_sync_items(self):
-        """Pull latest item names, prices, and barcodes from Supabase."""
+        """Push pending price/item changes then pull latest master data from Supabase."""
+        from config import IS_MAIN_BRANCH
         self._sync_items_btn.setEnabled(False)
         self._sync_items_btn.setText("Syncing…")
 
         from sync.worker import get_sync_worker
         w = get_sync_worker()
         if w:
-            # Reuse the existing SyncWorker thread — just trigger an items pull
-            # and listen for the one-time items_updated / error signal response
-            def _on_done(count):
-                w.items_updated.disconnect(_on_done)
+            # Reuse the existing SyncWorker thread.
+            # On the main branch: drain first (push pending price edits), then pull.
+            # On branch PCs: pull only.
+
+            def _on_items_done(count):
+                try:
+                    w.items_updated.disconnect(_on_items_done)
+                except Exception:
+                    pass
                 try:
                     w.error.disconnect(_on_err)
                 except Exception:
@@ -1015,25 +1021,42 @@ class SettingsScreen(QWidget):
 
             def _on_err(err):
                 try:
-                    w.items_updated.disconnect(_on_done)
+                    w.items_updated.disconnect(_on_items_done)
                 except Exception:
                     pass
-                w.error.disconnect(_on_err)
+                try:
+                    w.error.disconnect(_on_err)
+                except Exception:
+                    pass
                 self._sync_items_btn.setEnabled(True)
                 self._sync_items_btn.setText("📥  Sync Items Now")
                 from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, "Sync Items", f"Pull failed:\n{err}")
+                QMessageBox.warning(self, "Sync Items", f"Sync failed:\n{err}")
 
-            w.items_updated.connect(_on_done)
+            w.items_updated.connect(_on_items_done)
             w.error.connect(_on_err)
-            w._do_items_pull()   # run directly (worker is already on its thread)
+
+            if IS_MAIN_BRANCH:
+                # Drain queue (push price/item edits) then pull — run sequentially
+                import threading
+                def _drain_then_pull():
+                    w._do_drain()
+                    w._do_items_pull()
+                threading.Thread(target=_drain_then_pull, daemon=True).start()
+            else:
+                w._do_items_pull()
         else:
             # No worker running — run in a plain thread
             import threading
             from PySide6.QtCore import QTimer
 
             def _run():
-                from sync.service import pull_master_items
+                from sync.service import pull_master_items, drain_sync_queue, is_configured
+                if IS_MAIN_BRANCH and is_configured():
+                    try:
+                        drain_sync_queue()
+                    except Exception:
+                        pass
                 count, err = pull_master_items()
                 QTimer.singleShot(0, lambda: self._finish_items_sync(count, err))
 
