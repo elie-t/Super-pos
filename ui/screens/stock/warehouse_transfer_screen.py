@@ -357,7 +357,7 @@ class WarehouseTransferScreen(QWidget):
             "From Stock", "To Stock",
             "", "H", "",
         ])
-        self._table.setAlternatingRowColors(True)
+        self._table.setAlternatingRowColors(False)  # manual per-cell bg so stock columns show through
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setEditTriggers(
             QAbstractItemView.DoubleClicked | QAbstractItemView.SelectedClicked
@@ -949,6 +949,7 @@ class WarehouseTransferScreen(QWidget):
                 (f"{src:,.2f}",          Qt.AlignRight | Qt.AlignVCenter,  False),
                 (f"{dst:,.2f}",          Qt.AlignRight | Qt.AlignVCenter,  False),
             ]
+            row_bg = QColor("#ffffff") if row % 2 == 0 else QColor("#f5f8fc")
             for col, (val, align, editable) in enumerate(cells):
                 cell = QTableWidgetItem(val)
                 cell.setTextAlignment(align)
@@ -956,15 +957,15 @@ class WarehouseTransferScreen(QWidget):
                     cell.setFlags(cell.flags() | Qt.ItemIsEditable)
                 else:
                     cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
-                # Colour source stock column (light orange background)
+                # Colour source stock column (light orange, red if insufficient)
                 if col == self.COL_SRC:
-                    color = "#2e7d32" if src >= qty else "#c62828"
-                    cell.setForeground(QColor(color))
-                    bg = "#ffebee" if src < qty else "#fff3e0"   # red if insufficient, else light orange
-                    cell.setBackground(QColor(bg))
-                # Colour destination stock column (light teal background)
+                    cell.setForeground(QColor("#2e7d32" if src >= qty else "#c62828"))
+                    cell.setBackground(QColor("#ffebee" if src < qty else "#fff3e0"))
+                # Colour destination stock column (light teal)
                 elif col == self.COL_DST:
                     cell.setBackground(QColor("#e0f2f1"))
+                else:
+                    cell.setBackground(row_bg)
                 self._table.setItem(row, col, cell)
 
             # Edit button → opens item maintenance
