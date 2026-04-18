@@ -469,17 +469,26 @@ def push_item_master(item_id: str) -> tuple[bool, str]:
             if not ok:
                 return False, err
 
-        # Upsert barcodes
-        bc_rows = [
-            {
+        # Upsert barcodes — skip any barcode already owned by a DIFFERENT item in central
+        safe_bc_rows = []
+        for b in item.barcodes:
+            # Check if this barcode exists in central under a different item_id
+            chk = requests.get(
+                f"{_url('item_barcodes_central')}?barcode=eq.{b.barcode}"
+                f"&item_id=neq.{item.id}&select=item_id&limit=1",
+                headers={**_headers(), "Prefer": ""},
+                timeout=10,
+            )
+            if chk.status_code == 200 and chk.json():
+                # Barcode belongs to another item in central — skip to avoid duplicates
+                continue
+            safe_bc_rows.append({
                 "id": b.id, "item_id": item.id,
                 "barcode": b.barcode, "is_primary": b.is_primary,
                 "pack_qty": b.pack_qty or 1, "updated_at": now,
-            }
-            for b in item.barcodes
-        ]
-        if bc_rows:
-            ok, err = upsert_rows("item_barcodes_central", bc_rows)
+            })
+        if safe_bc_rows:
+            ok, err = upsert_rows("item_barcodes_central", safe_bc_rows)
             if not ok:
                 return False, err
 
