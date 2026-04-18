@@ -101,7 +101,10 @@ class InvoiceDetailDialog(QDialog):
         self.setWindowTitle(
             f"Invoice  {d['invoice_number']}  —  W{wn_str}  {d['warehouse_name']}"
         )
-        self.setMinimumSize(900, 560)
+        self.setMinimumSize(900, 500)
+        from PySide6.QtWidgets import QApplication
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.resize(min(1100, screen.width() - 60), screen.height() - 60)
         self._build(d, wn_str)
 
     def _build(self, d: dict, wn_str: str):
