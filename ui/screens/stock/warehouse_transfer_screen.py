@@ -394,6 +394,13 @@ class WarehouseTransferScreen(QWidget):
             "QHeaderView::section{background:#1a3a5c;color:#fff;"
             "font-weight:700;border:none;padding:4px;}"
         )
+        # Tint the From Stock and To Stock header cells to match the row colors
+        src_hdr = self._table.horizontalHeaderItem(self.COL_SRC)
+        dst_hdr = self._table.horizontalHeaderItem(self.COL_DST)
+        if src_hdr:
+            src_hdr.setBackground(QColor("#e65100"))   # orange-tinted header
+        if dst_hdr:
+            dst_hdr.setBackground(QColor("#00695c"))   # teal-tinted header
         return self._table
 
     # ─ info bar ───────────────────────────────────────────────────────────────
@@ -949,12 +956,15 @@ class WarehouseTransferScreen(QWidget):
                     cell.setFlags(cell.flags() | Qt.ItemIsEditable)
                 else:
                     cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
-                # Colour source stock red when insufficient
+                # Colour source stock column (light orange background)
                 if col == self.COL_SRC:
                     color = "#2e7d32" if src >= qty else "#c62828"
                     cell.setForeground(QColor(color))
-                    if src < qty:
-                        cell.setBackground(QColor("#ffebee"))
+                    bg = "#ffebee" if src < qty else "#fff3e0"   # red if insufficient, else light orange
+                    cell.setBackground(QColor(bg))
+                # Colour destination stock column (light teal background)
+                elif col == self.COL_DST:
+                    cell.setBackground(QColor("#e0f2f1"))
                 self._table.setItem(row, col, cell)
 
             # Edit button → opens item maintenance
