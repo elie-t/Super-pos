@@ -14,10 +14,20 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QLineEdit, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QDoubleSpinBox, QSpinBox, QDateEdit, QMessageBox, QDialog,
-    QSizePolicy,
+    QSizePolicy, QStyledItemDelegate, QStyle,
 )
 from PySide6.QtCore import Qt, Signal, QDate, QTimer
 from PySide6.QtGui import QColor
+
+
+class _BgDelegate(QStyledItemDelegate):
+    """Forces item BackgroundRole to show even when a QSS stylesheet is active."""
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if not (option.state & QStyle.State_Selected):
+            bg = index.data(Qt.BackgroundRole)
+            if bg and bg.isValid():
+                option.backgroundBrush = bg
 
 from services.transfer_service import TransferService
 from services.auth_service import AuthService
@@ -367,6 +377,7 @@ class WarehouseTransferScreen(QWidget):
         self._table.setShowGrid(True)
         self._table.itemChanged.connect(self._on_cell_edited)
         self._table.itemSelectionChanged.connect(self._on_row_selected)
+        self._table.setItemDelegate(_BgDelegate(self._table))
         self._table_updating = False
         self._table.setStyleSheet(
             "QTableWidget QLineEdit{"
