@@ -25,8 +25,8 @@ class _BgDelegate(QStyledItemDelegate):
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
         if not (option.state & QStyle.State_Selected):
-            bg = index.data(Qt.BackgroundRole)
-            if bg and bg.isValid():
+            bg = index.data(Qt.BackgroundRole)  # returns QBrush or None
+            if bg is not None:
                 option.backgroundBrush = bg
 
 from services.transfer_service import TransferService
