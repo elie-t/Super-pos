@@ -808,7 +808,7 @@ class ItemMaintenanceScreen(QWidget):
         self._price_table.setColumnCount(len(col_headers))
         self._price_table.setHorizontalHeaderLabels(col_headers)
         self._price_table.verticalHeader().setVisible(False)
-        self._price_table.setSelectionBehavior(QAbstractItemView.SelectItems)  # per-cell selection
+        self._price_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._price_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self._price_table.setAlternatingRowColors(True)
         # Fixed height: header + 3 rows + frame — scrollbar appears when there are more rows
@@ -823,6 +823,14 @@ class ItemMaintenanceScreen(QWidget):
             QAbstractItemView.AnyKeyPressed
         )
         self._price_table.itemChanged.connect(self._on_price_cell_changed)
+
+        # Delete key on selected row removes that barcode/price row
+        def _price_table_key(event):
+            if event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
+                self._remove_barcode_row()
+            else:
+                QTableWidget.keyPressEvent(self._price_table, event)
+        self._price_table.keyPressEvent = _price_table_key
 
         hdr = self._price_table.horizontalHeader()
         for col in range(len(col_headers)):
