@@ -1423,6 +1423,51 @@ def push_user(user_id: str) -> tuple[bool, str]:
         session.close()
 
 
+def pull_warehouses() -> tuple[int, str]:
+    """Pull all warehouses from Supabase into local DB."""
+    from database.engine import get_session, init_db
+    from database.models.items import Warehouse
+
+    if not is_configured():
+        return 0, ""
+    try:
+        r = requests.get(
+            f"{_url('warehouses')}?select=id,name,number,location,is_active,is_default"
+            f"&order=name.asc",
+            headers={**_headers(), "Prefer": ""},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return 0, f"HTTP {r.status_code}: {r.text[:200]}"
+        remote = r.json()
+        if not remote:
+            return 0, ""
+        init_db()
+        session = get_session()
+        count = 0
+        try:
+            for rw in remote:
+                wh = session.get(Warehouse, rw["id"])
+                if not wh:
+                    wh = Warehouse(id=rw["id"])
+                    session.add(wh)
+                wh.name       = rw.get("name") or ""
+                wh.number     = rw.get("number")
+                wh.location   = rw.get("location") or ""
+                wh.is_active  = rw.get("is_active", True)
+                wh.is_default = rw.get("is_default", False)
+                count += 1
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            return 0, str(e)
+        finally:
+            session.close()
+        return count, ""
+    except Exception as e:
+        return 0, str(e)
+
+
 def pull_users() -> tuple[int, str]:
     """Pull user changes from users_central since last pull."""
     from database.engine import get_session, init_db

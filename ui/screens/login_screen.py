@@ -144,17 +144,16 @@ class LoginScreen(QWidget):
         card_lay.addWidget(subtitle)
 
         # Branch name badge
-        branch_name = self._get_branch_name()
-        if branch_name:
-            branch_lbl = QLabel(f"📍  {branch_name}")
-            branch_lbl.setAlignment(Qt.AlignCenter)
-            branch_lbl.setStyleSheet(
-                "background:#1b5e20;color:#fff;font-size:13px;font-weight:700;"
-                "border-radius:6px;padding:5px 18px;"
-            )
-            branch_lbl.setFixedHeight(32)
-            card_lay.addSpacing(10)
-            card_lay.addWidget(branch_lbl, alignment=Qt.AlignCenter)
+        card_lay.addSpacing(10)
+        self._branch_lbl = QLabel("")
+        self._branch_lbl.setAlignment(Qt.AlignCenter)
+        self._branch_lbl.setStyleSheet(
+            "background:#1b5e20;color:#fff;font-size:13px;font-weight:700;"
+            "border-radius:6px;padding:5px 18px;"
+        )
+        self._branch_lbl.setFixedHeight(32)
+        card_lay.addWidget(self._branch_lbl, alignment=Qt.AlignCenter)
+        self._refresh_branch_badge()
 
         card_lay.addSpacing(20)
 
@@ -248,18 +247,29 @@ class LoginScreen(QWidget):
             row, col = divmod(idx, COLS)
             self._grid.addWidget(btn, row, col, Qt.AlignCenter)
 
+    def _refresh_branch_badge(self):
+        branch_name = self._get_branch_name()
+        if branch_name:
+            self._branch_lbl.setText(f"📍  {branch_name}")
+            self._branch_lbl.show()
+        else:
+            self._branch_lbl.hide()
+
     def _pull_users_from_server(self):
-        from sync.service import pull_users, is_configured
+        from sync.service import pull_users, pull_warehouses, is_configured
         if not is_configured():
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Not Configured",
                                 "Supabase is not configured. Check your .env file.")
             return
+        # Pull warehouses first so branch name shows and FK constraints are satisfied
+        pull_warehouses()
         count, err = pull_users()
         if err:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Error", f"Failed to pull users:\n{err}")
         else:
+            self._refresh_branch_badge()
             self._load_users()
 
     def _get_branch_name(self) -> str:
