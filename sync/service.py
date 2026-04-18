@@ -951,7 +951,9 @@ def pull_master_items() -> tuple[int, str]:
                             existing.vat_rate   = ri.get("vat_rate") or existing.vat_rate
                             existing.is_active  = ri.get("is_active", existing.is_active)
                             existing.is_pos_featured = ri.get("is_pos_featured", existing.is_pos_featured)
-                            for rp_row in prices_by_item.get(ri["id"], []):
+                            new_price_rows = prices_by_item.get(ri["id"], [])
+                            new_price_keys = set()
+                            for rp_row in new_price_rows:
                                 r_pack_qty = rp_row.get("pack_qty", 1) or 1
                                 price = session.query(ItemPrice).filter_by(
                                     item_id=existing.id,
@@ -966,6 +968,12 @@ def pull_master_items() -> tuple[int, str]:
                                 price.amount     = rp_row["amount"]
                                 price.currency   = rp_row["currency"]
                                 price.pack_qty   = r_pack_qty
+                                new_price_keys.add((rp_row["price_type"], rp_row["currency"], r_pack_qty))
+                            # Remove stale prices not in the new set (e.g. old LBP prices when switching to USD)
+                            if new_price_keys:
+                                for old_p in session.query(ItemPrice).filter_by(item_id=existing.id).all():
+                                    if (old_p.price_type, old_p.currency, getattr(old_p, "pack_qty", 1)) not in new_price_keys:
+                                        session.delete(old_p)
                             seen_codes.add(code_str)
                             latest_ts = ri.get("updated_at", latest_ts)
                             total_updated += 1
