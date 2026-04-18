@@ -23,28 +23,16 @@ from PySide6.QtGui import QColor
 class _BgDelegate(QStyledItemDelegate):
     """Forces cell background colors to show even when a global QSS stylesheet is active."""
     def paint(self, painter, option, index):
-        # Let Qt paint normally (handles text, selection, etc.)
+        # Let Qt paint normally first (text, selection, etc.)
         super().paint(painter, option, index)
-        # After Qt paints, draw our background color on top as a solid overlay.
-        # Only for non-selected cells that have a custom BackgroundRole set.
+        # Then paint our background as a semi-transparent overlay — no text redraw.
         if not (option.state & QStyle.State_Selected):
             bg = index.data(Qt.BackgroundRole)
             if bg is not None:
                 from PySide6.QtGui import QColor
                 c = QColor(bg.color())
-                c.setAlpha(180)
+                c.setAlpha(140)
                 painter.fillRect(option.rect, c)
-                # Redraw the text on top of our color so it stays readable
-                text = index.data(Qt.DisplayRole)
-                if text:
-                    align = index.data(Qt.TextAlignmentRole)
-                    if align is None:
-                        align = Qt.AlignVCenter | Qt.AlignLeft
-                    fg = index.data(Qt.ForegroundRole)
-                    if fg is not None:
-                        painter.setPen(fg.color())
-                    rect = option.rect.adjusted(4, 0, -4, 0)
-                    painter.drawText(rect, int(align), str(text))
 
 from services.transfer_service import TransferService
 from services.auth_service import AuthService
