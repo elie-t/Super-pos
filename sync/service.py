@@ -1059,6 +1059,27 @@ def pull_master_items() -> tuple[int, str]:
             _state_set("items_pull", datetime.now(timezone.utc).isoformat())
             _state_set("items_pull_last_id", "")
 
+        # Ensure categories get show_on_touch=True if any of their items have it.
+        # On a fresh install, categories_central doesn't store show_on_touch, so
+        # this reverse-propagation is the only way to light up the POS touch panel.
+        try:
+            import sqlalchemy as _sa
+            _s2 = get_session()
+            try:
+                _s2.execute(_sa.text(
+                    """UPDATE categories SET show_on_touch=1
+                       WHERE show_on_touch=0
+                         AND id IN (
+                             SELECT DISTINCT category_id FROM items
+                             WHERE show_on_touch=1 AND category_id IS NOT NULL
+                         )"""
+                ))
+                _s2.commit()
+            finally:
+                _s2.close()
+        except Exception:
+            pass
+
         return total_updated, ""
 
     except Exception as e:
