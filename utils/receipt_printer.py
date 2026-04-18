@@ -755,7 +755,7 @@ def print_receipt_escpos(
             p.text(f"{footer}\n")
 
         # final feed and cut
-        p.text("\n\n\n")
+        p.text("\n\n\n\n\n\n")
         p.cut()
 
         return True, ""

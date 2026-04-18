@@ -830,12 +830,55 @@ class DailySalesDialog(QDialog):
             from datetime import date as _date
             today = _date.today().strftime("%Y-%m-%d")
 
+            # Build per-date totals for summary (used in both HTML and ESC/POS)
+            date_totals = {}  # date -> {currency -> amount}
+            for row in by_cd:
+                d = row["date"]
+                if d not in date_totals:
+                    date_totals[d] = {}
+                for cur, amt in row["totals"].items():
+                    date_totals[d][cur] = date_totals[d].get(cur, 0) + amt
+            sorted_dates = sorted(date_totals.keys())
+
+            daily_rows_html = ""
+            for d in sorted_dates:
+                dt = date_totals[d]
+                lbp = dt.get("LBP", 0)
+                usd = dt.get("USD", 0)
+                amt_str = famt(lbp, "LBP") if lbp else famt(usd, "USD")
+                daily_rows_html += (
+                    f"<tr>"
+                    f"<td style='{TDB}'>{fe(d)}</td>"
+                    f"<td style='{TDBR}'>{fe(amt_str)}</td>"
+                    f"</tr>"
+                )
+
             html = f"""<html dir='ltr'><head><meta charset='utf-8'></head>
 <body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:7pt;line-height:1.3;color:#000;'>
 <div style='text-align:center;font-size:12pt;font-weight:700;'>End of Shift</div>
 <div style='text-align:center;font-size:8pt;'>{today} &nbsp;|&nbsp; {s.get('invoice_count',0)} invoices</div>
 
+<hr style='border:none;border-top:2px solid #000;margin:3px 0;'>
+<table style='width:100%;border-collapse:collapse;table-layout:fixed;'>
+  <tr>
+    <td style='{TDB}font-size:9pt;'>GRAND TOTAL</td>
+    <td style='{TDBR}font-size:9pt;'>{fe(grand_total)}</td>
+  </tr>
+</table>
 <hr style='border:none;border-top:1px dashed #000;margin:3px 0;'>
+<div style='font-size:8pt;font-weight:700;margin-bottom:1px;'>PAYMENT METHODS</div>
+<table style='width:100%;border-collapse:collapse;table-layout:fixed;'>
+  <colgroup><col width='50%'><col width='50%'></colgroup>
+  {pay_rows}
+</table>
+<hr style='border:none;border-top:1px dashed #000;margin:3px 0;'>
+<div style='font-size:8pt;font-weight:700;margin-bottom:1px;'>DAILY TOTALS</div>
+<table style='width:100%;border-collapse:collapse;table-layout:fixed;'>
+  <colgroup><col width='50%'><col width='50%'></colgroup>
+  {daily_rows_html}
+</table>
+<hr style='border:none;border-top:2px solid #000;margin:3px 0;'>
+
 <div style='font-size:8pt;font-weight:700;margin-bottom:1px;'>CATEGORIES</div>
 <table style='width:100%;border-collapse:collapse;table-layout:fixed;'>
   <colgroup><col width='50%'><col width='30%'><col width='20%'></colgroup>
@@ -893,7 +936,28 @@ class DailySalesDialog(QDialog):
                     p.text("End of Shift\n")
                     p.set(align="center", bold=False, double_height=False)
                     p.text(f"{today}  |  {s.get('invoice_count',0)} invoices\n")
+                    # ── TOP SUMMARY ──────────────────────────────────────────────
+                    p.text("=" * W + "\n")
+                    p.set(align="left", bold=True)
+                    p.text(rrow("GRAND TOTAL", grand_total))
+                    p.set(bold=True)
+                    p.text("PAYMENT METHODS\n")
+                    p.set(bold=False)
+                    for pay in by_pay:
+                        method = {"cash":"Cash","card":"Card","account":"Account"}.get(pay["method"], pay["method"])
+                        p.text(rrow(f"  {method}", famt(pay['total'], pay['currency'])))
                     p.text("-" * W + "\n")
+                    p.set(bold=True)
+                    p.text("DAILY TOTALS\n")
+                    p.set(bold=False)
+                    for d in sorted_dates:
+                        dt = date_totals[d]
+                        lbp = dt.get("LBP", 0)
+                        usd = dt.get("USD", 0)
+                        amt_str = famt(lbp, "LBP") if lbp else famt(usd, "USD")
+                        p.text(rrow(d, amt_str))
+                    p.text("=" * W + "\n")
+                    # ── DETAILED REPORT ──────────────────────────────────────────
                     p.set(align="left", bold=True)
                     p.text("CATEGORIES\n")
                     p.set(bold=False)
@@ -923,7 +987,7 @@ class DailySalesDialog(QDialog):
                     p.text("-" * W + "\n")
                     p.set(align="center")
                     p.text("*** Shift Closed ***\n")
-                    p.text("\n\n\n")
+                    p.text("\n\n\n\n\n\n")
                     p.cut()
                 finally:
                     try: p.close()
