@@ -1021,6 +1021,7 @@ class WarehouseTransferScreen(QWidget):
             self._table.setCellWidget(row, self.COL_DEL, del_btn)
 
         self._table_updating = False
+        self._table.scrollToBottom()
 
     def _on_cell_edited(self, cell):
         if self._table_updating:
