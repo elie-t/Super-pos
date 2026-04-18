@@ -228,10 +228,16 @@ class StockCardService:
                     stock_out += abs(qty)
                     value_out += total if total else abs(qty) * mv.unit_cost
 
+                # If reference exists but invoice wasn't found (deleted/not synced),
+                # show a short identifier so the row isn't completely anonymous
+                display_inv_no = inv_no
+                if not display_inv_no and ref_id and mv.reference_type in ("sales_invoice", "purchase_invoice"):
+                    display_inv_no = f"[{ref_id[:8]}]"
+
                 movements.append({
                     "date":          mv.created_at.strftime("%Y-%m-%d %H:%M") if mv.created_at else "",
                     "trans":         label,
-                    "invoice_no":    inv_no,
+                    "invoice_no":    display_inv_no,
                     "qty":           qty,
                     "price":         price,
                     "disc_pct":      disc,
@@ -241,6 +247,9 @@ class StockCardService:
                     "cashier":       cashier,
                     "running_stock": running,
                     "movement_type": mv.movement_type,
+                    "ref_type":      mv.reference_type or "",
+                    "ref_id":        ref_id,
+                    "inv_found":     bool(inv_no),   # True = invoice exists in DB
                 })
 
             return {

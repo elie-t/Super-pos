@@ -25,9 +25,10 @@ COL_WH      = 7
 COL_PARTY   = 8
 COL_CASHIER = 9
 COL_BALANCE = 10
+COL_VIEW    = 11
 
 HEADERS = ["Date", "Type", "Invoice #", "Qty", "Price", "Disc%",
-           "Total", "Warehouse", "Customer / Supplier", "Cashier", "Balance"]
+           "Total", "Warehouse", "Customer / Supplier", "Cashier", "Balance", ""]
 
 IN_COLOR  = QColor("#e8f5e9")
 OUT_COLOR = QColor("#ffebee")
@@ -223,6 +224,8 @@ class StockCardScreen(QWidget):
         hdr.setSectionResizeMode(COL_PARTY,   QHeaderView.Stretch)
         hdr.setSectionResizeMode(COL_CASHIER, QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(COL_BALANCE, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(COL_VIEW,    QHeaderView.Fixed)
+        self._table.setColumnWidth(COL_VIEW, 60)
         root.addWidget(self._table)
 
         # ── Summary footer ────────────────────────────────────────────────
@@ -435,6 +438,7 @@ class StockCardScreen(QWidget):
             "qty": None, "price": None, "disc_pct": None, "total": None,
             "warehouse": "", "party": "", "cashier": "",
             "running_stock": oqty, "movement_type": "opening",
+            "ref_type": "", "ref_id": "", "inv_found": False,
         }, color=OPN_COLOR, bold=True)
 
         for i, mv in enumerate(mvs):
@@ -485,6 +489,23 @@ class StockCardScreen(QWidget):
         f = bal_cell.font(); f.setBold(True); bal_cell.setFont(f)
         self._table.setItem(row, COL_BALANCE, bal_cell)
 
+        # View button — only for rows that have a reference
+        ref_type = mv.get("ref_type", "")
+        ref_id   = mv.get("ref_id", "")
+        if ref_type and ref_id and mv.get("movement_type") != "opening":
+            btn = QPushButton("View")
+            btn.setFixedHeight(22)
+            btn.setStyleSheet(
+                "QPushButton{background:#1a3a5c;color:#fff;border:none;"
+                "border-radius:3px;font-size:11px;font-weight:700;}"
+                "QPushButton:hover{background:#1a6cb5;}"
+            )
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, rt=ref_type, rid=ref_id: self._open_reference(rt, rid))
+            self._table.setCellWidget(row, COL_VIEW, btn)
+        else:
+            self._table.setItem(row, COL_VIEW, cell(""))
+
     def _populate_footer(self, data: dict):
         self._sc_opening_qty.set_value(f"{data['opening_qty']:,.2f}")
         self._sc_opening_val.set_value(f"{data['opening_value']:,.2f}")
@@ -493,6 +514,162 @@ class StockCardScreen(QWidget):
         self._sc_out_qty.set_value(f"{data['stock_out']:,.2f}")
         self._sc_out_val.set_value(f"{data['value_out']:,.2f}")
         self._sc_current.set_value(f"{data['current_stock']:,.2f}")
+
+    # ── View reference ────────────────────────────────────────────────────────
+
+    def _open_reference(self, ref_type: str, ref_id: str):
+        if ref_type == "sales_invoice":
+            self._open_sales_invoice(ref_id)
+        elif ref_type == "purchase_invoice":
+            self._open_purchase_invoice(ref_id)
+        elif ref_type == "transfer":
+            self._open_transfer(ref_id)
+        elif ref_type == "inventory":
+            self._open_inventory(ref_id)
+
+    def _open_sales_invoice(self, inv_id: str):
+        from services.sales_invoice_service import SalesInvoiceService
+        from ui.screens.sales.sales_invoice_list import InvoiceDetailDialog
+        inv_data = SalesInvoiceService.get_invoice(inv_id)
+        if inv_data:
+            InvoiceDetailDialog(inv_data, self).exec()
+        else:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Not Found",
+                                    "Invoice not found in local database.\n"
+                                    "It may not have synced to this device yet.")
+
+    def _open_purchase_invoice(self, inv_id: str):
+        from database.engine import get_session, init_db
+        from database.models.invoices import PurchaseInvoice, PurchaseInvoiceItem
+        from database.models.parties import Supplier
+        from database.models.users import User
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QPushButton, QHBoxLayout
+        init_db()
+        session = get_session()
+        try:
+            inv = session.query(PurchaseInvoice).filter_by(id=inv_id).first()
+            if not inv:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.information(self, "Not Found", "Purchase invoice not found in local database.")
+                return
+            sup = session.query(Supplier).filter_by(id=inv.supplier_id).first()
+            op  = session.query(User).filter_by(id=inv.operator_id).first()
+            items = session.query(PurchaseInvoiceItem).filter_by(invoice_id=inv_id).all()
+
+            dlg = QDialog(self)
+            dlg.setWindowTitle(f"Purchase Invoice  {inv.invoice_number}")
+            dlg.setMinimumSize(700, 400)
+            lay = QVBoxLayout(dlg)
+
+            info = QLabel(
+                f"<b>Invoice #:</b> {inv.invoice_number} &nbsp;&nbsp; "
+                f"<b>Date:</b> {inv.invoice_date} &nbsp;&nbsp; "
+                f"<b>Supplier:</b> {sup.name if sup else '—'} &nbsp;&nbsp; "
+                f"<b>Operator:</b> {op.full_name if op else '—'} &nbsp;&nbsp; "
+                f"<b>Total:</b> {inv.total:,.2f}"
+            )
+            info.setStyleSheet("padding:8px;font-size:12px;background:#f0f4f8;border-bottom:1px solid #ccc;")
+            info.setWordWrap(True)
+            lay.addWidget(info)
+
+            tbl = QTableWidget(len(items), 5)
+            tbl.setHorizontalHeaderLabels(["Item", "Qty", "Cost", "Disc%", "Total"])
+            tbl.horizontalHeader().setStretchLastSection(True)
+            tbl.verticalHeader().setVisible(False)
+            tbl.setEditTriggers(QTableWidget.NoEditTriggers)
+            for r, it in enumerate(items):
+                tbl.setItem(r, 0, QTableWidgetItem(it.item_name or ""))
+                tbl.setItem(r, 1, QTableWidgetItem(f"{it.quantity:,.3f}"))
+                tbl.setItem(r, 2, QTableWidgetItem(f"{it.unit_cost:,.2f}"))
+                tbl.setItem(r, 3, QTableWidgetItem(f"{(it.discount_pct or 0):.1f}%"))
+                tbl.setItem(r, 4, QTableWidgetItem(f"{(it.line_total or 0):,.2f}"))
+            lay.addWidget(tbl, 1)
+
+            close_btn = QPushButton("Close")
+            close_btn.clicked.connect(dlg.accept)
+            bl = QHBoxLayout()
+            bl.addStretch()
+            bl.addWidget(close_btn)
+            lay.addLayout(bl)
+            dlg.exec()
+        finally:
+            session.close()
+
+    def _open_transfer(self, transfer_id: str):
+        from database.engine import get_session, init_db
+        from database.models.stock import WarehouseTransfer, WarehouseTransferItem
+        from database.models.items import Warehouse
+        from database.models.users import User
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QPushButton, QHBoxLayout
+        init_db()
+        session = get_session()
+        try:
+            t = session.query(WarehouseTransfer).filter_by(id=transfer_id).first()
+            if not t:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.information(self, "Not Found", "Transfer not found in local database.")
+                return
+            src = session.query(Warehouse).filter_by(id=t.from_warehouse_id).first()
+            dst = session.query(Warehouse).filter_by(id=t.to_warehouse_id).first()
+            op  = session.query(User).filter_by(id=t.operator_id).first()
+            items = session.query(WarehouseTransferItem).filter_by(transfer_id=transfer_id).all()
+
+            dlg = QDialog(self)
+            dlg.setWindowTitle(f"Transfer  {t.transfer_number or transfer_id[:8]}")
+            dlg.setMinimumSize(600, 350)
+            lay = QVBoxLayout(dlg)
+
+            info = QLabel(
+                f"<b>Transfer #:</b> {t.transfer_number or '—'} &nbsp;&nbsp; "
+                f"<b>Date:</b> {str(t.created_at)[:10] if t.created_at else '—'} &nbsp;&nbsp; "
+                f"<b>From:</b> {src.name if src else '—'} &nbsp;&nbsp; "
+                f"<b>To:</b> {dst.name if dst else '—'} &nbsp;&nbsp; "
+                f"<b>Operator:</b> {op.full_name if op else '—'}"
+            )
+            info.setStyleSheet("padding:8px;font-size:12px;background:#f0f4f8;border-bottom:1px solid #ccc;")
+            info.setWordWrap(True)
+            lay.addWidget(info)
+
+            tbl = QTableWidget(len(items), 3)
+            tbl.setHorizontalHeaderLabels(["Item", "Qty", "Unit Cost"])
+            tbl.horizontalHeader().setStretchLastSection(True)
+            tbl.verticalHeader().setVisible(False)
+            tbl.setEditTriggers(QTableWidget.NoEditTriggers)
+            for r, it in enumerate(items):
+                tbl.setItem(r, 0, QTableWidgetItem(it.item_name or ""))
+                tbl.setItem(r, 1, QTableWidgetItem(f"{it.quantity:,.3f}"))
+                tbl.setItem(r, 2, QTableWidgetItem(f"{(it.unit_cost or 0):,.2f}"))
+            lay.addWidget(tbl, 1)
+
+            close_btn = QPushButton("Close")
+            close_btn.clicked.connect(dlg.accept)
+            bl = QHBoxLayout()
+            bl.addStretch()
+            bl.addWidget(close_btn)
+            lay.addLayout(bl)
+            dlg.exec()
+        finally:
+            session.close()
+
+    def _open_inventory(self, session_id: str):
+        from PySide6.QtWidgets import QMessageBox
+        try:
+            from database.engine import get_session, init_db
+            from database.models.inventory import InventorySession
+            init_db()
+            s = get_session()
+            inv = s.query(InventorySession).filter_by(id=session_id).first()
+            s.close()
+            if inv:
+                QMessageBox.information(self, "Inventory Session",
+                                        f"Session #: {inv.session_number or session_id[:8]}\n"
+                                        f"Date: {str(inv.created_at)[:10] if inv.created_at else '—'}\n"
+                                        f"Status: {inv.status or '—'}")
+            else:
+                QMessageBox.information(self, "Not Found", "Inventory session not found in local database.")
+        except Exception as e:
+            QMessageBox.information(self, "Not Found", f"Could not load inventory session:\n{e}")
 
     # ── Print ─────────────────────────────────────────────────────────────────
 
