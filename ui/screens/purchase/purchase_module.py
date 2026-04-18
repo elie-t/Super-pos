@@ -3,7 +3,6 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget,
     QDialog, QPushButton, QLabel, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QFrame, QLineEdit, QMessageBox,
-    QComboBox,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
@@ -130,18 +129,16 @@ class PurchaseInvoiceListScreen(QWidget):
         sup_lbl = QLabel("Supplier:")
         sup_lbl.setStyleSheet("color:#cfe0f5; font-size:12px;")
         bar_lay.addWidget(sup_lbl)
-        self._supplier_filter = QComboBox()
+        self._supplier_filter = QLineEdit()
+        self._supplier_filter.setPlaceholderText("Filter by supplier…")
         self._supplier_filter.setFixedHeight(28)
         self._supplier_filter.setFixedWidth(200)
         self._supplier_filter.setStyleSheet(
-            "QComboBox{background:rgba(255,255,255,0.1);color:#fff;"
+            "background:rgba(255,255,255,0.1);color:#fff;"
             "border:1px solid rgba(255,255,255,0.3);border-radius:4px;"
-            "padding:0 6px;font-size:12px;}"
-            "QComboBox::drop-down{border:none;}"
-            "QComboBox QAbstractItemView{background:#1a3a5c;color:#fff;"
-            "selection-background-color:#1a6cb5;}"
+            "padding:0 6px;font-size:12px;"
         )
-        self._supplier_filter.currentIndexChanged.connect(self._apply_filter)
+        self._supplier_filter.textChanged.connect(self._apply_filter)
         bar_lay.addWidget(self._supplier_filter)
         bar_lay.addSpacing(8)
 
@@ -256,29 +253,15 @@ class PurchaseInvoiceListScreen(QWidget):
                     cell.setFont(QFont("", -1, QFont.Bold))
                 self._table.setItem(i, col, cell)
         self._table.setSortingEnabled(True)
-
-        # Populate supplier filter — preserve current selection if possible
-        current_sup = self._supplier_filter.currentText()
-        self._supplier_filter.blockSignals(True)
-        self._supplier_filter.clear()
-        self._supplier_filter.addItem("All Suppliers")
-        suppliers = sorted({r["supplier"] for r in rows if r["supplier"]})
-        for s in suppliers:
-            self._supplier_filter.addItem(s)
-        idx = self._supplier_filter.findText(current_sup)
-        self._supplier_filter.setCurrentIndex(idx if idx >= 0 else 0)
-        self._supplier_filter.blockSignals(False)
         self._apply_filter()
 
     def _apply_filter(self):
-        """Show/hide rows based on selected supplier."""
-        selected = self._supplier_filter.currentText()
+        """Show/hide rows based on supplier text input (case-insensitive, partial match)."""
+        query = self._supplier_filter.text().strip().lower()
         for row in range(self._table.rowCount()):
-            if selected == "All Suppliers":
-                self._table.setRowHidden(row, False)
-            else:
-                cell = self._table.item(row, 3)   # Supplier column
-                self._table.setRowHidden(row, cell is None or cell.text() != selected)
+            cell = self._table.item(row, 3)   # Supplier column
+            supplier = cell.text().lower() if cell else ""
+            self._table.setRowHidden(row, bool(query) and query not in supplier)
 
     def _on_double_click(self, index):
         self._open_row(index.row())
