@@ -465,13 +465,14 @@ class PostSaveDialog(QDialog):
                  currency: str, invoice_id: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Invoice Saved")
-        self.setFixedSize(560, 190)
+        self.setFixedSize(560, 240)
         self.choice = None      # "done" | "print" | "edit" | "pricing"
+        self.payment_paid = True  # default: paid
         self._invoice_id = invoice_id
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(24, 20, 24, 20)
-        lay.setSpacing(18)
+        lay.setSpacing(14)
 
         msg = QLabel(
             f"✓  Invoice  <b>{inv_number}</b>  saved — "
@@ -481,6 +482,15 @@ class PostSaveDialog(QDialog):
         msg.setAlignment(Qt.AlignCenter)
         lay.addWidget(msg)
 
+        # ── Payment toggle ────────────────────────────────────────────────────
+        self._pay_toggle = QPushButton("✔  PAID")
+        self._pay_toggle.setFixedHeight(38)
+        self._pay_toggle.setCursor(Qt.PointingHandCursor)
+        self._pay_toggle.clicked.connect(self._toggle_payment)
+        self._apply_toggle_style()
+        lay.addWidget(self._pay_toggle)
+
+        # ── Action buttons ────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
@@ -502,6 +512,26 @@ class PostSaveDialog(QDialog):
             btn_row.addWidget(btn)
 
         lay.addLayout(btn_row)
+
+    def _toggle_payment(self):
+        self.payment_paid = not self.payment_paid
+        self._apply_toggle_style()
+
+    def _apply_toggle_style(self):
+        if self.payment_paid:
+            self._pay_toggle.setText("✔  PAID")
+            self._pay_toggle.setStyleSheet(
+                "QPushButton{background:#2e7d32;color:#fff;font-size:14px;font-weight:700;"
+                "border:none;border-radius:6px;}"
+                "QPushButton:hover{background:#1b5e20;}"
+            )
+        else:
+            self._pay_toggle.setText("✖  NOT PAID")
+            self._pay_toggle.setStyleSheet(
+                "QPushButton{background:#c62828;color:#fff;font-size:14px;font-weight:700;"
+                "border:none;border-radius:6px;}"
+                "QPushButton:hover{background:#b71c1c;}"
+            )
 
     def _pick(self, choice: str):
         self.choice = choice
@@ -1874,6 +1904,10 @@ class PurchaseInvoiceScreen(QWidget):
                 parent=self,
             )
             dlg.exec()
+
+            # Apply payment status based on toggle (invoice saved as "unpaid" by default)
+            if dlg.payment_paid:
+                PurchaseService.mark_paid(invoice_id)
 
             if dlg.choice == "edit":
                 self.load_invoice(invoice_id)
