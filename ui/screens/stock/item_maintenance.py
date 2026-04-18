@@ -1049,8 +1049,8 @@ class ItemMaintenanceScreen(QWidget):
         init_db()
         session = get_session()
         try:
-            suppliers = session.query(Supplier).filter_by(is_active=True)\
-                .order_by(Supplier.name).limit(500).all()
+            suppliers = session.query(Supplier)\
+                .order_by(Supplier.name).all()
             self._supplier_combo.clear()
             self._supplier_combo.addItem("— Select Supplier —", "")
             for s in suppliers:
