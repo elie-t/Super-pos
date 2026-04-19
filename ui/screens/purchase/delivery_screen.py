@@ -234,14 +234,11 @@ def _convert_delivery_to_purchase(delivery: dict) -> str:
             session.add(supplier)
             session.flush()
 
-        # ── Warehouse (prefer BRANCH_ID from .env, fall back to default) ────────
-        import os
-        from dotenv import load_dotenv
-        load_dotenv()
-        branch_id = os.getenv("BRANCH_ID", "").strip()
+        # ── Warehouse: use the branch from the delivery invoice itself ───────────
+        delivery_wh_id = delivery.get("warehouse_id", "").strip()
         wh = None
-        if branch_id:
-            wh = session.query(Warehouse).filter_by(id=branch_id).first()
+        if delivery_wh_id:
+            wh = session.query(Warehouse).filter_by(id=delivery_wh_id).first()
         if not wh:
             wh = session.query(Warehouse).filter_by(is_default=True).first()
         if not wh:
