@@ -908,7 +908,10 @@ def pull_master_items(on_progress=None) -> tuple[int, str]:
             item_ids   = [i["id"] for i in remote_items]
             ids_filter = ",".join(item_ids)
 
-            # Fetch prices and barcodes in parallel to cut round-trip time
+            # Fetch prices and barcodes in parallel to cut round-trip time.
+            # A timeout on either request is non-fatal — items are still saved
+            # with their existing local prices/barcodes; the next pull will
+            # retry and fill in the missing data.
             import concurrent.futures as _cf
             prices_by_item:   dict[str, list] = {}
             barcodes_by_item: dict[str, list] = {}
@@ -925,18 +928,26 @@ def pull_master_items(on_progress=None) -> tuple[int, str]:
                     headers={**_headers(), "Prefer": ""}, timeout=60,
                 )
 
-            with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
-                _fp = _ex.submit(_fetch_prices)
-                _fb = _ex.submit(_fetch_barcodes)
-                rp = _fp.result()
-                rb = _fb.result()
-
-            if rp.status_code == 200:
-                for p in rp.json():
-                    prices_by_item.setdefault(p["item_id"], []).append(p)
-            if rb.status_code == 200:
-                for b in rb.json():
-                    barcodes_by_item.setdefault(b["item_id"], []).append(b)
+            try:
+                with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
+                    _fp = _ex.submit(_fetch_prices)
+                    _fb = _ex.submit(_fetch_barcodes)
+                    try:
+                        rp = _fp.result()
+                        if rp.status_code == 200:
+                            for p in rp.json():
+                                prices_by_item.setdefault(p["item_id"], []).append(p)
+                    except Exception:
+                        pass  # keep prices_by_item empty — use existing local prices
+                    try:
+                        rb = _fb.result()
+                        if rb.status_code == 200:
+                            for b in rb.json():
+                                barcodes_by_item.setdefault(b["item_id"], []).append(b)
+                    except Exception:
+                        pass  # keep barcodes_by_item empty — use existing local barcodes
+            except Exception:
+                pass
 
             # ── Open session only for the write phase (no network I/O inside) ──
             session = get_session()
