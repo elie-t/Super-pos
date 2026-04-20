@@ -3612,16 +3612,20 @@ class POSScreen(QWidget):
         self._refresh_prices_btn.setEnabled(False)
         self._refresh_prices_btn.setText("↻  Syncing…")
 
-        # Hard timeout: reset button after 30s regardless of thread state
+        # Safety timeout: if pull never finishes (e.g. network dead) reset after 90s
         self._prices_timeout_timer = QTimer(self)
         self._prices_timeout_timer.setSingleShot(True)
-        self._prices_timeout_timer.timeout.connect(self._reset_prices_btn)
-        self._prices_timeout_timer.start(30_000)
+        self._prices_timeout_timer.timeout.connect(
+            lambda: self._finish_prices_sync(error="Timed out — check connection")
+        )
+        self._prices_timeout_timer.start(90_000)
 
         import threading
         from config import IS_MAIN_BRANCH
 
         def _pull_then_refresh():
+            err_msg = ""
+            count   = 0
             try:
                 from sync.service import pull_master_items, drain_sync_queue, is_configured
                 if is_configured():
@@ -3630,15 +3634,28 @@ class POSScreen(QWidget):
                             drain_sync_queue()
                         except Exception:
                             pass
-                    pull_master_items()
-            except Exception:
-                pass
-            QTimer.singleShot(0, self._apply_fresh_cart_prices)
+                    count, err_msg = pull_master_items()
+                else:
+                    err_msg = "Sync not configured"
+            except Exception as e:
+                err_msg = str(e)
+            QTimer.singleShot(0, lambda: self._finish_prices_sync(count, err_msg))
 
         threading.Thread(target=_pull_then_refresh, daemon=True).start()
 
+    def _finish_prices_sync(self, count: int = 0, error: str = ""):
+        """Called on main thread when the price pull thread completes or times out."""
+        if not getattr(self, "_prices_syncing", False):
+            return  # timeout already fired and reset — ignore late thread completion
+        self._apply_fresh_cart_prices(update_btn=False)
+        if error:
+            self._refresh_prices_btn.setText(f"⚠ {error[:30]}")
+        else:
+            self._refresh_prices_btn.setText(f"✓  {count} updated" if count else "✓  Up to date")
+        QTimer.singleShot(3000, self._reset_prices_btn)
+
     def _reset_prices_btn(self):
-        """Restore the prices button — called on timeout or after successful pull."""
+        """Restore the prices button to its idle state."""
         self._prices_syncing = False
         try:
             self._prices_timeout_timer.stop()
@@ -3647,7 +3664,7 @@ class POSScreen(QWidget):
         self._refresh_prices_btn.setEnabled(True)
         self._refresh_prices_btn.setText("↻  Prices")
 
-    def _apply_fresh_cart_prices(self, *, update_btn: bool = True):
+    def _apply_fresh_cart_prices(self, *, update_btn: bool = False):
         """Re-read prices for cart items from local DB after a pull."""
         try:
             updated = 0
@@ -3670,9 +3687,6 @@ class POSScreen(QWidget):
                 self._refresh_table()
         except Exception:
             pass
-        if update_btn:
-            self._refresh_prices_btn.setText("✓  Updated")
-            QTimer.singleShot(2000, self._reset_prices_btn)
 
     def _toggle_print(self):
         self._print_copies = (self._print_copies + 1) % 3   # 0→1→2→0
