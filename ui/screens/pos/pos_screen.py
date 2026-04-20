@@ -13,6 +13,7 @@ F2  = Hold       F3  = Recall        F4  = New Sale
 Del = Void line  Esc = Scan focus
 """
 import json
+import threading
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
     QLineEdit, QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
@@ -3042,8 +3043,15 @@ class POSScreen(QWidget):
             wh_id = getattr(self, "_warehouse_id", "")
             if not wh_id:
                 return
-            orders = fetch_pending_online_orders(wh_id)
-            self._refresh_online_panel(orders)
+
+            def _fetch(wh=wh_id):
+                try:
+                    orders = fetch_pending_online_orders(wh)
+                    QTimer.singleShot(0, lambda o=orders: self._refresh_online_panel(o))
+                except Exception:
+                    pass
+
+            threading.Thread(target=_fetch, daemon=True).start()
         except Exception:
             pass
 
