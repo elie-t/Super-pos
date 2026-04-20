@@ -930,7 +930,9 @@ def pull_master_items() -> tuple[int, str]:
             try:
                 for ri in remote_items:
                     if ri.get("pushed_by") == BRANCH_ID:
-                        latest_ts = ri.get("updated_at", latest_ts)
+                        # Don't advance latest_ts here — other branches may not have
+                        # pulled this item yet and we must not move the cursor past it.
+                        # The cursor advances only for items we actually process.
                         continue
 
                     item = session.get(Item, ri["id"])
