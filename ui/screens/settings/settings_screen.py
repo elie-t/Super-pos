@@ -1027,14 +1027,20 @@ class SettingsScreen(QWidget):
         reset_items_cursor()
 
         self._full_resync_btn.setEnabled(False)
-        self._full_resync_btn.setText("Re-syncing…")
+        self._full_resync_btn.setText("0 items…")
+        self._resync_start = __import__("time").time()
 
         import threading
         from PySide6.QtCore import QTimer
 
+        def _on_progress(count):
+            elapsed = int(__import__("time").time() - self._resync_start)
+            QTimer.singleShot(0, lambda c=count, e=elapsed:
+                self._full_resync_btn.setText(f"{c} items… {e}s"))
+
         def _run():
             from sync.service import pull_master_items
-            count, err = pull_master_items()
+            count, err = pull_master_items(on_progress=_on_progress)
             QTimer.singleShot(0, lambda: self._finish_full_resync(count, err))
 
         threading.Thread(target=_run, daemon=True).start()
@@ -1043,13 +1049,13 @@ class SettingsScreen(QWidget):
         self._full_resync_btn.setEnabled(True)
         self._full_resync_btn.setText("🔄  Full Re-Sync Items")
         from PySide6.QtWidgets import QMessageBox
+        elapsed = int(__import__("time").time() - getattr(self, "_resync_start", 0))
         if err:
-            QMessageBox.warning(self, "Full Re-Sync", f"Re-sync failed:\n{err}")
+            QMessageBox.warning(self, "Full Re-Sync",
+                f"Re-sync stopped after {elapsed}s:\n{err}")
         else:
-            QMessageBox.information(
-                self, "Full Re-Sync",
-                f"Done — {count} item(s) pulled from Supabase."
-            )
+            QMessageBox.information(self, "Full Re-Sync",
+                f"Done in {elapsed}s — {count} item(s) pulled from Supabase.")
 
     # ── Printer config helpers ─────────────────────────────────────────────────
 

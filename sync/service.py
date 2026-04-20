@@ -822,7 +822,7 @@ def push_customer_master(customer_id: str) -> tuple[bool, str]:
 
 # ── Master data pull ───────────────────────────────────────────────────────────
 
-def pull_master_items() -> tuple[int, str]:
+def pull_master_items(on_progress=None) -> tuple[int, str]:
     """
     Pull item changes from items_central since last pull.
     Updates local SQLite items, prices, barcodes.
@@ -1081,6 +1081,11 @@ def pull_master_items() -> tuple[int, str]:
                     _state_set("items_pull_last_id", last_id)
                 else:
                     _state_set("items_pull", latest_ts)
+                if on_progress:
+                    try:
+                        on_progress(total_updated)
+                    except Exception:
+                        pass
             except Exception:
                 session.rollback()
             finally:
