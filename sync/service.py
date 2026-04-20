@@ -864,6 +864,19 @@ def pull_master_items() -> tuple[int, str]:
 
     seen_codes: set[str] = set()  # tracks codes processed in this sync run only
 
+    # Safety overlap: always go back 2 hours from the stored cursor.
+    # This guarantees items near the cursor edge (network cut, clock skew,
+    # items saved with a slightly earlier timestamp) get a second chance.
+    # Re-processing an already-local item is harmless (upsert).
+    _OVERLAP_HOURS = 2
+    if last_pull != "2000-01-01T00:00:00Z":
+        try:
+            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            _lp_dt = _dt.fromisoformat(last_pull.replace("Z", "+00:00"))
+            last_pull = (_lp_dt - _td(hours=_OVERLAP_HOURS)).strftime("%Y-%m-%dT%H:%M:%S.000000Z")
+        except Exception:
+            pass  # leave last_pull unchanged if parse fails
+
     try:
         while True:
             if full_sync_mode:
@@ -1060,16 +1073,18 @@ def pull_master_items() -> tuple[int, str]:
                     total_updated += 1
 
                 session.commit()
+                # Only advance cursor after a successful commit — if commit
+                # fails and rolls back, the cursor stays behind so the next
+                # pull retries these items rather than silently losing them.
+                if full_sync_mode:
+                    last_id = remote_items[-1]["id"]
+                    _state_set("items_pull_last_id", last_id)
+                else:
+                    _state_set("items_pull", latest_ts)
             except Exception:
                 session.rollback()
             finally:
                 session.close()  # ← release connection before next HTTP round-trip
-
-            if full_sync_mode:
-                last_id = remote_items[-1]["id"]
-                _state_set("items_pull_last_id", last_id)
-            else:
-                _state_set("items_pull", latest_ts)
 
             if len(remote_items) < PAGE:
                 break  # Last page
