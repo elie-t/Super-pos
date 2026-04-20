@@ -2531,7 +2531,7 @@ class POSScreen(QWidget):
         self._append_row(self._lines[-1])
         self._table.selectRow(len(self._lines) - 1)
         self._pole_show_item("Vegetables", qty, price)
-        self._scan_input.setFocus()
+        QTimer.singleShot(0, self._scan_input.setFocus)
 
     def _open_vege_dialog(self):
         """Open vegetable/bulk price-entry dialog and add line to cart."""
@@ -2577,7 +2577,7 @@ class POSScreen(QWidget):
         self._append_row(self._lines[-1])
         self._table.selectRow(len(self._lines) - 1)
         self._pole_show_item(item_data.description, dlg.result_qty, dlg.result_price)
-        self._scan_input.setFocus()
+        QTimer.singleShot(0, self._scan_input.setFocus)
 
     def _open_free_amount_dialog(self):
         """Open free amount entry dialog and add a custom line to the cart."""
@@ -2609,7 +2609,7 @@ class POSScreen(QWidget):
         })
         self._append_row(self._lines[-1])
         self._table.selectRow(len(self._lines) - 1)
-        self._scan_input.setFocus()
+        QTimer.singleShot(0, self._scan_input.setFocus)
 
     def _add_item(self, item, force_qty=None):
         """Convert item price USD→LBP if needed, then add to cart.
@@ -2653,6 +2653,7 @@ class POSScreen(QWidget):
         self._table.selectRow(len(self._lines) - 1)
         self._update_box_bar(len(self._lines) - 1)
         self._pole_show_item(item.description, qty, price)
+        QTimer.singleShot(0, self._scan_input.setFocus)
 
     def _update_box_bar(self, row: int = -1):
         """Show/update the box info bar for the given cart row."""
@@ -2720,7 +2721,8 @@ class POSScreen(QWidget):
 
     # ── Table ──────────────────────────────────────────────────────────────────
 
-    def _build_row(self, r: int, line: dict):
+    def _build_row_text(self, r: int, line: dict):
+        """Write only the text cells for row r — fast, no widget allocation."""
         it = line["item"]
         is_void = line.get("voided", False)
         void_color = QColor("#ffcccc") if is_void else None
@@ -2756,6 +2758,10 @@ class POSScreen(QWidget):
         tot_cell.setFont(QFont("", -1, QFont.Bold))
         self._table.setItem(r, COL_TOT, tot_cell)
 
+    def _build_row_buttons(self, r: int):
+        """Create the void/delete cell widget for row r."""
+        if r >= self._table.rowCount():
+            return
         btn_widget = QWidget()
         btn_layout = QHBoxLayout(btn_widget)
         btn_layout.setContentsMargins(3, 2, 3, 2)
@@ -2785,23 +2791,37 @@ class POSScreen(QWidget):
         btn_layout.addWidget(x_btn)
         self._table.setCellWidget(r, COL_DEL, btn_widget)
 
+    def _build_row(self, r: int, line: dict):
+        self._build_row_text(r, line)
+        self._build_row_buttons(r)
+
     def _append_row(self, line: dict):
-        """Insert only the new last row — avoids rebuilding the entire table."""
+        """Insert only the new last row without blocking the UI.
+
+        Text cells are written synchronously so the cashier sees the item
+        immediately. The void/delete buttons are deferred to the next event
+        loop tick so setCellWidget never blocks keystroke processing.
+        """
         r = len(self._lines) - 1
         self._table_updating = True
+        self._table.setUpdatesEnabled(False)
         self._table.insertRow(r)
-        self._build_row(r, line)
+        self._build_row_text(r, line)
+        self._table.setUpdatesEnabled(True)
         self._table_updating = False
         self._update_totals()
         self._items_count_lbl.setText(f"Lines: {len(self._lines)}")
         self._table.scrollToBottom()
+        QTimer.singleShot(0, lambda _r=r: self._build_row_buttons(_r))
 
     def _refresh_table(self):
         self._table_updating = True
+        self._table.setUpdatesEnabled(False)
         self._table.setRowCount(0)
         self._table.setRowCount(len(self._lines))
         for r, line in enumerate(self._lines):
             self._build_row(r, line)
+        self._table.setUpdatesEnabled(True)
         self._table_updating = False
         self._update_totals()
         self._items_count_lbl.setText(f"Lines: {len(self._lines)}")
