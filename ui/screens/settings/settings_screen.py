@@ -417,6 +417,24 @@ class SettingsScreen(QWidget):
         self._sync_items_btn.clicked.connect(self._do_sync_items)
         btn_row.addWidget(self._sync_items_btn)
 
+        self._full_resync_btn = QPushButton("🔄  Full Re-Sync Items")
+        self._full_resync_btn.setFixedHeight(38)
+        self._full_resync_btn.setCursor(Qt.PointingHandCursor)
+        self._full_resync_btn.setEnabled(configured)
+        self._full_resync_btn.setToolTip(
+            "Re-download EVERY item from Supabase from scratch.\n"
+            "Use this to recover items that were missed due to sync issues.\n"
+            "Safe to run — existing items are updated, nothing is deleted."
+        )
+        self._full_resync_btn.setStyleSheet(
+            "QPushButton{background:#e65100;color:#fff;border:none;"
+            "border-radius:5px;font-size:13px;font-weight:700;padding:0 20px;}"
+            "QPushButton:hover{background:#bf360c;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._full_resync_btn.clicked.connect(self._do_full_resync_items)
+        btn_row.addWidget(self._full_resync_btn)
+
         btn_row.addStretch()
         sync_layout.addLayout(btn_row)
 
@@ -991,6 +1009,47 @@ class SettingsScreen(QWidget):
         else:
             msg = f"{count} item(s) updated." if count else "Items are already up to date."
             QMessageBox.information(self, "Sync Items", msg)
+
+    def _do_full_resync_items(self):
+        """Reset cursor to epoch then pull every item from Supabase."""
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Full Re-Sync Items",
+            "This will re-download the entire item catalog from Supabase.\n"
+            "Existing items will be updated; nothing will be deleted.\n\n"
+            "Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        from sync.service import reset_items_cursor
+        reset_items_cursor()
+
+        self._full_resync_btn.setEnabled(False)
+        self._full_resync_btn.setText("Re-syncing…")
+
+        import threading
+        from PySide6.QtCore import QTimer
+
+        def _run():
+            from sync.service import pull_master_items
+            count, err = pull_master_items()
+            QTimer.singleShot(0, lambda: self._finish_full_resync(count, err))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _finish_full_resync(self, count: int, err: str):
+        self._full_resync_btn.setEnabled(True)
+        self._full_resync_btn.setText("🔄  Full Re-Sync Items")
+        from PySide6.QtWidgets import QMessageBox
+        if err:
+            QMessageBox.warning(self, "Full Re-Sync", f"Re-sync failed:\n{err}")
+        else:
+            QMessageBox.information(
+                self, "Full Re-Sync",
+                f"Done — {count} item(s) pulled from Supabase."
+            )
 
     # ── Printer config helpers ─────────────────────────────────────────────────
 

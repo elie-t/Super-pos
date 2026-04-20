@@ -1120,6 +1120,17 @@ def pull_master_items() -> tuple[int, str]:
         return total_updated, str(e)
 
 
+def reset_items_cursor() -> None:
+    """
+    Reset the items pull cursor to epoch, forcing pull_master_items to
+    re-download every item from items_central on the next call.
+    Use this to recover from any cursor-skipping issue or to force a
+    full catalog refresh.
+    """
+    _state_set("items_pull",         "2000-01-01T00:00:00Z")
+    _state_set("items_pull_last_id", "")
+
+
 def pull_master_customers() -> tuple[int, str]:
     """
     Pull customer changes from customers_central since last pull.
