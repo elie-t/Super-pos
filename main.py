@@ -85,6 +85,21 @@ def main():
         except Exception:
             pass   # QtWebSockets not available — orders still pulled at shift-end
 
+        # ── Instant price update notifications via Supabase Realtime ──────────
+        try:
+            from sync.price_watcher import PriceWatcher
+
+            _price_watcher = PriceWatcher(app)
+            _price_watcher.prices_changed.connect(_sync_worker.trigger_items_pull)
+            _sync_worker.prices_refreshed.connect(
+                lambda n: window.statusBar().showMessage(
+                    f"  💰 Prices updated ({n} item(s) refreshed)", 8000)
+            )
+            _price_watcher.start()
+            app.aboutToQuit.connect(_price_watcher.stop)
+        except Exception:
+            pass   # QtWebSockets not available — prices still pulled hourly
+
     sys.exit(app.exec())
 
 if __name__ == "__main__":

@@ -1511,6 +1511,15 @@ class POSScreen(QWidget):
         QTimer.singleShot(0, self._scan_input.setFocus)
         QTimer.singleShot(2000, self._poll_online_orders)  # first poll 2s after load
 
+        # Auto-refresh cart prices when a remote price push is detected
+        try:
+            from sync.worker import get_sync_worker
+            sw = get_sync_worker()
+            if sw is not None:
+                sw.prices_refreshed.connect(lambda _n: self._apply_fresh_cart_prices(update_btn=False))
+        except Exception:
+            pass
+
     def showEvent(self, event):
         super().showEvent(event)
         QTimer.singleShot(100, self._scan_input.setFocus)
@@ -3623,7 +3632,7 @@ class POSScreen(QWidget):
 
         threading.Thread(target=_pull_then_refresh, daemon=True).start()
 
-    def _apply_fresh_cart_prices(self):
+    def _apply_fresh_cart_prices(self, *, update_btn: bool = True):
         """Re-read prices for cart items from local DB after a pull."""
         try:
             updated = 0
@@ -3646,12 +3655,12 @@ class POSScreen(QWidget):
                 self._refresh_table()
         except Exception:
             pass
-        self._refresh_prices_btn.setText("✓  Updated")
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(2000, lambda: (
-            self._refresh_prices_btn.setEnabled(True),
-            self._refresh_prices_btn.setText("↻  Prices"),
-        ))
+        if update_btn:
+            self._refresh_prices_btn.setText("✓  Updated")
+            QTimer.singleShot(2000, lambda: (
+                self._refresh_prices_btn.setEnabled(True),
+                self._refresh_prices_btn.setText("↻  Prices"),
+            ))
 
     def _toggle_print(self):
         self._print_copies = (self._print_copies + 1) % 3   # 0→1→2→0

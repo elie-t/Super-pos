@@ -32,6 +32,7 @@ class SyncWorker(QThread):
     items_updated      = Signal(int)       # item master data changes pulled
     invoices_received  = Signal(int)       # new invoices pulled from other branches
     users_changed      = Signal()          # user records added/updated/deactivated
+    prices_refreshed   = Signal(int)       # emitted after a remote-triggered price pull
     error              = Signal(str)
 
     def __init__(self, parent=None):
@@ -49,6 +50,27 @@ class SyncWorker(QThread):
         Call this after end-of-shift to push pending invoices/movements.
         """
         self._drain_pending = True
+
+    def trigger_items_pull(self):
+        """
+        Pull item/price master data immediately (called by PriceWatcher on
+        remote price change).  Runs in a plain daemon thread so it never
+        blocks the Qt main thread or the SyncWorker loop.
+        """
+        import threading
+
+        def _pull():
+            from sync.service import pull_master_items, is_configured
+            if not is_configured():
+                return
+            try:
+                count, _ = pull_master_items()
+                if count > 0:
+                    self.prices_refreshed.emit(count)
+            except Exception:
+                pass
+
+        threading.Thread(target=_pull, daemon=True).start()
 
     # ── Thread main loop ──────────────────────────────────────────────────────
 
