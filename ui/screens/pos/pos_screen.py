@@ -1498,6 +1498,7 @@ class POSScreen(QWidget):
         self._last_pack_qty        = 1    # pack_qty of the last selected cart line
         self._forced_warehouse_id  = forced_warehouse_id
         self._active_online_order_id = ""   # set when an online order is loaded into cart
+        self._vege_id: str = ""             # cached after first DB lookup
         self._alert_sound = None            # QSoundEffect, created lazily
         self._alert_playing = False
         self._alert_repeat_timer = None     # QTimer: re-beep every 10 s
@@ -2194,7 +2195,27 @@ class POSScreen(QWidget):
         if not query:
             return
 
-        # "V" or "v" — vegetable/bulk price entry
+        # "5000V" or "2.5*3000V" — inline vege, no dialog
+        if len(query) > 1 and query[-1].upper() == "V":
+            expr = query[:-1].strip()
+            vqty, vprice, vtotal = None, None, None
+            try:
+                if "*" in expr:
+                    a, b = expr.split("*", 1)
+                    vqty  = float(a.strip())
+                    vprice = float(b.strip())
+                    vtotal = vqty * vprice
+                else:
+                    vprice = float(expr.replace(",", ""))
+                    vqty, vtotal = 1.0, vprice
+            except ValueError:
+                pass
+            if vtotal and vtotal > 0:
+                self._scan_input.clear()
+                self._add_vege_line(vqty, vprice, vtotal)
+                return
+
+        # "V" or "v" — vegetable/bulk price entry (dialog)
         if query.upper() == "V":
             self._scan_input.clear()
             self._open_vege_dialog()
@@ -2486,38 +2507,39 @@ class POSScreen(QWidget):
             self._add_item(item)
         self._scan_input.clear()
 
+    def _get_vege_id(self) -> str:
+        if not self._vege_id:
+            self._vege_id = PosService.get_or_create_vege_item()
+        return self._vege_id
+
+    def _add_vege_line(self, qty: float, price: float, total: float):
+        item = PosLineItem(
+            item_id    = self._get_vege_id(),
+            code       = "VEGE",
+            barcode    = "V",
+            description= "Vegetables",
+            qty        = qty,
+            unit_price = price,
+            disc_pct   = 0.0,
+            vat_pct    = 0.0,
+            total      = total,
+            currency   = "LBP",
+            price_type = "retail",
+            stock_qty  = 0.0,
+        )
+        self._lines.append({"item": item, "qty": qty, "price": price, "disc": 0.0, "total": total})
+        self._append_row(self._lines[-1])
+        self._table.selectRow(len(self._lines) - 1)
+        self._pole_show_item("Vegetables", qty, price)
+        self._scan_input.setFocus()
+
     def _open_vege_dialog(self):
         """Open vegetable/bulk price-entry dialog and add line to cart."""
         dlg = VegeDialog(self)
         if not dlg.exec():
             self._scan_input.setFocus()
             return
-        vege_id = PosService.get_or_create_vege_item()
-        item = PosLineItem(
-            item_id    = vege_id,
-            code       = "VEGE",
-            barcode    = "V",
-            description= "Vegetables",
-            qty        = dlg.result_qty,
-            unit_price = dlg.result_price,
-            disc_pct   = 0.0,
-            vat_pct    = 0.0,
-            total      = dlg.result_total,
-            currency   = "LBP",
-            price_type = "retail",
-            stock_qty  = 0.0,
-        )
-        self._lines.append({
-            "item":  item,
-            "qty":   dlg.result_qty,
-            "price": dlg.result_price,
-            "disc":  0.0,
-            "total": dlg.result_total,
-        })
-        self._refresh_table()
-        self._table.selectRow(len(self._lines) - 1)
-        self._pole_show_item("Vegetables", dlg.result_qty, dlg.result_price)
-        self._scan_input.setFocus()
+        self._add_vege_line(dlg.result_qty, dlg.result_price, dlg.result_total)
 
     def _open_manual_price_dialog(self):
         """Barcode A — item without barcode. Look it up, then ask for price."""
@@ -2552,7 +2574,7 @@ class POSScreen(QWidget):
             "disc":  0.0,
             "total": dlg.result_total,
         })
-        self._refresh_table()
+        self._append_row(self._lines[-1])
         self._table.selectRow(len(self._lines) - 1)
         self._pole_show_item(item_data.description, dlg.result_qty, dlg.result_price)
         self._scan_input.setFocus()
@@ -2585,7 +2607,7 @@ class POSScreen(QWidget):
             "disc":  0.0,
             "total": dlg.result_total,
         })
-        self._refresh_table()
+        self._append_row(self._lines[-1])
         self._table.selectRow(len(self._lines) - 1)
         self._scan_input.setFocus()
 
@@ -2626,7 +2648,7 @@ class POSScreen(QWidget):
             "disc":  0.0,
             "total": total,
         })
-        self._refresh_table()
+        self._append_row(self._lines[-1])
         self._scan_input.clear()
         self._table.selectRow(len(self._lines) - 1)
         self._update_box_bar(len(self._lines) - 1)
@@ -2698,77 +2720,88 @@ class POSScreen(QWidget):
 
     # ── Table ──────────────────────────────────────────────────────────────────
 
+    def _build_row(self, r: int, line: dict):
+        it = line["item"]
+        is_void = line.get("voided", False)
+        void_color = QColor("#ffcccc") if is_void else None
+
+        def ro(text, align=Qt.AlignCenter, _vc=void_color):
+            cell = QTableWidgetItem(str(text))
+            cell.setTextAlignment(align)
+            cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+            if _vc:
+                cell.setBackground(_vc)
+                cell.setForeground(QColor("#a01010"))
+            return cell
+
+        def ed(text, align=Qt.AlignCenter, _vc=void_color):
+            cell = QTableWidgetItem(str(text))
+            cell.setTextAlignment(align)
+            if _vc:
+                cell.setBackground(_vc)
+                cell.setForeground(QColor("#a01010"))
+                cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+            return cell
+
+        self._table.setItem(r, COL_NUM,   ro(str(r + 1)))
+        self._table.setItem(r, COL_CODE,  ro(it.barcode or it.code, Qt.AlignLeft | Qt.AlignVCenter))
+        self._table.setItem(r, COL_DESC,  ro(it.description, Qt.AlignLeft | Qt.AlignVCenter))
+        qty_cell = ro(f"{line['qty']:.3f}") if line["qty"] < 0 else ed(f"{line['qty']:.3f}")
+        self._table.setItem(r, COL_QTY, qty_cell)
+        self._table.setItem(r, COL_PRICE, ed(f"{line['price']:.0f}"))
+        self._table.setItem(r, COL_DISC,  ed(f"{line['disc']:.1f}"))
+
+        tot_cell = ro(f"{line['total']:,.0f}")
+        tot_cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        tot_cell.setFont(QFont("", -1, QFont.Bold))
+        self._table.setItem(r, COL_TOT, tot_cell)
+
+        btn_widget = QWidget()
+        btn_layout = QHBoxLayout(btn_widget)
+        btn_layout.setContentsMargins(3, 2, 3, 2)
+        btn_layout.setSpacing(4)
+
+        void_btn = QPushButton("⊘")
+        void_btn.setFixedSize(28, 30)
+        void_btn.setToolTip("Void — adds a negative entry")
+        void_btn.setStyleSheet(
+            "QPushButton{background:#e65100;color:#fff;border:none;"
+            "border-radius:4px;font-weight:700;font-size:14px;}"
+            "QPushButton:hover{background:#bf360c;}"
+        )
+        void_btn.clicked.connect(lambda _, row=r: self._void_or_delete(row, force_delete=False))
+
+        x_btn = QPushButton("✕")
+        x_btn.setFixedSize(28, 30)
+        x_btn.setToolTip("Delete line (manager only)")
+        x_btn.setStyleSheet(
+            "QPushButton{background:#c62828;color:#fff;border:none;"
+            "border-radius:4px;font-weight:700;font-size:12px;}"
+            "QPushButton:hover{background:#a01010;}"
+        )
+        x_btn.clicked.connect(lambda _, row=r: self._void_or_delete(row, force_delete=True))
+
+        btn_layout.addWidget(void_btn)
+        btn_layout.addWidget(x_btn)
+        self._table.setCellWidget(r, COL_DEL, btn_widget)
+
+    def _append_row(self, line: dict):
+        """Insert only the new last row — avoids rebuilding the entire table."""
+        r = len(self._lines) - 1
+        self._table_updating = True
+        self._table.insertRow(r)
+        self._build_row(r, line)
+        self._table_updating = False
+        self._update_totals()
+        self._items_count_lbl.setText(f"Lines: {len(self._lines)}")
+        self._table.scrollToBottom()
+
     def _refresh_table(self):
         self._table_updating = True
         self._table.setRowCount(0)
         self._table.setRowCount(len(self._lines))
-
         for r, line in enumerate(self._lines):
-            it = line["item"]
-
-            is_void = line.get("voided", False)
-            void_color = QColor("#ffcccc") if is_void else None
-
-            def ro(text, align=Qt.AlignCenter, _vc=void_color):
-                cell = QTableWidgetItem(str(text))
-                cell.setTextAlignment(align)
-                cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
-                if _vc:
-                    cell.setBackground(_vc)
-                    cell.setForeground(QColor("#a01010"))
-                return cell
-
-            def ed(text, align=Qt.AlignCenter, _vc=void_color):
-                cell = QTableWidgetItem(str(text))
-                cell.setTextAlignment(align)
-                if _vc:
-                    cell.setBackground(_vc)
-                    cell.setForeground(QColor("#a01010"))
-                    cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
-                return cell
-
-            self._table.setItem(r, COL_NUM,   ro(str(r + 1)))
-            self._table.setItem(r, COL_CODE,  ro(it.barcode or it.code, Qt.AlignLeft | Qt.AlignVCenter))
-            self._table.setItem(r, COL_DESC,  ro(it.description, Qt.AlignLeft | Qt.AlignVCenter))
-            qty_cell = ro(f"{line['qty']:.3f}") if line["qty"] < 0 else ed(f"{line['qty']:.3f}")
-            self._table.setItem(r, COL_QTY, qty_cell)
-            self._table.setItem(r, COL_PRICE, ed(f"{line['price']:.0f}"))
-            self._table.setItem(r, COL_DISC,  ed(f"{line['disc']:.1f}"))
-
-            tot_cell = ro(f"{line['total']:,.0f}")
-            tot_cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            tot_cell.setFont(QFont("", -1, QFont.Bold))
-            self._table.setItem(r, COL_TOT, tot_cell)
-
-            btn_widget = QWidget()
-            btn_layout = QHBoxLayout(btn_widget)
-            btn_layout.setContentsMargins(3, 2, 3, 2)
-            btn_layout.setSpacing(4)
-
-            void_btn = QPushButton("⊘")
-            void_btn.setFixedSize(28, 30)
-            void_btn.setToolTip("Void — adds a negative entry")
-            void_btn.setStyleSheet(
-                "QPushButton{background:#e65100;color:#fff;border:none;"
-                "border-radius:4px;font-weight:700;font-size:14px;}"
-                "QPushButton:hover{background:#bf360c;}"
-            )
-            void_btn.clicked.connect(lambda _, row=r: self._void_or_delete(row, force_delete=False))
-
-            x_btn = QPushButton("✕")
-            x_btn.setFixedSize(28, 30)
-            x_btn.setToolTip("Delete line (manager only)")
-            x_btn.setStyleSheet(
-                "QPushButton{background:#c62828;color:#fff;border:none;"
-                "border-radius:4px;font-weight:700;font-size:12px;}"
-                "QPushButton:hover{background:#a01010;}"
-            )
-            x_btn.clicked.connect(lambda _, row=r: self._void_or_delete(row, force_delete=True))
-
-            btn_layout.addWidget(void_btn)
-            btn_layout.addWidget(x_btn)
-            self._table.setCellWidget(r, COL_DEL, btn_widget)
-
+            self._build_row(r, line)
         self._table_updating = False
         self._update_totals()
         self._items_count_lbl.setText(f"Lines: {len(self._lines)}")
