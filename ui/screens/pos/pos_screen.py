@@ -3606,8 +3606,17 @@ class POSScreen(QWidget):
 
     def _refresh_prices(self):
         """Push pending price changes then pull latest items/prices from Supabase."""
+        if getattr(self, "_prices_syncing", False):
+            return
+        self._prices_syncing = True
         self._refresh_prices_btn.setEnabled(False)
         self._refresh_prices_btn.setText("↻  Syncing…")
+
+        # Hard timeout: reset button after 30s regardless of thread state
+        self._prices_timeout_timer = QTimer(self)
+        self._prices_timeout_timer.setSingleShot(True)
+        self._prices_timeout_timer.timeout.connect(self._reset_prices_btn)
+        self._prices_timeout_timer.start(30_000)
 
         import threading
         from config import IS_MAIN_BRANCH
@@ -3616,7 +3625,6 @@ class POSScreen(QWidget):
             try:
                 from sync.service import pull_master_items, drain_sync_queue, is_configured
                 if is_configured():
-                    # On main branch: push pending price edits first, then pull
                     if IS_MAIN_BRANCH:
                         try:
                             drain_sync_queue()
@@ -3625,12 +3633,19 @@ class POSScreen(QWidget):
                     pull_master_items()
             except Exception:
                 pass
-
-            # Back on main thread: re-read cart prices from (now-updated) local DB
-            from PySide6.QtCore import QTimer
             QTimer.singleShot(0, self._apply_fresh_cart_prices)
 
         threading.Thread(target=_pull_then_refresh, daemon=True).start()
+
+    def _reset_prices_btn(self):
+        """Restore the prices button — called on timeout or after successful pull."""
+        self._prices_syncing = False
+        try:
+            self._prices_timeout_timer.stop()
+        except Exception:
+            pass
+        self._refresh_prices_btn.setEnabled(True)
+        self._refresh_prices_btn.setText("↻  Prices")
 
     def _apply_fresh_cart_prices(self, *, update_btn: bool = True):
         """Re-read prices for cart items from local DB after a pull."""
@@ -3657,10 +3672,7 @@ class POSScreen(QWidget):
             pass
         if update_btn:
             self._refresh_prices_btn.setText("✓  Updated")
-            QTimer.singleShot(2000, lambda: (
-                self._refresh_prices_btn.setEnabled(True),
-                self._refresh_prices_btn.setText("↻  Prices"),
-            ))
+            QTimer.singleShot(2000, self._reset_prices_btn)
 
     def _toggle_print(self):
         self._print_copies = (self._print_copies + 1) % 3   # 0→1→2→0
