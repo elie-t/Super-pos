@@ -562,6 +562,20 @@ class WarehouseTransferScreen(QWidget):
         self._delete_btn.clicked.connect(self._delete_transfer)
         lay.addWidget(self._delete_btn)
 
+        self._dup_btn = QPushButton("⎘  Duplicate")
+        self._dup_btn.setFixedHeight(38)
+        self._dup_btn.setMinimumWidth(120)
+        self._dup_btn.setStyleSheet(
+            "QPushButton{background:#6a1b9a;color:#fff;border:none;"
+            "border-radius:4px;font-size:13px;font-weight:600;padding:0 16px;}"
+            "QPushButton:hover{background:#4a148c;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._dup_btn.setCursor(Qt.PointingHandCursor)
+        self._dup_btn.setEnabled(False)
+        self._dup_btn.clicked.connect(self._duplicate_current)
+        lay.addWidget(self._dup_btn)
+
         new_btn = QPushButton("✚  New")
         new_btn.setFixedHeight(38)
         new_btn.setStyleSheet(
@@ -1276,6 +1290,7 @@ class WarehouseTransferScreen(QWidget):
         self._lock_btn.setText("🔒  Lock")
         self._print_btn.setEnabled(True)
         self._delete_btn.setEnabled(True)
+        self._dup_btn.setEnabled(True)
 
         total   = sum(l["total"] for l in self._lines)
         n_lines = len(self._lines)
@@ -1358,6 +1373,7 @@ class WarehouseTransferScreen(QWidget):
         self._lock_btn.setText("🔒  Lock")
         self._print_btn.setEnabled(False)
         self._delete_btn.setEnabled(False)
+        self._dup_btn.setEnabled(False)
         self._set_locked(False)
         self._lines.clear()
         self._refresh_table()
@@ -1436,6 +1452,54 @@ class WarehouseTransferScreen(QWidget):
             self._clear_all()
         else:
             QMessageBox.critical(self, "Delete Failed", err)
+
+    # ── Duplicate ─────────────────────────────────────────────────────────────
+
+    def _duplicate_current(self):
+        if not self._current_transfer_id:
+            return
+        detail = TransferService.get_transfer_detail(self._current_transfer_id)
+        if detail:
+            self._duplicate_transfer(detail)
+
+    def _duplicate_transfer(self, detail: dict):
+        """Load a transfer's lines as a new unsaved draft — same items, fresh number.
+        From/To warehouses are preserved so the user only needs to change
+        whichever branch differs before saving."""
+        self._clear_all()
+
+        for i in range(self._from_combo.count()):
+            if self._from_combo.itemData(i)[0] == detail["from_wh_id"]:
+                self._from_combo.setCurrentIndex(i)
+                break
+        for i in range(self._to_combo.count()):
+            if self._to_combo.itemData(i)[0] == detail["to_wh_id"]:
+                self._to_combo.setCurrentIndex(i)
+                break
+
+        for li in detail["lines"]:
+            stock_src = TransferService.get_item_stock(li["item_id"], detail["from_wh_id"])
+            stock_dst = TransferService.get_item_stock(li["item_id"], detail["to_wh_id"])
+            self._lines.append({
+                "item_id":     li["item_id"],
+                "code":        li["code"],
+                "barcode":     li["barcode"],
+                "name":        li["item_name"],
+                "pack_qty":    1,
+                "subgroup":    "",
+                "last_cost":   li["unit_cost"],
+                "qty":         li["qty"],
+                "price":       li["unit_cost"],
+                "disc":        0.0,
+                "total":       li["qty"] * li["unit_cost"],
+                "src_stock":   stock_src,
+                "dst_stock":   stock_dst,
+                "sales_prices": [],
+            })
+
+        self._refresh_table()
+        self._refresh_totals()
+        self._refresh_transfer_number()   # assign next fresh number
 
     # ── History ───────────────────────────────────────────────────────────────
 
@@ -1530,6 +1594,17 @@ class WarehouseTransferScreen(QWidget):
         hist_print_btn.setCursor(Qt.PointingHandCursor)
         btn_row.addWidget(hist_print_btn)
 
+        hist_dup_btn = QPushButton("⎘  Duplicate")
+        hist_dup_btn.setStyleSheet(
+            "QPushButton{background:#6a1b9a;color:#fff;font-size:12px;font-weight:700;"
+            "border:none;border-radius:4px;padding:6px 16px;}"
+            "QPushButton:hover{background:#4a148c;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        hist_dup_btn.setEnabled(False)
+        hist_dup_btn.setCursor(Qt.PointingHandCursor)
+        btn_row.addWidget(hist_dup_btn)
+
         notes_lbl = QLabel("")
         notes_lbl.setStyleSheet("color:#555;font-size:11px;font-style:italic;")
         btn_row.addWidget(notes_lbl)
@@ -1594,8 +1669,10 @@ class WarehouseTransferScreen(QWidget):
 
             load_btn.setEnabled(True)
             hist_print_btn.setEnabled(True)
+            hist_dup_btn.setEnabled(True)
             load_btn.setProperty("transfer_detail", detail)
             hist_print_btn.setProperty("transfer_detail", detail)
+            hist_dup_btn.setProperty("transfer_detail", detail)
 
         list_tbl.itemSelectionChanged.connect(on_row_selected)
         list_tbl.doubleClicked.connect(lambda _: on_row_selected())
@@ -1632,8 +1709,16 @@ class WarehouseTransferScreen(QWidget):
                 date_str=detail["date"],
             )
 
+        def on_hist_dup():
+            detail = hist_dup_btn.property("transfer_detail")
+            if not detail:
+                return
+            dlg.accept()
+            self._duplicate_transfer(detail)
+
         load_btn.clicked.connect(on_load)
         hist_print_btn.clicked.connect(on_hist_print)
+        hist_dup_btn.clicked.connect(on_hist_dup)
 
         close_btn = QPushButton("Close")
         close_btn.setStyleSheet(
@@ -1692,3 +1777,4 @@ class WarehouseTransferScreen(QWidget):
         self._refresh_table()
         self._refresh_totals()
         self._print_btn.setEnabled(True)
+        self._dup_btn.setEnabled(True)
