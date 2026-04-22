@@ -53,16 +53,29 @@ class StockHub(QWidget):
 
         for i, (label, key) in enumerate(STOCK_TOOLS):
             btn = QPushButton(label)
-            btn.setObjectName("hubTile")
             btn.setFixedSize(190, 80)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setStyleSheet("""
-                QPushButton#hubTile {
-                    font-size: 13px;
-                    font-weight: 600;
-                    text-align: center;
-                }
-            """)
+            if key == "warehouse_transfer":
+                btn.setStyleSheet("""
+                    QPushButton {
+                        font-size: 13px; font-weight: 700;
+                        text-align: center;
+                        background: #1a6cb5; color: #ffffff;
+                        border: 2px solid #0d47a1;
+                        border-radius: 6px;
+                    }
+                    QPushButton:hover { background: #0d47a1; }
+                    QPushButton:pressed { background: #082c6b; }
+                """)
+            else:
+                btn.setObjectName("hubTile")
+                btn.setStyleSheet("""
+                    QPushButton#hubTile {
+                        font-size: 13px;
+                        font-weight: 600;
+                        text-align: center;
+                    }
+                """)
             btn.clicked.connect(lambda checked=False, k=key: self.tool_requested.emit(k))
             row, col = divmod(i, 6)
             grid.addWidget(btn, row, col)
