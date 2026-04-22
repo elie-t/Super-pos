@@ -230,9 +230,16 @@ def pull_new_orders() -> tuple[int, str]:
         return 0, "Supabase not configured"
 
     # ── 1. Fetch remote orders (no DB session open) ───────────────────────────
+    # Filter by this branch's warehouse UUID so branches don't steal each other's
+    # orders: main branch racing Hazmieh was marking Hazmieh orders as confirmed
+    # before Hazmieh's POS could pull them, causing lost alerts.
+    # Also include orders with no branch set (branch_id IS NULL) for backward compat.
+    branch_filter = ""
+    if BRANCH_ID and BRANCH_ID not in ("default", ""):
+        branch_filter = f"&or=(branch_id.eq.{BRANCH_ID},branch_id.is.null)"
     try:
         r = requests.get(
-            f"{_url('orders')}?status=eq.new&order=created_at.asc",
+            f"{_url('orders')}?status=eq.new{branch_filter}&order=created_at.asc",
             headers={**_headers(), "Prefer": ""},
             timeout=15,
         )
