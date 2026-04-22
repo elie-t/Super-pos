@@ -194,6 +194,11 @@ class MainWindow(QMainWindow):
             w = SettingsScreen()
             w.back.connect(self._go_dashboard)
             return w
+        if key == "suppliers":
+            from ui.screens.purchase.supplier_list import SupplierListScreen
+            w = SupplierListScreen()
+            w.back.connect(self._go_dashboard)
+            return w
         if key == "app_manager":
             from ui.screens.app.app_manager_screen import AppManagerScreen
             w = AppManagerScreen()
