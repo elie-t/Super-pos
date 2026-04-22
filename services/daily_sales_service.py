@@ -249,22 +249,23 @@ class DailySalesService:
     def close_shift(warehouse_id: str = "") -> tuple[int, str]:
         """
         1. Export all non-archived finalized POS invoices to a JSON shift file.
-        2. Create one consolidated SalesInvoice (source='pos_shift') that
-           aggregates all items sold — for the Sales module.
+        2. Create one consolidated SalesInvoice (source='pos_shift') PER DAY,
+           grouping invoices by invoice_date so multi-day shifts produce one
+           invoice per day each dated correctly.
            Stock is NOT re-deducted (POS already did it per-sale).
         3. Mark all POS invoices as archived.
         Returns (count_archived, filepath).
         """
+        from collections import defaultdict
         from database.models.base import new_uuid
-        from database.models.items import ItemStock
+        from database.models.parties import Customer
 
         report = DailySalesService.get_report(archived=False, warehouse_id=warehouse_id)
 
         export_dir = Path.home() / "Documents" / "TannouryMarket" / "shifts"
         export_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        today_str  = datetime.now().strftime("%Y-%m-%d")
-        filepath   = export_dir / f"shift_{timestamp}.json"
+        filepath  = export_dir / f"shift_{timestamp}.json"
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump({
                 "exported_at":  datetime.now().isoformat(),
@@ -292,122 +293,132 @@ class DailySalesService:
 
             invoice_ids = [inv.id for inv in open_invoices]
 
-            # ── Aggregate line items by item_id ───────────────────────────────
+            # ── Fetch all line items, indexed by invoice_id ───────────────────
             all_lines = (
                 session.query(SalesInvoiceItem)
                 .filter(SalesInvoiceItem.invoice_id.in_(invoice_ids))
                 .all()
             )
-
-            agg: dict[str, dict] = {}   # item_id → {name, qty, unit_price, currency, line_total}
+            lines_by_invoice: dict[str, list] = defaultdict(list)
             for li in all_lines:
-                if li.item_id not in agg:
-                    agg[li.item_id] = {
-                        "name":       li.item_name,
-                        "qty":        0.0,
-                        "line_total": 0.0,
-                        "currency":   li.currency,
-                        "disc":       li.discount_pct,
-                        "vat":        li.vat_pct,
-                    }
-                agg[li.item_id]["qty"]        += li.quantity
-                agg[li.item_id]["line_total"] += li.line_total
+                lines_by_invoice[li.invoice_id].append(li)
 
-            # ── Build shift invoice number ─────────────────────────────────────
-            date_tag  = datetime.now().strftime("%Y%m%d")
-            # Count existing shift invoices for today to get a sequence
-            existing_shift = session.query(SalesInvoice).filter(
-                SalesInvoice.source       == "pos_shift",
-                SalesInvoice.invoice_date == today_str,
-            ).count()
-            shift_number = f"SH-{date_tag}-{existing_shift + 1:03d}"
-
-            # Determine primary warehouse
-            wh_id = warehouse_id or (open_invoices[0].warehouse_id if open_invoices else "")
-            op_id = open_invoices[0].operator_id if open_invoices else ""
-
-            # Walk-in customer
-            from database.models.parties import Customer
-            walk_in = session.query(Customer).filter_by(is_cash_client=True).first()
-            customer_id = walk_in.id if walk_in else open_invoices[0].customer_id
-
-            shift_total    = sum(inv.total           for inv in open_invoices)
-            shift_subtotal = sum(inv.subtotal        for inv in open_invoices)
-            shift_disc     = sum(inv.discount_value  for inv in open_invoices)
-            shift_vat      = sum(inv.vat_value       for inv in open_invoices)
-            shift_paid     = sum(inv.amount_paid     for inv in open_invoices)
-
-            # Determine currency (use the dominant one)
-            cur_totals: dict[str, float] = {}
+            # ── Group invoices by their date ──────────────────────────────────
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            by_date: dict[str, list] = defaultdict(list)
             for inv in open_invoices:
-                cur_totals[inv.currency] = cur_totals.get(inv.currency, 0) + inv.total
-            shift_currency = max(cur_totals, key=cur_totals.get) if cur_totals else "LBP"
+                by_date[inv.invoice_date or today_str].append(inv)
 
-            shift_pay_status = (
-                "paid"    if shift_paid >= shift_total else
-                "partial" if shift_paid > 0 else
-                "unpaid"
-            )
+            walk_in = session.query(Customer).filter_by(is_cash_client=True).first()
+            wh_id   = warehouse_id or open_invoices[0].warehouse_id or ""
 
-            # ── Create consolidated SalesInvoice ──────────────────────────────
-            shift_inv = SalesInvoice(
-                id             = new_uuid(),
-                invoice_number = shift_number,
-                customer_id    = customer_id,
-                operator_id    = op_id,
-                warehouse_id   = wh_id,
-                invoice_date   = today_str,
-                invoice_type   = "sale",
-                source         = "pos_shift",
-                subtotal       = shift_subtotal,
-                discount_value = shift_disc,
-                vat_value      = shift_vat,
-                total          = shift_total,
-                currency       = shift_currency,
-                status         = "finalized",
-                payment_status = shift_pay_status,
-                amount_paid    = shift_paid,
-                notes          = f"Shift close: {count} POS invoices · {timestamp}",
-                is_archived    = False,
-            )
-            session.add(shift_inv)
-            session.flush()
+            created_shift_ids: list[tuple[str, list[str]]] = []
 
-            # ── Add aggregated line items (no new stock deduction) ────────────
-            for item_id, d in agg.items():
-                qty        = d["qty"]
-                line_total = d["line_total"]
-                unit_price = (line_total / qty) if qty else 0.0
-                session.add(SalesInvoiceItem(
-                    id           = new_uuid(),
-                    invoice_id   = shift_inv.id,
-                    item_id      = item_id,
-                    item_name    = d["name"],
-                    quantity     = qty,
-                    unit_price   = round(unit_price, 4),
-                    currency     = d["currency"],
-                    discount_pct = d["disc"],
-                    vat_pct      = d["vat"],
-                    line_total   = round(line_total, 4),
-                ))
+            # ── One shift invoice per day ─────────────────────────────────────
+            for date_key in sorted(by_date.keys()):
+                day_invoices = by_date[date_key]
+                date_tag     = date_key.replace("-", "")
+
+                # Aggregate line items for this day
+                agg: dict[str, dict] = {}
+                for inv in day_invoices:
+                    for li in lines_by_invoice.get(inv.id, []):
+                        if li.item_id not in agg:
+                            agg[li.item_id] = {
+                                "name":       li.item_name,
+                                "qty":        0.0,
+                                "line_total": 0.0,
+                                "currency":   li.currency,
+                                "disc":       li.discount_pct,
+                                "vat":        li.vat_pct,
+                            }
+                        agg[li.item_id]["qty"]        += li.quantity
+                        agg[li.item_id]["line_total"] += li.line_total
+
+                # Sequential shift number for this date (flush makes prior ones visible)
+                existing = session.query(SalesInvoice).filter(
+                    SalesInvoice.source       == "pos_shift",
+                    SalesInvoice.invoice_date == date_key,
+                ).count()
+                shift_number = f"SH-{date_tag}-{existing + 1:03d}"
+
+                op_id       = day_invoices[0].operator_id or ""
+                customer_id = walk_in.id if walk_in else day_invoices[0].customer_id
+
+                shift_total    = sum(inv.total          for inv in day_invoices)
+                shift_subtotal = sum(inv.subtotal       for inv in day_invoices)
+                shift_disc     = sum(inv.discount_value for inv in day_invoices)
+                shift_vat      = sum(inv.vat_value      for inv in day_invoices)
+                shift_paid     = sum(inv.amount_paid    for inv in day_invoices)
+
+                cur_totals: dict[str, float] = {}
+                for inv in day_invoices:
+                    cur_totals[inv.currency] = cur_totals.get(inv.currency, 0) + inv.total
+                shift_currency = max(cur_totals, key=cur_totals.get) if cur_totals else "LBP"
+
+                shift_pay_status = (
+                    "paid"    if shift_paid >= shift_total else
+                    "partial" if shift_paid > 0 else
+                    "unpaid"
+                )
+
+                shift_inv = SalesInvoice(
+                    id             = new_uuid(),
+                    invoice_number = shift_number,
+                    customer_id    = customer_id,
+                    operator_id    = op_id,
+                    warehouse_id   = wh_id,
+                    invoice_date   = date_key,
+                    invoice_type   = "sale",
+                    source         = "pos_shift",
+                    subtotal       = shift_subtotal,
+                    discount_value = shift_disc,
+                    vat_value      = shift_vat,
+                    total          = shift_total,
+                    currency       = shift_currency,
+                    status         = "finalized",
+                    payment_status = shift_pay_status,
+                    amount_paid    = shift_paid,
+                    notes          = f"Shift close: {len(day_invoices)} POS invoices · {timestamp}",
+                    is_archived    = False,
+                )
+                session.add(shift_inv)
+                session.flush()  # makes this invoice visible to the next iteration's count
+
+                for item_id, d in agg.items():
+                    qty        = d["qty"]
+                    line_total = d["line_total"]
+                    unit_price = (line_total / qty) if qty else 0.0
+                    session.add(SalesInvoiceItem(
+                        id           = new_uuid(),
+                        invoice_id   = shift_inv.id,
+                        item_id      = item_id,
+                        item_name    = d["name"],
+                        quantity     = qty,
+                        unit_price   = round(unit_price, 4),
+                        currency     = d["currency"],
+                        discount_pct = d["disc"],
+                        vat_pct      = d["vat"],
+                        line_total   = round(line_total, 4),
+                    ))
+
+                created_shift_ids.append((shift_inv.id, list(agg.keys())))
 
             # ── Archive all POS invoices ───────────────────────────────────────
             for inv in open_invoices:
                 inv.is_archived = True
 
             session.commit()
-            try:
-                from sync.service import enqueue
-                item_ids = list(agg.keys())
-                enqueue("sales_invoice", shift_inv.id, "create", {"item_ids": item_ids})
-            except Exception:
-                pass
 
-            # ── Cloud cleanup: delete individual pos, keep shift invoice only ──
-            # The shift invoice was already enqueued to sales_invoices_central above.
-            # pull_sales_invoices on other branches will create the stock movement
-            # from that invoice — no need to also push to stock_movements_central
-            # (doing so caused ghost duplicate movements on main).
+            # ── Enqueue all shift invoices for sync ───────────────────────────
+            for shift_id, item_ids in created_shift_ids:
+                try:
+                    from sync.service import enqueue
+                    enqueue("sales_invoice", shift_id, "create", {"item_ids": item_ids})
+                except Exception:
+                    pass
+
+            # ── Cloud cleanup: delete individual pos, keep shift invoices only ─
             try:
                 from sync.service import (
                     is_configured, _url, _headers, BRANCH_ID
@@ -416,12 +427,10 @@ class DailySalesService:
 
                 if is_configured() and invoice_ids:
                     ids_csv = ",".join(invoice_ids)
-                    # Delete individual pos invoice movements from cloud
                     _req.delete(
                         f"{_url('stock_movements_central')}?reference_id=in.({ids_csv})&branch_id=eq.{BRANCH_ID}",
                         headers=_headers(), timeout=20,
                     )
-                    # Delete individual pos invoices from cloud
                     _req.delete(
                         f"{_url('sales_invoice_items_central')}?invoice_id=in.({ids_csv})",
                         headers=_headers(), timeout=20,
