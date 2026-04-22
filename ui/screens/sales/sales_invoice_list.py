@@ -443,8 +443,8 @@ class SalesInvoiceListScreen(QWidget):
         self._table.doubleClicked.connect(self._open_detail)
         self._table.selectionModel().selectionChanged.connect(self._on_selection)
         hdr = self._table.horizontalHeader()
-        # Invoice#=160, W=36, Date=105, Branch stretches, Amount=130, Cashier=130, Status=80
-        for c, w in ((0, 160), (1, 36), (2, 105), (4, 130), (5, 130), (6, 80)):
+        # Invoice#=160, W=36, Date=105, Branch stretches, Amount=160, Cashier=130, Status=80
+        for c, w in ((0, 160), (1, 36), (2, 105), (4, 160), (5, 130), (6, 80)):
             hdr.setSectionResizeMode(c, QHeaderView.Fixed)
             self._table.setColumnWidth(c, w)
         hdr.setSectionResizeMode(3, QHeaderView.Stretch)
