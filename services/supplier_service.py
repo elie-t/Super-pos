@@ -109,6 +109,65 @@ class SupplierService:
             session.close()
 
     @staticmethod
+    def merge(keep_id: str, drop_id: str) -> tuple[bool, str]:
+        """
+        Re-point every reference from drop_id → keep_id, fold the balance,
+        then deactivate drop. No UUIDs are changed or deleted.
+        """
+        if keep_id == drop_id:
+            return False, "Cannot merge a supplier with itself."
+        init_db()
+        session = get_session()
+        try:
+            from database.models.invoices import PurchaseInvoice
+            from database.models.items import Item
+            from database.models.financials import Payment
+
+            keep = session.query(Supplier).filter_by(id=keep_id).first()
+            drop = session.query(Supplier).filter_by(id=drop_id).first()
+            if not keep or not drop:
+                return False, "One or both suppliers not found."
+
+            session.query(PurchaseInvoice).filter_by(supplier_id=drop_id).update(
+                {"supplier_id": keep_id}, synchronize_session=False
+            )
+            session.query(Item).filter_by(default_supplier_id=drop_id).update(
+                {"default_supplier_id": keep_id}, synchronize_session=False
+            )
+            session.query(Payment).filter_by(party_id=drop_id).update(
+                {"party_id": keep_id}, synchronize_session=False
+            )
+
+            keep.balance += drop.balance
+            drop.is_active = False
+            drop.notes = ((drop.notes or "") + f"\n[Merged into {keep.name} / {keep_id}]").strip()
+
+            session.commit()
+            return True, ""
+        except Exception as e:
+            session.rollback()
+            return False, str(e)
+        finally:
+            session.close()
+
+    @staticmethod
+    def merge_preview(drop_id: str) -> dict:
+        """Return counts of records that would be re-pointed."""
+        init_db()
+        session = get_session()
+        try:
+            from database.models.invoices import PurchaseInvoice
+            from database.models.items import Item
+            from database.models.financials import Payment
+            return {
+                "purchase_invoices": session.query(PurchaseInvoice).filter_by(supplier_id=drop_id).count(),
+                "items":             session.query(Item).filter_by(default_supplier_id=drop_id).count(),
+                "payments":          session.query(Payment).filter_by(party_id=drop_id).count(),
+            }
+        finally:
+            session.close()
+
+    @staticmethod
     def count(query: str = "") -> int:
         init_db()
         session = get_session()

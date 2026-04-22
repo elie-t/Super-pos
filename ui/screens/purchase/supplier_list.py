@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView,
     QCheckBox, QComboBox, QDoubleSpinBox, QTextEdit,
-    QSplitter, QMessageBox,
+    QSplitter, QMessageBox, QDialog, QDialogButtonBox,
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QFont
@@ -56,6 +56,17 @@ class SupplierListScreen(QWidget):
         title.setStyleSheet("color:#fff;font-size:15px;font-weight:700;margin-left:12px;")
         bar_lay.addWidget(title)
         bar_lay.addStretch()
+
+        merge_btn = QPushButton("⛙  Merge Suppliers…")
+        merge_btn.setStyleSheet(
+            "QPushButton{background:#e65100;color:#fff;border:none;"
+            "border-radius:4px;padding:4px 14px;font-size:12px;font-weight:700;}"
+            "QPushButton:hover{background:#bf360c;}"
+        )
+        merge_btn.setFixedHeight(28)
+        merge_btn.setCursor(Qt.PointingHandCursor)
+        merge_btn.clicked.connect(self._open_merge_dialog)
+        bar_lay.addWidget(merge_btn)
 
         new_btn = QPushButton("+ New Supplier")
         new_btn.setStyleSheet(
@@ -321,6 +332,12 @@ class SupplierListScreen(QWidget):
         self._table.clearSelection()
         self._clear_form()
 
+    def _open_merge_dialog(self):
+        dlg = MergeSuppliersDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            self._load_list()
+            self._clear_form()
+
     def _save(self):
         name = self._f_name.text().strip()
         if not name:
@@ -360,3 +377,128 @@ class SupplierListScreen(QWidget):
         else:
             self._status_lbl.setStyleSheet("font-size:11px; color:#c62828;")
             self._status_lbl.setText(f"✘ {err}")
+
+
+# ── Merge dialog ───────────────────────────────────────────────────────────────
+
+class MergeSuppliersDialog(QDialog):
+    """
+    Pick a supplier to KEEP and one to MERGE AWAY.
+    All purchase invoices, item defaults, and payments are re-pointed from
+    the merged-away supplier to the kept supplier. No UUIDs are deleted.
+    The merged-away supplier is deactivated.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Merge Suppliers")
+        self.setFixedWidth(480)
+        self._all: list[SupplierRow] = []
+        self._build()
+        self._load_suppliers()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setSpacing(12)
+        root.setContentsMargins(20, 16, 20, 16)
+
+        info = QLabel(
+            "All purchase invoices, item default suppliers, and payments linked to the\n"
+            "<b>Merge Away</b> supplier will be re-pointed to the <b>Keep</b> supplier.\n"
+            "The merged-away supplier is then deactivated (not deleted)."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color:#444;font-size:12px;background:#fff8e1;"
+                           "border:1px solid #ffe082;border-radius:4px;padding:8px;")
+        root.addWidget(info)
+
+        def _row(label_text):
+            row = QHBoxLayout()
+            lbl = QLabel(label_text)
+            lbl.setFixedWidth(110)
+            lbl.setStyleSheet("font-weight:700;font-size:12px;")
+            combo = QComboBox()
+            combo.setFixedHeight(32)
+            combo.setMinimumWidth(300)
+            row.addWidget(lbl)
+            row.addWidget(combo)
+            root.addLayout(row)
+            return combo
+
+        self._keep_combo = _row("Keep:")
+        self._drop_combo = _row("Merge Away:")
+        self._drop_combo.currentIndexChanged.connect(self._update_preview)
+
+        self._preview_lbl = QLabel("")
+        self._preview_lbl.setStyleSheet(
+            "font-size:11px;color:#1a3a5c;background:#e8f5e9;"
+            "border:1px solid #a5d6a7;border-radius:4px;padding:6px;"
+        )
+        self._preview_lbl.setWordWrap(True)
+        root.addWidget(self._preview_lbl)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.button(QDialogButtonBox.Ok).setText("Merge")
+        btns.button(QDialogButtonBox.Ok).setStyleSheet(
+            "QPushButton{background:#e65100;color:#fff;border:none;"
+            "border-radius:4px;font-weight:700;padding:4px 18px;}"
+            "QPushButton:hover{background:#bf360c;}"
+        )
+        btns.accepted.connect(self._do_merge)
+        btns.rejected.connect(self.reject)
+        root.addWidget(btns)
+
+    def _load_suppliers(self):
+        self._all = SupplierService.search(limit=2000)
+        for combo in (self._keep_combo, self._drop_combo):
+            combo.clear()
+            combo.addItem("— select —", "")
+            for s in self._all:
+                label = f"{s.name}"
+                if s.code:
+                    label += f"  [{s.code}]"
+                if not s.is_active:
+                    label += "  (inactive)"
+                combo.addItem(label, s.id)
+        self._update_preview()
+
+    def _update_preview(self):
+        drop_id = self._drop_combo.currentData()
+        if not drop_id:
+            self._preview_lbl.setText("Select both suppliers to see what will be moved.")
+            return
+        counts = SupplierService.merge_preview(drop_id)
+        self._preview_lbl.setText(
+            f"Records that will be re-pointed:\n"
+            f"  • Purchase invoices: {counts['purchase_invoices']}\n"
+            f"  • Item default suppliers: {counts['items']}\n"
+            f"  • Payments: {counts['payments']}"
+        )
+
+    def _do_merge(self):
+        keep_id = self._keep_combo.currentData()
+        drop_id = self._drop_combo.currentData()
+        if not keep_id or not drop_id:
+            QMessageBox.warning(self, "Merge", "Please select both suppliers.")
+            return
+        if keep_id == drop_id:
+            QMessageBox.warning(self, "Merge", "Keep and Merge Away must be different suppliers.")
+            return
+
+        keep_name = self._keep_combo.currentText()
+        drop_name = self._drop_combo.currentText()
+        if QMessageBox.question(
+            self, "Confirm Merge",
+            f"Merge  <b>{drop_name}</b>  into  <b>{keep_name}</b>?\n\n"
+            "This re-points all linked records and deactivates the merged-away supplier.\n"
+            "This cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+
+        ok, err = SupplierService.merge(keep_id, drop_id)
+        if ok:
+            QMessageBox.information(self, "Done", f"✔ Merged successfully into {keep_name}.")
+            self.accept()
+        else:
+            QMessageBox.critical(self, "Error", f"Merge failed:\n{err}")
