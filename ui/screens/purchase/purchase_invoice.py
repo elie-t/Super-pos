@@ -1538,6 +1538,8 @@ class PurchaseInvoiceScreen(QWidget):
             self._lines.append(line)
 
         self._refresh_table()
+        if self._lines:
+            self._table.scrollToItem(self._table.item(len(self._lines) - 1, 0))
         self._refresh_totals()
         self._clear_entry()
 
@@ -1663,8 +1665,6 @@ class PurchaseInvoiceScreen(QWidget):
             self._table.setCellWidget(row, self.COL_DEL, del_btn)
 
         self._table_updating = False
-        if self._lines:
-            self._table.scrollToItem(self._table.item(len(self._lines) - 1, 0))
 
     def _on_cell_edited(self, cell):
         if self._table_updating:
@@ -1709,6 +1709,7 @@ class PurchaseInvoiceScreen(QWidget):
                 line["price"] = round(val / denom, 4)
             line["total"] = val
             self._refresh_table()
+            self._table.scrollToItem(self._table.item(row, col), QAbstractItemView.PositionAtCenter)
             self._refresh_totals()
             return
 
@@ -1721,6 +1722,7 @@ class PurchaseInvoiceScreen(QWidget):
         line["total"] = round(qty * price * (1 - disc / 100) * (1 + vat / 100), 2)
 
         self._refresh_table()
+        self._table.scrollToItem(self._table.item(row, col), QAbstractItemView.PositionAtCenter)
         self._refresh_totals()
 
     def _on_row_selected(self):

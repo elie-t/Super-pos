@@ -3487,7 +3487,7 @@ def pull_delivery_invoice_items(invoice_id: str) -> tuple[list[dict], str]:
     if not is_configured():
         return [], "Supabase not configured"
     try:
-        params = f"invoice_id=eq.{invoice_id}&order=id.asc"
+        params = f"invoice_id=eq.{invoice_id}&order=sort_order.asc,id.asc"
         r = requests.get(
             f"{_url('purchase_invoice_items_central')}?{params}",
             headers={**_headers(), "Prefer": ""},

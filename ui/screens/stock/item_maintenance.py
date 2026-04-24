@@ -1340,32 +1340,30 @@ class ItemMaintenanceScreen(QWidget):
                         except ValueError:
                             pass
 
-                # If this is a pkg=1 row, propagate cost to all other pkg=1 rows
-                if pkg == 1:
-                    for other_r in range(self._price_table.rowCount()):
-                        if other_r == row:
-                            continue
-                        other_pkg_item = self._price_table.item(other_r, 2)
-                        try:
-                            other_pkg = int(other_pkg_item.text()) if other_pkg_item else 1
-                        except ValueError:
-                            other_pkg = 1
-                        if other_pkg != 1:
-                            continue
-                        other_cost_item = self._price_table.item(other_r, 3)
-                        if other_cost_item:
-                            other_cost_item.setText(f"{cost_usd:.4f}")
-                        # Recalc prices for the other row using its existing %
-                        for i, (pct_col, price_col) in enumerate(PRICE_PAIRS):
-                            other_pct_item   = self._price_table.item(other_r, pct_col)
-                            other_price_item = self._price_table.item(other_r, price_col)
-                            if other_pct_item and other_price_item and cost_usd > 0:
-                                try:
-                                    pct  = float(other_pct_item.text())
-                                    base = self._base_cost_for_currency(cost_usd, i)
-                                    other_price_item.setText(f"{base * (1 + pct / 100):.4f}")
-                                except ValueError:
-                                    pass
+                # Propagate the derived unit cost to every other row (scaled by that row's pkg)
+                for other_r in range(self._price_table.rowCount()):
+                    if other_r == row:
+                        continue
+                    other_pkg_item = self._price_table.item(other_r, 2)
+                    try:
+                        other_pkg = int(other_pkg_item.text()) if other_pkg_item else 1
+                    except ValueError:
+                        other_pkg = 1
+                    other_row_cost = unit_cost * other_pkg
+                    other_cost_item = self._price_table.item(other_r, 3)
+                    if other_cost_item:
+                        other_cost_item.setText(f"{other_row_cost:.4f}")
+                    # Recalc prices for the other row using its existing %
+                    for i, (pct_col, price_col) in enumerate(PRICE_PAIRS):
+                        other_pct_item   = self._price_table.item(other_r, pct_col)
+                        other_price_item = self._price_table.item(other_r, price_col)
+                        if other_pct_item and other_price_item and other_row_cost > 0:
+                            try:
+                                pct  = float(other_pct_item.text())
+                                base = self._base_cost_for_currency(other_row_cost, i)
+                                other_price_item.setText(f"{base * (1 + pct / 100):.4f}")
+                            except ValueError:
+                                pass
 
             elif col in (4, 6, 8, 10):
                 # % changed → recalc price for this row AND propagate same % to all other rows
