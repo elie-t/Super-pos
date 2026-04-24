@@ -657,10 +657,11 @@ class PurchaseService:
             for li in session.query(PurchaseInvoiceItem).filter_by(invoice_id=invoice_id).all():
                 item = session.query(Item).filter_by(id=li.item_id).first()
                 prices = session.query(ItemPrice).filter_by(item_id=li.item_id).all()
-                price_map = {
-                    p.price_type: {"id": p.id, "amount": p.amount, "currency": p.currency}
-                    for p in prices
-                }
+                # Prefer pack_qty=1 (per-piece) prices; box prices are irrelevant for the review
+                price_map: dict = {}
+                for p in prices:
+                    if p.price_type not in price_map or p.pack_qty == 1:
+                        price_map[p.price_type] = {"id": p.id, "amount": p.amount, "currency": p.currency}
                 cost_usd = li.unit_cost if inv.currency == "USD" else li.unit_cost / 89500.0
                 result.append({
                     "item_id":      li.item_id,

@@ -3487,15 +3487,19 @@ def pull_delivery_invoice_items(invoice_id: str) -> tuple[list[dict], str]:
     if not is_configured():
         return [], "Supabase not configured"
     try:
-        params = f"invoice_id=eq.{invoice_id}&order=sort_order.asc,id.asc"
-        r = requests.get(
-            f"{_url('purchase_invoice_items_central')}?{params}",
-            headers={**_headers(), "Prefer": ""},
-            timeout=15,
-        )
-        if r.status_code != 200:
+        for order in ("sort_order.asc,id.asc", "id.asc"):
+            params = f"invoice_id=eq.{invoice_id}&order={order}"
+            r = requests.get(
+                f"{_url('purchase_invoice_items_central')}?{params}",
+                headers={**_headers(), "Prefer": ""},
+                timeout=15,
+            )
+            if r.status_code == 200:
+                return r.json(), ""
+            if r.status_code == 400 and "sort_order" in r.text:
+                continue  # column not yet added to Supabase — retry without it
             return [], f"HTTP {r.status_code}: {r.text[:200]}"
-        return r.json(), ""
+        return [], "sort_order column missing — run: ALTER TABLE purchase_invoice_items_central ADD COLUMN sort_order INTEGER DEFAULT 0"
     except Exception as exc:
         return [], str(exc)
 
