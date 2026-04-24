@@ -610,7 +610,8 @@ class ItemMaintenanceScreen(QWidget):
         sep.setStyleSheet("color:#c0ccd8; margin:2px 0;")
         layout.addWidget(sep)
 
-        layout.addWidget(_btn("✖  Delete",  "#c62828", "#e53935", self._confirm_delete))
+        self._delete_btn = _btn("✖  Delete",  "#c62828", "#e53935", self._confirm_delete)
+        layout.addWidget(self._delete_btn)
         layout.addWidget(_btn("←  Close",   "#546e7a", "#78909c", self.back.emit))
 
         layout.addStretch()
@@ -903,6 +904,9 @@ class ItemMaintenanceScreen(QWidget):
 
         # Load suppliers
         self._load_suppliers(detail)
+
+        # Reflect active state on delete/activate button
+        self._refresh_delete_btn(detail.is_active)
 
     def _rebuild_price_table(self, detail: ItemDetail):
         """One row per barcode — each with Cost + price columns."""
@@ -1666,19 +1670,38 @@ class ItemMaintenanceScreen(QWidget):
         self._photo_url_edit.clear()
         self._refresh_photo_preview()
 
+    def _refresh_delete_btn(self, is_active: bool):
+        if is_active:
+            label, bg, hover = "✖  Delete", "#c62828", "#e53935"
+        else:
+            label, bg, hover = "✔  Activate", "#2e7d32", "#388e3c"
+        self._delete_btn.setText(label)
+        self._delete_btn.setStyleSheet(
+            f"QPushButton {{ background:{bg}; color:#fff; border:none; border-radius:6px; "
+            f"font-weight:700; font-size:12px; }}"
+            f"QPushButton:hover {{ background:{hover}; }}"
+        )
+
     def _confirm_delete(self):
         if self._is_new:
             return
-        reply = QMessageBox.question(
-            self, "Confirm Delete",
-            f"Delete item '{self._name_edit.text()}'?\nThis cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No,
-        )
+        is_active = self._detail.is_active if self._detail else True
+        if is_active:
+            msg = f"Deactivate item '{self._name_edit.text()}'?"
+        else:
+            msg = f"Activate item '{self._name_edit.text()}'?"
+        reply = QMessageBox.question(self, "Confirm", msg, QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             ok, err = ItemService.toggle_active(self._item_id)
             if ok:
-                self._status_lbl.setStyleSheet("color:#2e7d32;")
-                self._status_lbl.setText("Item deactivated.")
+                self._detail.is_active = not is_active
+                self._refresh_delete_btn(self._detail.is_active)
+                if self._detail.is_active:
+                    self._status_lbl.setStyleSheet("color:#2e7d32;")
+                    self._status_lbl.setText("Item activated.")
+                else:
+                    self._status_lbl.setStyleSheet("color:#e65100;")
+                    self._status_lbl.setText("Item deactivated.")
 
     def _go_search(self):
         self.back.emit()
