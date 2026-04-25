@@ -119,19 +119,25 @@ try:
         item.category_id     = cats.get(ri.get("category") or "")
         item.brand_id        = brands.get(ri.get("brand") or "")
         items_done += 1
+        local_item_id = item.id  # may differ from ri["id"] on code-collision merges
 
         for rp in prices_by_item.get(ri["id"], []):
             price = session.get(ItemPrice, rp["id"])
             if not price:
-                price = ItemPrice(id=rp["id"], item_id=ri["id"])
+                price = session.query(ItemPrice).filter_by(
+                    item_id=local_item_id,
+                    price_type=rp["price_type"],
+                    currency=rp["currency"],
+                    pack_qty=int(rp.get("pack_qty") or 1),
+                ).first()
+            if not price:
+                price = ItemPrice(id=rp["id"], item_id=local_item_id)
                 session.add(price)
             price.price_type = rp["price_type"]
             price.amount     = rp["amount"]
             price.currency   = rp["currency"]
             price.pack_qty   = int(rp.get("pack_qty") or 1)
             prices_done += 1
-
-        local_item_id = item.id  # may differ from ri["id"] on code-collision merges
         for rb in barcodes_by_item.get(ri["id"], []):
             bc = session.get(ItemBarcode, rb["id"])
             if not bc:
