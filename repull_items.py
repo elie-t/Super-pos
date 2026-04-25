@@ -92,12 +92,19 @@ items_done = prices_done = barcodes_done = 0
 
 try:
     for ri in remote_items:
+        code_str = ri.get("code") or ri["id"][:12]
         item = session.get(Item, ri["id"])
         if not item:
-            item = Item(id=ri["id"])
-            session.add(item)
+            # Check for code collision — another local row already has this code
+            existing = session.query(Item).filter_by(code=code_str).first()
+            if existing:
+                # Update the existing row in-place instead of inserting a duplicate
+                item = existing
+            else:
+                item = Item(id=ri["id"])
+                session.add(item)
 
-        item.code            = ri.get("code") or ri["id"][:12]
+        item.code            = code_str
         item.name            = ri.get("name") or ri.get("code") or ri["id"][:12]
         item.name_ar         = ri.get("name_ar") or ""
         item.unit            = ri.get("unit") or "PCS"
