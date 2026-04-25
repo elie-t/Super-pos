@@ -111,6 +111,7 @@ try:
             price.price_type = rp["price_type"]
             price.amount     = rp["amount"]
             price.currency   = rp["currency"]
+            price.pack_qty   = int(rp.get("pack_qty") or 1)
             prices_done += 1
 
         for rb in barcodes_by_item.get(ri["id"], []):
@@ -143,6 +144,15 @@ try:
     print(f"  Items:    {items_done}")
     print(f"  Prices:   {prices_done}")
     print(f"  Barcodes: {barcodes_done}")
+
+    # Reset sync cursors so the next incremental pull starts from now
+    from sync.service import _state_set
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    _state_set("items_pull",         now)
+    _state_set("items_pull_last_id", "")
+    _state_set("item_prices_pull",   now)
+    print(f"  Sync cursors reset to {now}")
 
 except Exception as e:
     session.rollback()
