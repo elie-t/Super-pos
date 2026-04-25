@@ -30,17 +30,27 @@ HEADERS = {
 PAGE = 1000
 
 def fetch_all(table: str, label: str) -> list[dict]:
+    import time
     rows = []
     last_id = "00000000-0000-0000-0000-000000000000"
     while True:
-        r = requests.get(
-            f"{SUPABASE_URL}/rest/v1/{table}?id=gt.{last_id}&order=id.asc&limit={PAGE}",
-            headers=HEADERS, timeout=30,
-        )
-        if r.status_code != 200:
-            print(f"\nERROR {table}: HTTP {r.status_code} {r.text[:200]}")
+        url = f"{SUPABASE_URL}/rest/v1/{table}?id=gt.{last_id}&order=id.asc&limit={PAGE}"
+        page = None
+        for attempt in range(1, 6):  # up to 5 retries
+            try:
+                r = requests.get(url, headers=HEADERS, timeout=60)
+                if r.status_code != 200:
+                    print(f"\n  [{label}] HTTP {r.status_code} (attempt {attempt}/5) — retrying...")
+                    time.sleep(attempt * 3)
+                    continue
+                page = r.json()
+                break
+            except Exception as e:
+                print(f"\n  [{label}] Network error (attempt {attempt}/5): {e} — retrying...")
+                time.sleep(attempt * 3)
+        if page is None:
+            print(f"\nERROR: {label} failed after 5 attempts. Run the script again to resume.")
             sys.exit(1)
-        page = r.json()
         if not page:
             break
         rows.extend(page)
