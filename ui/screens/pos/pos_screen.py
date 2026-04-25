@@ -3627,7 +3627,7 @@ class POSScreen(QWidget):
             err_msg = ""
             count   = 0
             try:
-                from sync.service import pull_master_items, drain_sync_queue, is_configured
+                from sync.service import pull_master_items, drain_sync_queue, is_configured, pull_item_prices_only
                 if is_configured():
                     if IS_MAIN_BRANCH:
                         try:
@@ -3635,6 +3635,11 @@ class POSScreen(QWidget):
                         except Exception:
                             pass
                     count, err_msg = pull_master_items()
+                    try:
+                        n, _ = pull_item_prices_only()
+                        count += n
+                    except Exception:
+                        pass
                 else:
                     err_msg = "Sync not configured"
             except Exception as e:

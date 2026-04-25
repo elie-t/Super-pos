@@ -935,6 +935,8 @@ def pull_master_items(on_progress=None) -> tuple[int, str]:
                     headers={**_headers(), "Prefer": ""}, timeout=60,
                 )
 
+            price_fetch_ok   = False
+            barcode_fetch_ok = False
             try:
                 with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
                     _fp = _ex.submit(_fetch_prices)
@@ -944,15 +946,17 @@ def pull_master_items(on_progress=None) -> tuple[int, str]:
                         if rp.status_code == 200:
                             for p in rp.json():
                                 prices_by_item.setdefault(p["item_id"], []).append(p)
+                            price_fetch_ok = True
                     except Exception:
-                        pass  # keep prices_by_item empty — use existing local prices
+                        pass  # price_fetch_ok stays False — cursor will not advance
                     try:
                         rb = _fb.result()
                         if rb.status_code == 200:
                             for b in rb.json():
                                 barcodes_by_item.setdefault(b["item_id"], []).append(b)
+                            barcode_fetch_ok = True
                     except Exception:
-                        pass  # keep barcodes_by_item empty — use existing local barcodes
+                        pass  # barcode_fetch_ok stays False — cursor will not advance
             except Exception:
                 pass
 
@@ -1091,14 +1095,15 @@ def pull_master_items(on_progress=None) -> tuple[int, str]:
                     total_updated += 1
 
                 session.commit()
-                # Only advance cursor after a successful commit — if commit
-                # fails and rolls back, the cursor stays behind so the next
-                # pull retries these items rather than silently losing them.
-                if full_sync_mode:
-                    last_id = remote_items[-1]["id"]
-                    _state_set("items_pull_last_id", last_id)
-                else:
-                    _state_set("items_pull", latest_ts)
+                # Only advance cursor after a successful commit AND successful
+                # price/barcode fetches — if either failed the cursor stays
+                # behind so the next pull retries this batch with fresh data.
+                if price_fetch_ok and barcode_fetch_ok:
+                    if full_sync_mode:
+                        last_id = remote_items[-1]["id"]
+                        _state_set("items_pull_last_id", last_id)
+                    else:
+                        _state_set("items_pull", latest_ts)
                 if on_progress:
                     try:
                         on_progress(total_updated)
@@ -1152,6 +1157,102 @@ def reset_items_cursor() -> None:
     """
     _state_set("items_pull",         "2000-01-01T00:00:00Z")
     _state_set("items_pull_last_id", "")
+
+
+def pull_item_prices_only() -> tuple[int, str]:
+    """
+    Pull price changes from item_prices_central since last dedicated price pull.
+    Runs independently of pull_master_items so price-only updates always reach
+    branches even when the parent item's updated_at hasn't changed.
+    Only updates prices for items that already exist locally (new items arrive
+    with their prices via pull_master_items).
+    """
+    from database.engine import get_session, init_db
+    from database.models.items import Item, ItemPrice
+    from database.models.base import new_uuid
+
+    if not is_configured():
+        return 0, ""
+
+    last_pull = _state_get("item_prices_pull")
+    latest_ts = last_pull
+
+    # Safety overlap: go back 2 hours to catch any edge-case clock skew
+    try:
+        from datetime import datetime as _dt, timedelta as _td
+        _lp_dt = _dt.fromisoformat(last_pull.replace("Z", "+00:00"))
+        query_from = (_lp_dt - _td(hours=2)).strftime("%Y-%m-%dT%H:%M:%S.000000Z")
+    except Exception:
+        query_from = last_pull
+
+    PAGE = 500
+    total = 0
+    init_db()
+
+    try:
+        while True:
+            try:
+                r = requests.get(
+                    f"{_url('item_prices_central')}?updated_at=gt.{query_from}"
+                    f"&order=updated_at.asc,id.asc&limit={PAGE}",
+                    headers={**_headers(), "Prefer": ""},
+                    timeout=30,
+                )
+            except Exception as e:
+                return total, str(e)
+
+            if r.status_code != 200:
+                return total, f"HTTP {r.status_code}: {r.text[:200]}"
+
+            rows = r.json()
+            if not rows:
+                break
+
+            session = get_session()
+            try:
+                for rp in rows:
+                    item_id = rp.get("item_id", "")
+                    if not item_id:
+                        continue
+                    # Only update prices for items already present locally
+                    if not session.get(Item, item_id):
+                        latest_ts = rp.get("updated_at", latest_ts)
+                        continue
+
+                    r_pack_qty = int(rp.get("pack_qty") or 1)
+                    price = session.get(ItemPrice, rp["id"])
+                    if not price:
+                        price = session.query(ItemPrice).filter_by(
+                            item_id=item_id,
+                            price_type=rp["price_type"],
+                            currency=rp["currency"],
+                            pack_qty=r_pack_qty,
+                        ).first()
+                    if not price:
+                        price = ItemPrice(id=rp["id"], item_id=item_id)
+                        session.add(price)
+
+                    price.price_type = rp["price_type"]
+                    price.amount     = float(rp.get("amount") or 0)
+                    price.currency   = rp["currency"]
+                    price.pack_qty   = r_pack_qty
+                    latest_ts = rp.get("updated_at", latest_ts)
+                    total += 1
+
+                session.commit()
+                _state_set("item_prices_pull", latest_ts)
+            except Exception:
+                session.rollback()
+            finally:
+                session.close()
+
+            if len(rows) < PAGE:
+                break
+
+    except Exception as e:
+        return total, str(e)
+
+    return total, ""
 
 
 def pull_master_customers() -> tuple[int, str]:

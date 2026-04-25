@@ -213,10 +213,19 @@ class _SyncAllWorker(QThread):
         n_shifts, err_shifts = push_missed_shifts(days_back=60)
         results.append(f"Shift invoices pushed: {n_shifts}" + (f" ⚠ {err_shifts}" if err_shifts else ""))
 
-        # ── Always: pull incremental item changes ─────────────────────────────
+        # ── Always: pull item changes (full re-sync on branch to never miss gaps) ─
         self.progress.emit("Pulling item master data…")
+        if not IS_MAIN_BRANCH:
+            from sync.service import reset_items_cursor
+            reset_items_cursor()
         n, err = pull_master_items()
         results.append(f"Items pulled: {n}" + (f" ⚠ {err}" if err else ""))
+
+        # ── Always: dedicated price pull (catches price-only updates) ─────────
+        self.progress.emit("Pulling item prices…")
+        from sync.service import pull_item_prices_only
+        n, err = pull_item_prices_only()
+        results.append(f"Prices pulled: {n}" + (f" ⚠ {err}" if err else ""))
 
         # ── Main branch only: push only recently-changed items ────────────────
         if IS_MAIN_BRANCH:
@@ -987,7 +996,7 @@ class SettingsScreen(QWidget):
         from PySide6.QtCore import QTimer
 
         def _run():
-            from sync.service import pull_master_items, drain_sync_queue, is_configured
+            from sync.service import pull_master_items, drain_sync_queue, is_configured, pull_item_prices_only
             count, err = 0, ""
             if is_configured():
                 if IS_MAIN_BRANCH:
@@ -996,6 +1005,10 @@ class SettingsScreen(QWidget):
                     except Exception:
                         pass
                 count, err = pull_master_items()
+                try:
+                    pull_item_prices_only()
+                except Exception:
+                    pass
             QTimer.singleShot(0, lambda: self._finish_items_sync(count, err))
 
         threading.Thread(target=_run, daemon=True).start()
