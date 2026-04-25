@@ -131,6 +131,7 @@ try:
             price.pack_qty   = int(rp.get("pack_qty") or 1)
             prices_done += 1
 
+        local_item_id = item.id  # may differ from ri["id"] on code-collision merges
         for rb in barcodes_by_item.get(ri["id"], []):
             bc = session.get(ItemBarcode, rb["id"])
             if not bc:
@@ -139,13 +140,12 @@ try:
                     sa_func.lower(ItemBarcode.barcode) == rb["barcode"].lower()
                 ).first()
                 if conflict:
-                    # Update the existing row to point to the correct item
-                    conflict.item_id   = ri["id"]
+                    conflict.item_id    = local_item_id
                     conflict.is_primary = rb.get("is_primary", False)
-                    conflict.pack_qty  = rb.get("pack_qty", 1)
+                    conflict.pack_qty   = rb.get("pack_qty", 1)
                     barcodes_done += 1
                     continue
-                bc = ItemBarcode(id=rb["id"], item_id=ri["id"])
+                bc = ItemBarcode(id=rb["id"], item_id=local_item_id)
                 session.add(bc)
             bc.barcode    = rb["barcode"]
             bc.is_primary = rb.get("is_primary", False)
