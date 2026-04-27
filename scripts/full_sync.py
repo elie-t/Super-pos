@@ -158,6 +158,21 @@ def main():
     Path(PROGRESS).unlink(missing_ok=True)
     print(f"\nDone. Local DB now has {count} items.")
 
+    # Mark sync state so the next automated pull is incremental, not another full wipe.
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000000Z")
+    state_file = Path(__file__).parent.parent / ".sync_state.json"
+    try:
+        import json as _json
+        data = _json.loads(state_file.read_text()) if state_file.exists() else {}
+        data["items_pull"] = now
+        data["items_pull_last_id"] = ""
+        data["item_prices_pull"] = now
+        state_file.write_text(_json.dumps(data))
+        print(f"State file updated ({now}) — next automated pull will be incremental.")
+    except Exception as e:
+        print(f"Warning: could not update state file: {e}")
+
 
 if __name__ == "__main__":
     main()

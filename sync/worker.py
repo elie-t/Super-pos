@@ -157,8 +157,8 @@ class SyncWorker(QThread):
             self.error.emit(str(e))
 
     def _do_items_pull(self):
-        """Pull item master data + user changes from Supabase."""
-        from sync.service import pull_master_items, is_configured
+        """Pull item master data + price changes from Supabase."""
+        from sync.service import pull_master_items, pull_item_prices_only, is_configured
         if not is_configured():
             return
         try:
@@ -176,6 +176,14 @@ class SyncWorker(QThread):
                     pass
             elif count > 0:
                 self.items_updated.emit(count)
+
+            # Always pull price changes independently — catches price-only updates
+            # where the parent item's updated_at wasn't bumped in items_central.
+            price_count, price_err = pull_item_prices_only()
+            if price_err:
+                self.error.emit(f"Prices pull: {price_err}")
+            elif price_count > 0:
+                self.prices_refreshed.emit(price_count)
         except Exception as e:
             self.error.emit(str(e))
 
