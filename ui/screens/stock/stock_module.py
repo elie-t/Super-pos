@@ -57,6 +57,7 @@ from ui.screens.stock.brands           import BrandsScreen
 from ui.screens.stock.warehouse_table  import WarehouseTableScreen
 from ui.screens.stock.stock_card       import StockCardScreen
 from ui.screens.stock.warehouse_transfer_screen import WarehouseTransferScreen
+from ui.screens.stock.barcode_print_screen import BarcodePrintScreen
 
 
 class StockModule(QWidget):
@@ -100,6 +101,8 @@ class StockModule(QWidget):
             self._show("old_inventory", lambda: self._make_inventory())
         elif key == "import_items":
             self._run_import()
+        elif key == "print_barcodes":
+            self._show("print_barcodes", lambda: BarcodePrintScreen())
         else:
             # Placeholder for upcoming screens
             from PySide6.QtWidgets import QLabel

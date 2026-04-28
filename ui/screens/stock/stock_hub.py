@@ -26,6 +26,7 @@ STOCK_TOOLS = [
     # Row 3
     ("Import Items\nfrom Excel",  "import_items"),
     ("Old Inventory",             "old_inventory"),
+    ("Print Barcodes",            "print_barcodes"),
 ]
 
 
