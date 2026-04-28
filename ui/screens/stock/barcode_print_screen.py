@@ -171,14 +171,14 @@ class BarcodePrintScreen(QWidget):
         pr.addWidget(QLabel("Label (mm):"))
         self._lbl_w = QSpinBox()
         self._lbl_w.setRange(20, 200)
-        self._lbl_w.setValue(62)
+        self._lbl_w.setValue(30)
         self._lbl_w.setFixedSize(55, 30)
         self._lbl_w.setToolTip("Label width in mm")
         pr.addWidget(self._lbl_w)
         pr.addWidget(QLabel("×"))
         self._lbl_h = QSpinBox()
         self._lbl_h.setRange(10, 200)
-        self._lbl_h.setValue(29)
+        self._lbl_h.setValue(20)
         self._lbl_h.setFixedSize(55, 30)
         self._lbl_h.setToolTip("Label height in mm")
         pr.addWidget(self._lbl_h)
@@ -435,7 +435,7 @@ class BarcodePrintScreen(QWidget):
         Layout: name (top) → barcode (middle) → number + price (bottom).
         """
         from PySide6.QtGui import QPainter, QImage, QFont, QFontMetrics
-        from PySide6.QtCore import Qt as Qt_
+        from PySide6.QtCore import Qt as Qt_, QByteArray
         from PySide6.QtSvg import QSvgRenderer
 
         W   = int(w_mm * _MM_TO_PX)
@@ -485,16 +485,18 @@ class BarcodePrintScreen(QWidget):
                 buf = io.BytesIO()
                 _bc_lib.get("code128", bc_str, writer=SVGWriter()).write(buf, options={
                     "module_height": 8.0,
-                    "module_width":  0.22,
+                    "module_width":  0.35,
                     "quiet_zone":    0.5,
                     "font_size":     0,
-                    "write_text":    False,
+                    "text_distance": 0,
                     "background":    "white",
                     "foreground":    "black",
                 })
                 buf.seek(0)
 
-                renderer = QSvgRenderer(buf.read())
+                # QSvgRenderer requires QByteArray — passing raw bytes picks the
+                # wrong constructor overload and produces a solid black rectangle.
+                renderer = QSvgRenderer(QByteArray(buf.read()))
                 ds = renderer.defaultSize()
                 aspect = ds.width() / max(ds.height(), 1)
 
