@@ -335,12 +335,22 @@ class DailySalesService:
                         agg[li.item_id]["qty"]        += li.quantity
                         agg[li.item_id]["line_total"] += li.line_total
 
-                # Sequential shift number for this date (flush makes prior ones visible)
+                # Count ALL invoices whose number starts with SH-{date}- regardless
+                # of source or how they arrived (local creation vs. synced from
+                # another branch).  Counting only source='pos_shift' misses
+                # invoices that were synced in with a different source/date format,
+                # causing the sequence to collide with an existing number.
                 existing = session.query(SalesInvoice).filter(
-                    SalesInvoice.source       == "pos_shift",
-                    SalesInvoice.invoice_date == date_key,
+                    SalesInvoice.invoice_number.like(f"SH-{date_tag}-%"),
                 ).count()
                 shift_number = f"SH-{date_tag}-{existing + 1:03d}"
+                # Guarantee uniqueness even if the count is still off (e.g. two
+                # concurrent shift closes, or an orphaned record with that number).
+                while session.query(SalesInvoice).filter_by(
+                    invoice_number=shift_number
+                ).first():
+                    existing += 1
+                    shift_number = f"SH-{date_tag}-{existing + 1:03d}"
 
                 op_id       = day_invoices[0].operator_id or ""
                 customer_id = walk_in.id if walk_in else day_invoices[0].customer_id
