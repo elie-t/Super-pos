@@ -653,6 +653,11 @@ class PurchaseService:
             if not inv:
                 return []
 
+            from database.models.items import Setting
+            from config import DEFAULT_LBP_RATE
+            _rate_row = session.get(Setting, "lbp_rate")
+            lbp_rate  = int(_rate_row.value) if _rate_row and _rate_row.value else DEFAULT_LBP_RATE
+
             result = []
             for li in session.query(PurchaseInvoiceItem).filter_by(invoice_id=invoice_id).all():
                 item = session.query(Item).filter_by(id=li.item_id).first()
@@ -662,7 +667,7 @@ class PurchaseService:
                 for p in prices:
                     if p.price_type not in price_map or p.pack_qty == 1:
                         price_map[p.price_type] = {"id": p.id, "amount": p.amount, "currency": p.currency}
-                cost_usd = li.unit_cost if inv.currency == "USD" else li.unit_cost / 89500.0
+                cost_usd = li.unit_cost if inv.currency == "USD" else li.unit_cost / lbp_rate
                 result.append({
                     "item_id":      li.item_id,
                     "code":         item.code if item else "",

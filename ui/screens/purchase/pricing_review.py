@@ -11,7 +11,23 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 
-LBP_RATE = 89_500
+from config import DEFAULT_LBP_RATE
+
+
+def _load_lbp_rate() -> int:
+    try:
+        from database.engine import get_session, init_db
+        from database.models.items import Setting
+        init_db()
+        s = get_session()
+        try:
+            r = s.get(Setting, "lbp_rate")
+            return int(r.value) if r and r.value else DEFAULT_LBP_RATE
+        finally:
+            s.close()
+    except Exception:
+        return DEFAULT_LBP_RATE
+
 
 COL_ITEM  = 0
 COL_COST  = 1
@@ -34,6 +50,7 @@ class PricingReviewDialog(QDialog):
         self._invoice_id = invoice_id
         self._updating   = False
         self._row_data: list[dict] = []
+        self._lbp_rate   = _load_lbp_rate()
 
         self._build_ui()
         self._load_data()
@@ -167,7 +184,7 @@ class PricingReviewDialog(QDialog):
             price_info   = item["prices"].get("individual", {})
             old_amount   = price_info.get("amount", 0.0) or 0.0
             old_currency = price_info.get("currency", "USD") or "USD"
-            base_old     = (cost_usd * LBP_RATE) if old_currency == "LBP" else cost_usd
+            base_old     = (cost_usd * self._lbp_rate) if old_currency == "LBP" else cost_usd
             old_pct      = (old_amount / base_old - 1) * 100 if base_old > 0 and old_amount > 0 else 0.0
             rows.append({
                 "item_id":      item["item_id"],
@@ -201,7 +218,9 @@ class PricingReviewDialog(QDialog):
                 return it
 
             desc     = f"{d['description']}  [{d['code']}]"
-            cost_txt = f"{d['cost']:.4f}  {d['inv_currency']}"
+            # Always show cost in USD so the margin % is meaningful regardless
+            # of whether the purchase invoice was entered in LBP or USD.
+            cost_txt = f"{d['cost_usd']:.4f}  USD"
 
             self._table.setItem(r, COL_ITEM, ro(desc, Qt.AlignLeft | Qt.AlignVCenter))
             self._table.setItem(r, COL_COST, ro(cost_txt))
@@ -245,7 +264,7 @@ class PricingReviewDialog(QDialog):
         d = self._row_data[row]
         w = self._table.cellWidget(row, COL_CUR)
         cur = w.currentText() if w else d["new_currency"]
-        return d["cost_usd"] * LBP_RATE if cur == "LBP" else d["cost_usd"]
+        return d["cost_usd"] * self._lbp_rate if cur == "LBP" else d["cost_usd"]
 
     def _on_cell_changed(self, item):
         if self._updating:
@@ -299,7 +318,7 @@ class PricingReviewDialog(QDialog):
         try:
             d = self._row_data[row]
             d["new_currency"] = currency
-            base = d["cost_usd"] * LBP_RATE if currency == "LBP" else d["cost_usd"]
+            base = d["cost_usd"] * self._lbp_rate if currency == "LBP" else d["cost_usd"]
             if base > 0:
                 new_price = base * (1 + d["new_pct"] / 100)
                 d["new_amount"] = new_price
