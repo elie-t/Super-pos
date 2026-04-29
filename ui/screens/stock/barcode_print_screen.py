@@ -497,8 +497,11 @@ class BarcodePrintScreen(QWidget):
                 # QSvgRenderer requires QByteArray — passing raw bytes picks the
                 # wrong constructor overload and produces a solid black rectangle.
                 renderer = QSvgRenderer(QByteArray(buf.read()))
-                ds = renderer.defaultSize()
-                aspect = ds.width() / max(ds.height(), 1)
+
+                # Use viewBoxF for aspect ratio — defaultSize() depends on screen
+                # DPI and gives wrong proportions on high-DPI displays.
+                vb     = renderer.viewBoxF()
+                aspect = vb.width() / max(vb.height(), 0.01)
 
                 bc_h = max(min(bc_h_max, int(_MM_TO_PX * 12)), int(_MM_TO_PX * 4))
                 bc_w = min(int(bc_h * aspect), UW)
@@ -507,7 +510,12 @@ class BarcodePrintScreen(QWidget):
                 bc_img = QImage(bc_w, bc_h, QImage.Format.Format_ARGB32)
                 bc_img.fill(Qt_.white)
                 bc_p = QPainter(bc_img)
-                renderer.render(bc_p)
+                # Explicit bounds: forces the SVG to scale to bc_img exactly.
+                # Without this, render() uses the SVG's native screen-DPI size,
+                # which on 150+ DPI displays is wider than bc_img and clips to
+                # just the leftmost bars — producing the solid black square.
+                from PySide6.QtCore import QRectF as _QRectF
+                renderer.render(bc_p, _QRectF(0, 0, bc_w, bc_h))
                 bc_p.end()
 
                 x_bc = (W - bc_w) // 2
