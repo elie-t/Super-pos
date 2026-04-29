@@ -396,6 +396,11 @@ class DailySalesService:
                 session.flush()  # makes this invoice visible to the next iteration's count
 
                 for item_id, d in agg.items():
+                    # Skip items not present in the local items table — they
+                    # may exist on other branches but haven't synced here yet.
+                    # The FK constraint would fail without this guard.
+                    if not session.get(Item, item_id):
+                        continue
                     qty        = d["qty"]
                     line_total = d["line_total"]
                     unit_price = (line_total / qty) if qty else 0.0
