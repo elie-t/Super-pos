@@ -434,14 +434,14 @@ class BarcodePrintScreen(QWidget):
         Render one label into a QImage at _LABEL_DPI (203 DPI).
         Layout: name (top) → barcode (middle) → number + price (bottom).
         """
-        from PySide6.QtGui import QPainter, QImage, QFont, QFontMetrics, QPixmap
+        from PySide6.QtGui import QPainter, QImage, QFont, QFontMetrics
         from PySide6.QtCore import Qt as Qt_, QRectF
         import io
 
         W   = int(w_mm * _MM_TO_PX)
         H   = int(h_mm * _MM_TO_PX)
-        # Use generous internal padding to ensure thermal printers don't clip
-        PAD = max(int(_MM_TO_PX * 1.5), 10)
+        # Standard padding for thermal labels
+        PAD = max(int(_MM_TO_PX * 1.0), 8)
         UW  = W - 2 * PAD
 
         img = QImage(W, H, QImage.Format.Format_ARGB32)
@@ -453,104 +453,100 @@ class BarcodePrintScreen(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-        name    = label.get("name", "")
+        name    = label.get("name", "").upper() # Upper case looks more professional on labels
         bc_str  = label.get("barcode", "").strip()
         price   = label.get("price", "")
 
         y = PAD
 
-        # ── Item name (Strict Centering) ──────────────────────────────────────
-        name_px = max(int(H * 0.15), 12)
+        # ── Item name (Centered) ──────────────────────────────────────────────
+        name_px = max(int(H * 0.16), 12)
         name_font = QFont("Arial")
         name_font.setBold(True)
         name_font.setPixelSize(name_px)
         p.setFont(name_font)
         fm = QFontMetrics(name_font)
         
+        # Draw text centered in the full width
         wrapped_lines = self._wrap_text(name, fm, UW)[:2]
         for line in wrapped_lines:
-            # We use the full width (W) and 0-W range to ensure true horizontal centering
-            p.drawText(QRectF(0, y, W, fm.height()), Qt_.AlignCenter, line)
-            y += fm.height() + 2
+            p.drawText(QRectF(0, y, W, fm.height()), Qt_.AlignHCenter | Qt_.AlignTop, line)
+            y += fm.height() + 1
 
-        y += max(PAD // 2, 4)
+        y += 4
 
-        # ── Barcode image (Bitmap Generation to avoid SVG Black Square) ────────
-        bc_bottom_reserve = int(H * 0.22)
-        bc_h_max = H - y - bc_bottom_reserve - (PAD // 2)
+        # ── Barcode image (Pillow ImageWriter for perfect clarity) ─────────────
+        bc_h_max = H - y - int(H * 0.25) # Save space for bottom row
         
         if bc_str:
             try:
                 import barcode as _bc_lib
                 from barcode.writer import ImageWriter
+                from PIL import Image
                 
-                # We use ImageWriter (Pillow) if available, or fall back to a safer 
-                # SVG-to-Bitmap conversion if we must. But here we attempt 
-                # a manual robust SVG render that avoids the viewport bug.
-                from barcode.writer import SVGWriter
+                # Generate high-resolution barcode using Pillow
+                writer = ImageWriter()
+                # We generate it and then resize to fit
+                bc_obj = _bc_lib.get("code128", bc_str, writer=writer)
                 
-                buf = io.BytesIO()
-                _bc_lib.get("code128", bc_str, writer=SVGWriter()).write(buf, options={
-                    "module_height": 12.0,
+                # Options for clean barcode without internal text
+                options = {
+                    "module_height": 15.0,
                     "module_width":  0.4,
-                    "quiet_zone":    3.0,
-                    "font_size":     0,
-                    "text_distance": 0,
-                })
-                buf.seek(0)
+                    "quiet_zone":    2.0,
+                    "write_text":    False, # Disable internal text
+                    "background":    "white",
+                    "foreground":    "black",
+                }
                 
-                from PySide6.QtSvg import QSvgRenderer
-                from PySide6.QtCore import QByteArray
-                renderer = QSvgRenderer(QByteArray(buf.read()))
+                pil_img = bc_obj.render(options)
                 
-                if renderer.isValid():
-                    # Calculate aspect ratio
-                    vb = renderer.viewBoxF()
-                    aspect = vb.width() / max(vb.height(), 0.1)
-                    
-                    # Determine physical dimensions for the bars
-                    target_h = min(bc_h_max, int(_MM_TO_PX * 15))
-                    target_w = min(int(target_h * aspect), UW)
-                    target_h = int(target_w / aspect)
-                    
-                    # Render the SVG into a separate buffer at high resolution
-                    # then draw that buffer. This bypasses the "black square" 
-                    # viewport bug in some thermal printer drivers.
-                    bc_pix = QImage(target_w, target_h, QImage.Format.Format_Mono)
-                    bc_pix.fill(Qt_.white)
-                    bc_p = QPainter(bc_pix)
-                    renderer.render(bc_p)
-                    bc_p.end()
-                    
-                    x_bc = (W - target_w) // 2
-                    p.drawImage(x_bc, y, bc_pix)
-                    y += target_h + 4
+                # Convert PIL to QImage
+                # First convert to RGBA
+                pil_img = pil_img.convert("RGBA")
+                data = pil_img.tobytes("raw", "RGBA")
+                q_bc_orig = QImage(data, pil_img.width, pil_img.height, QImage.Format.Format_RGBA8888)
+                
+                # Calculate target size
+                aspect = pil_img.width / pil_img.height
+                bc_w = min(UW, int(bc_h_max * aspect))
+                bc_h = int(bc_w / aspect)
+                
+                # Center horizontally
+                x_bc = (W - bc_w) // 2
+                
+                # Draw the barcode
+                p.drawImage(QRectF(x_bc, y, bc_w, bc_h), q_bc_orig)
+                y += bc_h + 4
+                
             except Exception as e:
-                print(f"Barcode error: {e}")
+                print(f"Barcode Pillow error: {e}")
 
-        # ── Barcode number + Price (Strict Split) ───────────────────────────
+        # ── Barcode number + Price (Bottom Row) ───────────────────────────
         bot_px = max(int(H * 0.12), 10)
         bot_font = QFont("Arial")
         bot_font.setPixelSize(bot_px)
         p.setFont(bot_font)
         bfm = QFontMetrics(bot_font)
+        
+        # Bottom padding
         bot_y = H - PAD - bfm.height()
 
-        # Draw Barcode on Left Half
+        # Barcode number on left
         p.drawText(
-            QRectF(PAD, bot_y, UW * 0.45, bfm.height()),
+            QRectF(PAD, bot_y, UW * 0.5, bfm.height()),
             Qt_.AlignLeft | Qt_.AlignVCenter,
             bc_str
         )
         
-        # Draw Price on Right Half (Bold)
+        # Bold Price on right
         if price:
-            p_font = QFont("Arial")
-            p_font.setBold(True)
-            p_font.setPixelSize(bot_px + 2)
-            p.setFont(p_font)
+            price_font = QFont("Arial")
+            price_font.setBold(True)
+            price_font.setPixelSize(bot_px + 2)
+            p.setFont(price_font)
             p.drawText(
-                QRectF(W - PAD - (UW * 0.45), bot_y, UW * 0.45, bfm.height()),
+                QRectF(W - PAD - (UW * 0.5), bot_y, UW * 0.5, bfm.height()),
                 Qt_.AlignRight | Qt_.AlignVCenter,
                 price
             )
