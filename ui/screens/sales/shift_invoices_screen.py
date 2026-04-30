@@ -216,7 +216,7 @@ class ShiftInvoicesScreen(QWidget):
             op_map: dict[str, str] = {}
             if op_ids:
                 for u in session.query(User).filter(User.id.in_(op_ids)).all():
-                    op_map[u.id] = u.full_name
+                    op_map[u.id] = u.full_name or u.username or "Unknown"
 
             self._rows = [
                 {

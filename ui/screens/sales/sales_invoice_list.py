@@ -646,8 +646,14 @@ class SalesInvoiceListScreen(QWidget):
         QApplication.processEvents()
         pulled, err = pull_sales_invoices()
         prog.close()
-        if err:
+        if err and not err.startswith("\nSkipped"):
             QMessageBox.warning(self, "Error", f"Pull failed:\n{err}")
+        elif err:
+            QMessageBox.warning(
+                self, "Partial — Some Invoices Skipped",
+                f"✔ {pulled} received.\n{err}\n\n"
+                "Ask the branch to press 'Push Shifts to Cloud' and try again."
+            )
         else:
             QMessageBox.information(self, "Done",
                                     f"✔ {pulled} invoice(s) received from server.")

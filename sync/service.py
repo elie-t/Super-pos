@@ -1963,6 +1963,7 @@ def pull_sales_invoices() -> tuple[int, str]:
         init_db()
         session = get_session()
         pulled    = 0
+        skipped: list[str] = []
         latest_ts = last_pull
 
         import sqlalchemy
@@ -1999,8 +2000,16 @@ def pull_sales_invoices() -> tuple[int, str]:
                         invoice_number=inv_number
                     ).first()
                     if clash and clash.id != ri["id"]:
-                        branch_prefix = (ri.get("branch_id") or "br")[:6]
-                        inv_number = f"{inv_number}-{branch_prefix}"
+                        branch_prefix = (ri.get("branch_id") or ri["id"][:6])[:6]
+                        candidate = f"{inv_number}-{branch_prefix}"
+                        # Keep trying until we find a free number
+                        suffix = 2
+                        while session.query(SalesInvoice).filter_by(
+                            invoice_number=candidate
+                        ).first():
+                            candidate = f"{inv_number}-{branch_prefix}{suffix}"
+                            suffix += 1
+                        inv_number = candidate
 
                     inv = SalesInvoice(
                         id=ri["id"],
@@ -2130,15 +2139,19 @@ def pull_sales_invoices() -> tuple[int, str]:
                 latest_ts = ri["synced_at"]
                 pulled += 1
 
-            except Exception:
+            except Exception as _skip_exc:
                 session.rollback()
-                # Skip this invoice and advance cursor so we don't retry forever
+                skipped.append(
+                    f"{ri.get('invoice_number', ri['id'][:8])} "
+                    f"({ri.get('invoice_date','?')}): {_skip_exc}"
+                )
                 latest_ts = ri.get("synced_at", latest_ts)
 
         session.execute(sqlalchemy.text("PRAGMA foreign_keys=ON"))
         session.close()
         _state_set("sales_invoices_pull", latest_ts)
-        return pulled, ""
+        skip_msg = f"\nSkipped {len(skipped)}:\n" + "\n".join(skipped) if skipped else ""
+        return pulled, skip_msg
 
     except Exception as e:
         return 0, str(e)
