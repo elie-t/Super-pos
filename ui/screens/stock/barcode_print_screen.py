@@ -522,16 +522,24 @@ class BarcodePrintScreen(QWidget):
                     bc_h = bc_h_max
                     bc_w = int(bc_h * aspect)
                 
-                # Mathematical horizontal center
-                x_bc = (W - bc_w) // 2
+                # FORCE MOVE TO THE RIGHT
+                # Use a very aggressive offset to bypass the printer's left-side 'dead zone'
+                x_bc = int(W * 0.15) 
                 
-                p.drawImage(QRectF(x_bc, y, bc_w, bc_h), q_bc_orig)
+                # Make the barcode slightly narrower so it has room to be shifted right
+                bc_w = int(W * 0.75) 
+                bc_h = int(bc_w / aspect)
+                if bc_h > bc_h_max:
+                    bc_h = bc_h_max
+                    bc_w = int(bc_h * aspect)
+                
+                p.drawImage(QRectF(float(x_bc), float(y), float(bc_w), float(bc_h)), q_bc_orig)
                 y += bc_h + 2
                 
             except Exception as e:
                 print(f"Barcode Render Error: {e}")
 
-        # ── Barcode number + Price (Far Left & Far Right) ────────────────────
+        # ── Barcode number + Price (HEAVILY SHIFTED RIGHT) ──────────────────
         bot_px = max(int(H * 0.13), 10)
         bot_font = QFont("Arial")
         bot_font.setPixelSize(bot_px)
@@ -541,22 +549,21 @@ class BarcodePrintScreen(QWidget):
         # Bottom row position near the absolute edge
         bot_y = H - PAD - bfm.height()
 
-        # Barcode number on left
+        # Shift the barcode number right to match the bars
         p.drawText(
-            QRectF(PAD, bot_y, W * 0.5, bfm.height()),
+            QRectF(int(W * 0.15), bot_y, W * 0.4, bfm.height()),
             Qt_.AlignLeft | Qt_.AlignVCenter,
             bc_str
         )
         
-        # Price on ABSOLUTE Right
+        # Price on ABSOLUTE Right (Pinned to margin)
         if price:
             p_font = QFont("Arial")
             p_font.setBold(True)
             p_font.setPixelSize(bot_px + 2)
             p.setFont(p_font)
-            # Use W-PAD to ensure it hits the right margin
             p.drawText(
-                QRectF(0, bot_y, W - PAD, bfm.height()),
+                QRectF(0, bot_y, W - 15, bfm.height()),
                 Qt_.AlignRight | Qt_.AlignVCenter,
                 price
             )
