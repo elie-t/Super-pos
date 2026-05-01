@@ -522,15 +522,19 @@ class BarcodePrintScreen(QWidget):
                     bc_h = bc_h_max
                     bc_w = int(bc_h * aspect)
                 
-                # FORCE MOVE TO THE RIGHT
-                # Use a very aggressive offset to bypass the printer's left-side 'dead zone'
-                x_bc = int(W * 0.15) 
+                # FORCE MOVE TO THE RIGHT (30% as requested)
+                # This bypasses heavy left-side clipping on specialized thermal drivers.
+                x_bc = int(W * 0.30) 
                 
-                # Make the barcode slightly narrower so it has room to be shifted right
-                bc_w = int(W * 0.75) 
+                # Adjust width so it doesn't bleed off the right edge (30% start + 65% width = 95%)
+                bc_w = int(W * 0.65) 
                 bc_h = int(bc_w / aspect)
-                if bc_h > bc_h_max:
-                    bc_h = bc_h_max
+                
+                # MAXIMIZE VERTICAL FILL
+                # Reduce bottom reserve to 10% to make bars stretch further down
+                bc_h_max_vert = H - y - int(H * 0.10) 
+                if bc_h > bc_h_max_vert:
+                    bc_h = bc_h_max_vert
                     bc_w = int(bc_h * aspect)
                 
                 p.drawImage(QRectF(float(x_bc), float(y), float(bc_w), float(bc_h)), q_bc_orig)
@@ -539,7 +543,7 @@ class BarcodePrintScreen(QWidget):
             except Exception as e:
                 print(f"Barcode Render Error: {e}")
 
-        # ── Barcode number + Price (HEAVILY SHIFTED RIGHT) ──────────────────
+        # ── Barcode number + Price (MATCHING 30% SHIFT) ─────────────────────
         bot_px = max(int(H * 0.13), 10)
         bot_font = QFont("Arial")
         bot_font.setPixelSize(bot_px)
@@ -547,23 +551,23 @@ class BarcodePrintScreen(QWidget):
         bfm = QFontMetrics(bot_font)
         
         # Bottom row position near the absolute edge
-        bot_y = H - PAD - bfm.height()
+        bot_y = H - 5 - bfm.height() # Pinned very close to bottom edge
 
-        # Shift the barcode number right to match the bars
+        # Shift the barcode number right to 30% to match the bars
         p.drawText(
-            QRectF(int(W * 0.15), bot_y, W * 0.4, bfm.height()),
+            QRectF(int(W * 0.30), bot_y, W * 0.4, bfm.height()),
             Qt_.AlignLeft | Qt_.AlignVCenter,
             bc_str
         )
         
-        # Price on ABSOLUTE Right (Pinned to margin)
+        # Price on ABSOLUTE Right
         if price:
             p_font = QFont("Arial")
             p_font.setBold(True)
             p_font.setPixelSize(bot_px + 2)
             p.setFont(p_font)
             p.drawText(
-                QRectF(0, bot_y, W - 15, bfm.height()),
+                QRectF(0, bot_y, W - 10, bfm.height()),
                 Qt_.AlignRight | Qt_.AlignVCenter,
                 price
             )
