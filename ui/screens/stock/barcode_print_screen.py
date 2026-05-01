@@ -475,8 +475,8 @@ class BarcodePrintScreen(QWidget):
 
         y += 4
 
-        # ── Barcode image (Pillow ImageWriter for perfect clarity) ─────────────
-        bc_h_max = H - y - int(H * 0.25) # Save space for bottom row
+        # ── Barcode image (Pillow ImageWriter - Maximized & High Contrast) ────
+        bc_h_max = H - y - int(H * 0.20) # More space for barcode
         
         if bc_str:
             try:
@@ -484,43 +484,50 @@ class BarcodePrintScreen(QWidget):
                 from barcode.writer import ImageWriter
                 from PIL import Image
                 
-                # Generate high-resolution barcode using Pillow
+                # Generate barcode with much thicker modules
                 writer = ImageWriter()
-                # We generate it and then resize to fit
                 bc_obj = _bc_lib.get("code128", bc_str, writer=writer)
                 
-                # Options for clean barcode without internal text
+                # Double the module sizes as requested
                 options = {
-                    "module_height": 15.0,
-                    "module_width":  0.4,
+                    "module_height": 40.0, # Much taller bars
+                    "module_width":  1.2,  # Much thicker bars (Double of 0.6)
                     "quiet_zone":    2.0,
-                    "write_text":    False, # Disable internal text
+                    "write_text":    False,
                     "background":    "white",
                     "foreground":    "black",
                 }
                 
                 pil_img = bc_obj.render(options)
                 
-                # Convert PIL to QImage
-                # First convert to RGBA
+                # Convert PIL to QImage correctly (must COPY data to avoid black square bug)
                 pil_img = pil_img.convert("RGBA")
                 data = pil_img.tobytes("raw", "RGBA")
-                q_bc_orig = QImage(data, pil_img.width, pil_img.height, QImage.Format.Format_RGBA8888)
+                # QImage(data, ...) is a shallow copy! We must .copy() to own the data.
+                q_bc_raw = QImage(data, pil_img.width, pil_img.height, QImage.Format.Format_RGBA8888)
+                q_bc_orig = q_bc_raw.copy() # This ensures the data is safe and avoids black squares
                 
-                # Calculate target size
+                # Calculate target size (Maximize to fill the label width)
                 aspect = pil_img.width / pil_img.height
-                bc_w = min(UW, int(bc_h_max * aspect))
+                
+                # We want it to be as wide as possible
+                bc_w = UW
                 bc_h = int(bc_w / aspect)
                 
-                # Center horizontally
+                # If it exceeds max height, scale down to fit
+                if bc_h > bc_h_max:
+                    bc_h = bc_h_max
+                    bc_w = int(bc_h * aspect)
+                
+                # Mathematical horizontal center
                 x_bc = (W - bc_w) // 2
                 
                 # Draw the barcode
                 p.drawImage(QRectF(x_bc, y, bc_w, bc_h), q_bc_orig)
-                y += bc_h + 4
+                y += bc_h + 2
                 
             except Exception as e:
-                print(f"Barcode Pillow error: {e}")
+                print(f"Barcode Render Error: {e}")
 
         # ── Barcode number + Price (Bottom Row) ───────────────────────────
         bot_px = max(int(H * 0.12), 10)
