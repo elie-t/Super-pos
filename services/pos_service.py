@@ -364,8 +364,10 @@ class PosService:
                 for l in lines
             )
             total = subtotal + vat_value - discount_value
+            if currency == "LBP":
+                total = round(total)
 
-            payment_status = "paid" if amount_paid >= total else (
+            payment_status = "paid" if amount_paid >= (total - 0.01) else (
                 "partial" if amount_paid > 0 else "unpaid"
             )
 
