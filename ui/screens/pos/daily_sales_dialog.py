@@ -315,6 +315,7 @@ class DailySalesDialog(QDialog):
 
         self._from_dt = QDateEdit()
         self._from_dt.setFixedHeight(30)
+        self._from_dt.setMinimumWidth(110)
         self._from_dt.setDisplayFormat("dd/MM/yyyy")
         self._from_dt.setCalendarPopup(True)
         self._from_dt.setDate(QDate.currentDate())

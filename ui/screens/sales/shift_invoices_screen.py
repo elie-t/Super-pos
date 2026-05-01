@@ -66,6 +66,7 @@ class ShiftInvoicesScreen(QWidget):
         fl.addWidget(QLabel("From:"))
         self._from_dt = QDateEdit()
         self._from_dt.setFixedHeight(30)
+        self._from_dt.setMinimumWidth(110)
         self._from_dt.setDisplayFormat("dd/MM/yyyy")
         self._from_dt.setCalendarPopup(True)
         # Default: first day of current month
@@ -76,6 +77,7 @@ class ShiftInvoicesScreen(QWidget):
         fl.addWidget(QLabel("To:"))
         self._to_dt = QDateEdit()
         self._to_dt.setFixedHeight(30)
+        self._to_dt.setMinimumWidth(110)
         self._to_dt.setDisplayFormat("dd/MM/yyyy")
         self._to_dt.setCalendarPopup(True)
         self._to_dt.setDate(today)

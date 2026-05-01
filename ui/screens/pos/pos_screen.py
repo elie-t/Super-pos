@@ -715,6 +715,7 @@ class SalesListDialog(QDialog):
 
         self._date_from = QDateEdit()
         self._date_from.setFixedHeight(28)
+        self._date_from.setMinimumWidth(100)
         self._date_from.setDisplayFormat("dd/MM/yyyy")
         self._date_from.setCalendarPopup(True)
         self._date_from.setDate(QDate.currentDate())
@@ -729,6 +730,7 @@ class SalesListDialog(QDialog):
 
         self._date_to = QDateEdit()
         self._date_to.setFixedHeight(28)
+        self._date_to.setMinimumWidth(100)
         self._date_to.setDisplayFormat("dd/MM/yyyy")
         self._date_to.setCalendarPopup(True)
         self._date_to.setDate(QDate.currentDate())

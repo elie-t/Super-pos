@@ -148,6 +148,7 @@ class StockCardScreen(QWidget):
         self._date_from.setCalendarPopup(True)
         self._date_from.setDate(QDate.currentDate().addMonths(-1))
         self._date_from.setFixedHeight(30)
+        self._date_from.setMinimumWidth(110)
         self._date_from.setDisplayFormat("dd/MM/yyyy")
         row2.addWidget(self._date_from)
 
@@ -156,6 +157,7 @@ class StockCardScreen(QWidget):
         self._date_to.setCalendarPopup(True)
         self._date_to.setDate(QDate.currentDate())
         self._date_to.setFixedHeight(30)
+        self._date_to.setMinimumWidth(110)
         self._date_to.setDisplayFormat("dd/MM/yyyy")
         row2.addWidget(self._date_to)
 
