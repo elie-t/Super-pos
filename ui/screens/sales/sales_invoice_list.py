@@ -316,6 +316,9 @@ class SalesInvoiceListScreen(QWidget):
         self._from_dt.setMinimumWidth(110)
         self._from_dt.setDisplayFormat("dd/MM/yyyy")
         self._from_dt.setCalendarPopup(True)
+        # Ensure the calendar popup is large enough for double-digit dates
+        self._from_dt.calendarWidget().setMinimumWidth(300)
+        self._from_dt.calendarWidget().setMinimumHeight(220)
         today = QDate.currentDate()
         self._from_dt.setDate(QDate(today.year(), today.month(), 1))
         fl.addWidget(self._from_dt)
@@ -326,6 +329,9 @@ class SalesInvoiceListScreen(QWidget):
         self._to_dt.setMinimumWidth(110)
         self._to_dt.setDisplayFormat("dd/MM/yyyy")
         self._to_dt.setCalendarPopup(True)
+        # Ensure the calendar popup is large enough for double-digit dates
+        self._to_dt.calendarWidget().setMinimumWidth(300)
+        self._to_dt.calendarWidget().setMinimumHeight(220)
         self._to_dt.setDate(today)
         fl.addWidget(self._to_dt)
 
