@@ -1935,6 +1935,7 @@ def pull_sales_invoices() -> tuple[int, str]:
             f"{_url('sales_invoices_central')}"
             f"?synced_at=gt.{last_pull}"
             f"&branch_id=neq.{BRANCH_ID}"
+            f"&source=neq.pos"
             f"&order=synced_at.asc&limit=500",
             headers={**_headers(), "Prefer": ""},
             timeout=20,
@@ -2078,10 +2079,9 @@ def pull_sales_invoices() -> tuple[int, str]:
 
                     # Fallback: create stock movement from invoice line if
                     # pull_stock_movements hasn't created one yet for this line.
-                    # Only for manual invoices — pos transactions are covered
-                    # by pull_stock_movements via stock_movements_central.
-                    # pos_shift are summaries of pos, so they MUST NOT trigger movements.
-                    if local_item_id and wh_id and src not in ["pos", "pos_shift"]:
+                    # Only for manual / pos_shift — individual pos transactions
+                    # are no longer pushed or pulled.
+                    if local_item_id and wh_id and src != "pos":
                         wh_ok = session.execute(
                             sqlalchemy.text("SELECT 1 FROM warehouses WHERE id=:id"),
                             {"id": wh_id}

@@ -454,11 +454,12 @@ class PosService:
             PosService.increment_sale_number(warehouse_id)
 
             # Queue for background sync — SyncWorker picks it up on next tick
+            # Skip individual 'pos' sales (they are pushed as 'pos_shift' summaries at end-of-shift)
             try:
                 from sync.service import enqueue, is_configured
-                if is_configured():
+                if is_configured() and invoice_type != "pos":
                     item_ids = list({l.item_id for l in lines})
-                    enqueue("sales_invoice", inv.id, "create", {"item_ids": item_ids})
+                    enqueue("sales_invoice", inv_id, "create", {"item_ids": item_ids})
             except Exception:
                 pass
 
