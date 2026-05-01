@@ -440,8 +440,8 @@ class BarcodePrintScreen(QWidget):
 
         W   = int(w_mm * _MM_TO_PX)
         H   = int(h_mm * _MM_TO_PX)
-        # Standard padding for thermal labels
-        PAD = max(int(_MM_TO_PX * 1.0), 8)
+        # Standard padding
+        PAD = max(int(_MM_TO_PX * 1.2), 10)
         UW  = W - 2 * PAD
 
         img = QImage(W, H, QImage.Format.Format_ARGB32)
@@ -453,13 +453,12 @@ class BarcodePrintScreen(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-        name    = label.get("name", "").upper() # Upper case looks more professional on labels
+        name    = label.get("name", "").upper()
         bc_str  = label.get("barcode", "").strip()
         price   = label.get("price", "")
 
-        y = PAD
-
         # ── Item name (Centered) ──────────────────────────────────────────────
+        y = PAD
         name_px = max(int(H * 0.16), 12)
         name_font = QFont("Arial")
         name_font.setBold(True)
@@ -467,32 +466,32 @@ class BarcodePrintScreen(QWidget):
         p.setFont(name_font)
         fm = QFontMetrics(name_font)
         
-        # Draw text centered in the full width
         wrapped_lines = self._wrap_text(name, fm, UW)[:2]
         for line in wrapped_lines:
             p.drawText(QRectF(0, y, W, fm.height()), Qt_.AlignHCenter | Qt_.AlignTop, line)
             y += fm.height() + 1
 
-        y += 4
+        # Give the barcode more space from the top name
+        y += 8 
 
-        # ── Barcode image (Pillow ImageWriter - Maximized & High Contrast) ────
-        bc_h_max = H - y - int(H * 0.20) # More space for barcode
+        # ── Barcode image (Maximized & Cropped for Perfect Centering) ──────────
+        # Vertical space remaining for barcode
+        bc_h_max = H - y - int(H * 0.22) 
         
         if bc_str:
             try:
                 import barcode as _bc_lib
                 from barcode.writer import ImageWriter
-                from PIL import Image
+                from PIL import Image, ImageChops
                 
-                # Generate barcode with much thicker modules
                 writer = ImageWriter()
                 bc_obj = _bc_lib.get("code128", bc_str, writer=writer)
                 
-                # Double the module sizes as requested
+                # Double the sizes again to ensure it fills the label
                 options = {
-                    "module_height": 40.0, # Much taller bars
-                    "module_width":  1.2,  # Much thicker bars (Double of 0.6)
-                    "quiet_zone":    2.0,
+                    "module_height": 50.0, # Increased for better fill
+                    "module_width":  2.0,  # Increased for better fill
+                    "quiet_zone":    1.0,  
                     "write_text":    False,
                     "background":    "white",
                     "foreground":    "black",
@@ -500,60 +499,65 @@ class BarcodePrintScreen(QWidget):
                 
                 pil_img = bc_obj.render(options)
                 
-                # Convert PIL to QImage correctly (must COPY data to avoid black square bug)
+                # CROP: Remove all white space around the bars so centering is mathematically perfect
+                # This fixes the "left aligned" look if the library added hidden padding.
+                bg = Image.new(pil_img.mode, pil_img.size, pil_img.getpixel((0,0)))
+                diff = ImageChops.difference(pil_img, bg)
+                bbox = diff.getbbox()
+                if bbox:
+                    pil_img = pil_img.crop(bbox)
+
+                # Convert to QImage
                 pil_img = pil_img.convert("RGBA")
                 data = pil_img.tobytes("raw", "RGBA")
-                # QImage(data, ...) is a shallow copy! We must .copy() to own the data.
                 q_bc_raw = QImage(data, pil_img.width, pil_img.height, QImage.Format.Format_RGBA8888)
-                q_bc_orig = q_bc_raw.copy() # This ensures the data is safe and avoids black squares
+                q_bc_orig = q_bc_raw.copy()
                 
-                # Calculate target size (Maximize to fill the label width)
+                # Scale to fill UW width
                 aspect = pil_img.width / pil_img.height
-                
-                # We want it to be as wide as possible
                 bc_w = UW
                 bc_h = int(bc_w / aspect)
                 
-                # If it exceeds max height, scale down to fit
+                # If too tall for the remaining space, scale down
                 if bc_h > bc_h_max:
                     bc_h = bc_h_max
                     bc_w = int(bc_h * aspect)
                 
-                # Mathematical horizontal center
+                # Center horizontally
                 x_bc = (W - bc_w) // 2
                 
-                # Draw the barcode
                 p.drawImage(QRectF(x_bc, y, bc_w, bc_h), q_bc_orig)
-                y += bc_h + 2
+                y += bc_h 
                 
             except Exception as e:
                 print(f"Barcode Render Error: {e}")
 
-        # ── Barcode number + Price (Bottom Row) ───────────────────────────
-        bot_px = max(int(H * 0.12), 10)
+        # ── Barcode number + Price (Pinned to Sides) ─────────────────────────
+        bot_px = max(int(H * 0.13), 10)
         bot_font = QFont("Arial")
         bot_font.setPixelSize(bot_px)
         p.setFont(bot_font)
         bfm = QFontMetrics(bot_font)
         
-        # Bottom padding
+        # Bottom row position
         bot_y = H - PAD - bfm.height()
 
-        # Barcode number on left
+        # Barcode number on absolute left (within PAD)
         p.drawText(
-            QRectF(PAD, bot_y, UW * 0.5, bfm.height()),
+            QRectF(PAD, bot_y, W * 0.5, bfm.height()),
             Qt_.AlignLeft | Qt_.AlignVCenter,
             bc_str
         )
         
-        # Bold Price on right
+        # Price on absolute right (within PAD)
         if price:
-            price_font = QFont("Arial")
-            price_font.setBold(True)
-            price_font.setPixelSize(bot_px + 2)
-            p.setFont(price_font)
+            p_font = QFont("Arial")
+            p_font.setBold(True)
+            p_font.setPixelSize(bot_px + 2)
+            p.setFont(p_font)
+            # Alignment: Far right of the full label width minus padding
             p.drawText(
-                QRectF(W - PAD - (UW * 0.5), bot_y, UW * 0.5, bfm.height()),
+                QRectF(0, bot_y, W - PAD, bfm.height()),
                 Qt_.AlignRight | Qt_.AlignVCenter,
                 price
             )
