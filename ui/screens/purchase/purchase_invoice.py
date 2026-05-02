@@ -1105,13 +1105,14 @@ class PurchaseInvoiceScreen(QWidget):
             return edit
 
         self._lines_count_lbl = stat_lbl(0, "Lines:")
-        self._subtotal_lbl    = stat_lbl(1, "Sub-Total:")
-        self._disc_edit       = stat_edit(2, "Discount %:", color="#c0392b")
-        self._vat_edit        = stat_edit(3, "VAT:", color="#1565c0")
+        self._units_count_lbl = stat_lbl(1, "Units:")
+        self._subtotal_lbl    = stat_lbl(2, "Sub-Total:")
+        self._disc_edit       = stat_edit(3, "Discount %:", color="#c0392b")
+        self._vat_edit        = stat_edit(4, "VAT:", color="#1565c0")
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         sep.setStyleSheet("color:#bbd0ee;")
-        tlay.addWidget(sep, 4, 0, 1, 2)
-        self._grand_total_lbl = stat_lbl(5, "Grand Total:", big=True, color="#c62828")
+        tlay.addWidget(sep, 5, 0, 1, 2)
+        self._grand_total_lbl = stat_lbl(6, "Grand Total:", big=True, color="#c62828")
 
         # live recalc when disc or vat edited
         self._disc_edit.textEdited.connect(self._on_totals_edited)
@@ -1803,8 +1804,9 @@ class PurchaseInvoiceScreen(QWidget):
         VAT = sum of per-line VAT amounts (editable override).
         Grand = subtotal * (1 - disc%/100) + vat
         """
-        net_total = 0.0
-        vat_val   = 0.0
+        net_total  = 0.0
+        vat_val    = 0.0
+        total_units = 0.0
         for line in self._lines:
             net_total += line.get("total", 0.0)
             box   = line.get("box", 0)
@@ -1817,8 +1819,10 @@ class PurchaseInvoiceScreen(QWidget):
             gross = qty * price
             d     = gross * disc / 100
             vat_val += (gross - d) * vat / 100
+            total_units += pcs
 
         self._lines_count_lbl.setText(str(len(self._lines)))
+        self._units_count_lbl.setText(f"{total_units:,.0f}")
         self._subtotal_lbl.setText(f"{net_total:,.2f}")
         # do NOT reset _disc_edit — user controls it; only reset on clear
         self._vat_edit.setText(f"{vat_val:.2f}")
