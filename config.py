@@ -47,3 +47,8 @@ SYNC_API_KEY       = os.getenv("SYNC_API_KEY", "")
 #         Pushes to Supabase products/items_central/app_categories.
 # False → Branch POS: sells only. Pulls catalog, pushes sales invoices.
 IS_MAIN_BRANCH = os.getenv("IS_MAIN_BRANCH", "false").lower() == "true"
+
+# Set to "true" on all machines once the master-data bucket is ready in Supabase Storage.
+# Main branch generates the snapshot; branches download and apply it.
+# Falls back to cursor-based pull automatically when false or snapshot unavailable.
+USE_SNAPSHOT_SYNC = os.getenv("USE_SNAPSHOT_SYNC", "false").lower() == "true"

@@ -60,10 +60,25 @@ class SyncWorker(QThread):
         import threading
 
         def _pull():
-            from sync.service import pull_master_items, is_configured
+            from sync.service import is_configured
             if not is_configured():
                 return
             try:
+                from config import USE_SNAPSHOT_SYNC, IS_MAIN_BRANCH
+                if USE_SNAPSHOT_SYNC:
+                    if IS_MAIN_BRANCH:
+                        from sync.snapshot import generate_master_snapshot
+                        generate_master_snapshot()
+                        return
+                    else:
+                        from sync.snapshot import apply_master_snapshot
+                        count, _ = apply_master_snapshot()
+                        if count >= 0:   # applied (>0) or already current (0)
+                            if count > 0:
+                                self.prices_refreshed.emit(count)
+                            return
+                        # count == -1: snapshot not available, fall through
+                from sync.service import pull_master_items
                 count, _ = pull_master_items()
                 if count > 0:
                     self.prices_refreshed.emit(count)
@@ -127,6 +142,17 @@ class SyncWorker(QThread):
             self.sync_done.emit(synced, failed)
         except Exception as e:
             self.error.emit(str(e))
+            return
+
+        # After a successful drain on main branch, regenerate the snapshot so
+        # branches pick up any item/price changes on the next hourly pull.
+        from config import USE_SNAPSHOT_SYNC, IS_MAIN_BRANCH
+        if USE_SNAPSHOT_SYNC and IS_MAIN_BRANCH and synced > 0:
+            try:
+                from sync.snapshot import generate_master_snapshot
+                generate_master_snapshot()
+            except Exception:
+                pass
 
     def _do_invoice_pull(self):
         """Pull sales invoices from other branches (runs every 15 min + after drain)."""
@@ -158,13 +184,42 @@ class SyncWorker(QThread):
 
     def _do_items_pull(self):
         """Pull item master data + price changes from Supabase."""
-        from sync.service import pull_master_items, pull_item_prices_only, is_configured
+        from sync.service import is_configured
         if not is_configured():
             return
+
+        from config import USE_SNAPSHOT_SYNC, IS_MAIN_BRANCH
+
         try:
             from datetime import datetime as _dt
             from pathlib import Path as _Path
             _log_path = _Path(__file__).parent.parent / "data" / "sync.log"
+
+            if USE_SNAPSHOT_SYNC:
+                if IS_MAIN_BRANCH:
+                    # Generate a fresh snapshot every hour so branches always
+                    # have up-to-date catalog data available.
+                    from sync.snapshot import generate_master_snapshot
+                    ok, err = generate_master_snapshot()
+                    if err:
+                        self.error.emit(f"Snapshot generate: {err}")
+                    return   # main branch is the source — no pull needed
+
+                # Branch: apply the snapshot
+                from sync.snapshot import apply_master_snapshot
+                count, err = apply_master_snapshot()
+                if count >= 0:
+                    # Applied (count>0) or already current (count==0)
+                    if count > 0:
+                        self.items_updated.emit(count)
+                    return
+                # count == -1: snapshot not yet available — fall through to
+                # the cursor-based pull below so branches still get data.
+                if err:
+                    self.error.emit(f"Snapshot apply: {err}")
+
+            # ── Cursor-based pull (fallback or USE_SNAPSHOT_SYNC=false) ───────
+            from sync.service import pull_master_items, pull_item_prices_only
 
             count, err = pull_master_items()
             if err:
@@ -184,6 +239,7 @@ class SyncWorker(QThread):
                 self.error.emit(f"Prices pull: {price_err}")
             elif price_count > 0:
                 self.prices_refreshed.emit(price_count)
+
         except Exception as e:
             self.error.emit(str(e))
 
