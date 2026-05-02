@@ -221,6 +221,11 @@ def apply_master_snapshot() -> tuple[int, str | None]:
         now_str    = datetime.now(timezone.utc).isoformat()
 
         con = sqlite3.connect(str(LOCAL_DB_PATH))
+        # High-performance pragmas for the raw connection
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA synchronous=NORMAL")
+        con.execute("PRAGMA cache_size=-16000")
+        
         cur = con.cursor()
         try:
             cur.execute("PRAGMA foreign_keys = OFF")
@@ -305,37 +310,40 @@ def apply_master_snapshot() -> tuple[int, str | None]:
                 ))
 
             # ── Prices: delete + reinsert for all snapshot items ──────────────
+            # Safety: only delete local prices if the snapshot actually has prices
             item_ids = list({i["id"] for i in items})
-            if item_ids:
+            if item_ids and prices:
                 ph = ",".join("?" * len(item_ids))
                 cur.execute(f"DELETE FROM item_prices WHERE item_id IN ({ph})", item_ids)
-            for p in prices:
-                cur.execute("""
-                    INSERT OR IGNORE INTO item_prices
-                        (id, item_id, price_type, amount, currency,
-                         is_default, is_active, pack_qty,
-                         created_at, updated_at, sync_status, local_version, remote_version)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,'synced',1,0)
-                """, (
-                    p["id"], p["item_id"], p["price_type"], p["amount"], p["currency"],
-                    p["is_default"], p["is_active"], p["pack_qty"],
-                    now_str, now_str,
-                ))
+                for p in prices:
+                    cur.execute("""
+                        INSERT OR IGNORE INTO item_prices
+                            (id, item_id, price_type, amount, currency,
+                             is_default, is_active, pack_qty,
+                             created_at, updated_at, sync_status, local_version, remote_version)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,'synced',1,0)
+                    """, (
+                        p["id"], p["item_id"], p["price_type"], p["amount"], p["currency"],
+                        p["is_default"], p["is_active"], p["pack_qty"],
+                        now_str, now_str,
+                    ))
 
             # ── Barcodes: delete + reinsert for all snapshot items ────────────
-            if item_ids:
+            # Safety: only delete local barcodes if the snapshot actually has barcodes
+            if item_ids and barcodes:
+                ph = ",".join("?" * len(item_ids))
                 cur.execute(f"DELETE FROM item_barcodes WHERE item_id IN ({ph})", item_ids)
-            for b in barcodes:
-                cur.execute("""
-                    INSERT OR IGNORE INTO item_barcodes
-                        (id, item_id, barcode, is_primary, pack_qty,
-                         created_at, updated_at)
-                    VALUES (?,?,?,?,?,?,?)
-                """, (
-                    b["id"], b["item_id"], b["barcode"],
-                    b["is_primary"], b["pack_qty"],
-                    now_str, now_str,
-                ))
+                for b in barcodes:
+                    cur.execute("""
+                        INSERT OR IGNORE INTO item_barcodes
+                            (id, item_id, barcode, is_primary, pack_qty,
+                             created_at, updated_at)
+                        VALUES (?,?,?,?,?,?,?)
+                    """, (
+                        b["id"], b["item_id"], b["barcode"],
+                        b["is_primary"], b["pack_qty"],
+                        now_str, now_str,
+                    ))
 
             con.execute("COMMIT")
 

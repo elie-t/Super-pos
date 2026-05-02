@@ -3630,23 +3630,43 @@ class POSScreen(QWidget):
             count   = 0
             try:
                 from sync.service import pull_master_items, drain_sync_queue, is_configured, pull_item_prices_only
+                from sync.snapshot import apply_master_snapshot
+                from config import USE_SNAPSHOT_SYNC, IS_MAIN_BRANCH
+
                 if is_configured():
+                    # Main branch pushes pending changes first
                     if IS_MAIN_BRANCH:
                         try:
                             drain_sync_queue()
                         except Exception:
                             pass
-                    count, err_msg = pull_master_items()
+                    
+                    # Try Snapshot Sync first (Fast Bucket Sync)
+                    if USE_SNAPSHOT_SYNC:
+                        count, snap_err = apply_master_snapshot()
+                        if snap_err:
+                            # Fallback if snapshot fails
+                            c2, e2 = pull_master_items()
+                            count = c2
+                            err_msg = f"Snapshot failed ({snap_err}), fallback used: {e2}"
+                        elif count == -1:
+                            # Snapshot not found yet, fallback
+                            count, err_msg = pull_master_items()
+                    else:
+                        # Standard cursor-based pull
+                        count, err_msg = pull_master_items()
+                    
+                    # Always pull latest prices specifically to ensure LBP rate etc. are fresh
                     try:
                         n, _ = pull_item_prices_only()
-                        count += n
+                        if count != -1: count += n
                     except Exception:
                         pass
                 else:
                     err_msg = "Sync not configured"
             except Exception as e:
                 err_msg = str(e)
-            QTimer.singleShot(0, lambda: self._finish_prices_sync(count, err_msg))
+            QTimer.singleShot(0, lambda: self._finish_prices_sync(max(0, count), err_msg))
 
         threading.Thread(target=_pull_then_refresh, daemon=True).start()
 
