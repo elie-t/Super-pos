@@ -42,6 +42,11 @@ SYNC_INTERVAL_SEC  = 3600          # item/price pull interval (once per hour)
 SYNC_API_BASE_URL  = os.getenv("SYNC_API_BASE_URL", "")
 SYNC_API_KEY       = os.getenv("SYNC_API_KEY", "")
 
+# ── Supabase ──────────────────────────────────────────────────────────────────
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+# Prefer service key for master data operations, fall back to API key
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY", "")
+
 # ── Branch role ───────────────────────────────────────────────────────────────
 # True  → Main warehouse: manages items, prices, categories, purchases, transfers.
 #         Pushes to Supabase products/items_central/app_categories.
