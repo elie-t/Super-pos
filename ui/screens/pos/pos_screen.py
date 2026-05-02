@@ -3685,7 +3685,9 @@ class POSScreen(QWidget):
                     err_msg = "Sync not configured"
             except Exception as e:
                 err_msg = str(e)
-            QTimer.singleShot(0, lambda: self._finish_prices_sync(max(0, count), err_msg))
+            
+            # Use the thread-safe signal to notify the UI
+            self._prices_sync_finished_sig.emit(max(0, count), err_msg)
 
         threading.Thread(target=_pull_then_refresh, daemon=True).start()
 
