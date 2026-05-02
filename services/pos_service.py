@@ -157,10 +157,6 @@ class PosService:
                     or session.query(ItemPrice).filter_by(
                         item_id=item.id, price_type=price_type
                     ).first()
-                    or session.query(ItemPrice).filter_by(
-                        item_id=item.id, price_type="retail"
-                    ).first()
-                    or session.query(ItemPrice).filter_by(item_id=item.id).first()
                 )
             else:
                 price_obj = (
@@ -174,10 +170,6 @@ class PosService:
                     or session.query(ItemPrice).filter_by(
                         item_id=item.id, price_type=price_type
                     ).first()
-                    or session.query(ItemPrice).filter_by(
-                        item_id=item.id, price_type="retail"
-                    ).first()
-                    or session.query(ItemPrice).filter_by(item_id=item.id).first()
                 )
 
             # If a box-specific price was found, use it directly (qty=pack_qty pcs consumed)
