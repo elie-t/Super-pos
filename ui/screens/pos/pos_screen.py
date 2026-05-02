@@ -3614,13 +3614,13 @@ class POSScreen(QWidget):
         self._refresh_prices_btn.setEnabled(False)
         self._refresh_prices_btn.setText("↻  Syncing…")
 
-        # Safety timeout: if pull never finishes (e.g. network dead) reset after 90s
+        # Safety timeout: if pull never finishes (e.g. network dead) reset after 5 mins
         self._prices_timeout_timer = QTimer(self)
         self._prices_timeout_timer.setSingleShot(True)
         self._prices_timeout_timer.timeout.connect(
-            lambda: self._finish_prices_sync(error="Timed out — check connection")
+            lambda: self._finish_prices_sync(error="Timed out — catalog processing too slow")
         )
-        self._prices_timeout_timer.start(90_000)
+        self._prices_timeout_timer.start(300_000)
 
         import threading
         from config import IS_MAIN_BRANCH

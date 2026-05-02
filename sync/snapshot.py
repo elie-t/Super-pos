@@ -232,9 +232,12 @@ def apply_master_snapshot() -> tuple[int, str | None]:
             con.execute("BEGIN")
 
             # ── Brands ────────────────────────────────────────────────────────
-            for b in brands:
-                upd = b.get("updated_at") or now_str
-                cur.execute("""
+            if brands:
+                brand_data = [
+                    (b["id"], b["name"], b["is_active"], b.get("updated_at") or now_str, b.get("updated_at") or now_str)
+                    for b in brands
+                ]
+                cur.executemany("""
                     INSERT INTO brands
                         (id, name, is_active,
                          created_at, updated_at, sync_status, local_version, remote_version)
@@ -242,12 +245,21 @@ def apply_master_snapshot() -> tuple[int, str | None]:
                     ON CONFLICT(id) DO UPDATE SET
                         name=excluded.name, is_active=excluded.is_active,
                         updated_at=excluded.updated_at
-                """, (b["id"], b["name"], b["is_active"], upd, upd))
+                """, brand_data)
 
             # ── Categories ────────────────────────────────────────────────────
-            for c in categories:
-                upd = c.get("updated_at") or now_str
-                cur.execute("""
+            if categories:
+                cat_data = [
+                    (
+                        c["id"], c["name"], c["parent_id"] or None,
+                        c["sort_order"], c["is_active"],
+                        c["show_in_daily"], c["show_on_touch"], c["show_on_home"],
+                        c["photo_url"] or None, upd, upd
+                    )
+                    for c in categories
+                    for upd in [c.get("updated_at") or now_str]
+                ]
+                cur.executemany("""
                     INSERT INTO categories
                         (id, name, parent_id, sort_order, is_active,
                          show_in_daily, show_on_touch, show_on_home, photo_url,
@@ -260,17 +272,26 @@ def apply_master_snapshot() -> tuple[int, str | None]:
                         show_on_touch=excluded.show_on_touch,
                         show_on_home=excluded.show_on_home,
                         photo_url=excluded.photo_url, updated_at=excluded.updated_at
-                """, (
-                    c["id"], c["name"], c["parent_id"] or None,
-                    c["sort_order"], c["is_active"],
-                    c["show_in_daily"], c["show_on_touch"], c["show_on_home"],
-                    c["photo_url"] or None, upd, upd,
-                ))
+                """, cat_data)
 
             # ── Items ─────────────────────────────────────────────────────────
-            for i in items:
-                upd = i.get("updated_at") or now_str
-                cur.execute("""
+            if items:
+                item_data = [
+                    (
+                        i["id"], i["code"], i["name"], i["name_ar"] or None,
+                        i["category_id"] or None, i["brand_id"] or None,
+                        i["unit"], i["pack_size"],
+                        i["cost_price"], i["cost_currency"] or "USD",
+                        i["vat_rate"], i["min_stock"],
+                        i["is_active"], i["is_pos_featured"], i["is_online"],
+                        i["is_visible"], i["is_featured"], i["show_on_touch"],
+                        i["photo_url"] or None, i["notes"] or None,
+                        upd, upd
+                    )
+                    for i in items
+                    for upd in [i.get("updated_at") or now_str]
+                ]
+                cur.executemany("""
                     INSERT INTO items
                         (id, code, name, name_ar, category_id, brand_id,
                          unit, pack_size, cost_price, cost_currency,
@@ -297,53 +318,44 @@ def apply_master_snapshot() -> tuple[int, str | None]:
                         show_on_touch=excluded.show_on_touch,
                         photo_url=excluded.photo_url, notes=excluded.notes,
                         updated_at=excluded.updated_at
-                """, (
-                    i["id"], i["code"], i["name"], i["name_ar"] or None,
-                    i["category_id"] or None, i["brand_id"] or None,
-                    i["unit"], i["pack_size"],
-                    i["cost_price"], i["cost_currency"] or "USD",
-                    i["vat_rate"], i["min_stock"],
-                    i["is_active"], i["is_pos_featured"], i["is_online"],
-                    i["is_visible"], i["is_featured"], i["show_on_touch"],
-                    i["photo_url"] or None, i["notes"] or None,
-                    upd, upd,
-                ))
+                """, item_data)
 
-            # ── Prices: delete + reinsert for all snapshot items ──────────────
-            # Safety: only delete local prices if the snapshot actually has prices
+            # ── Prices & Barcodes: delete + reinsert for all snapshot items ───
             item_ids = list({i["id"] for i in items})
-            if item_ids and prices:
-                ph = ",".join("?" * len(item_ids))
-                cur.execute(f"DELETE FROM item_prices WHERE item_id IN ({ph})", item_ids)
-                for p in prices:
-                    cur.execute("""
+            if item_ids:
+                # Use a temp table for high-performance bulk deletion
+                cur.execute("CREATE TEMPORARY TABLE temp_snap_ids (id TEXT PRIMARY KEY)")
+                cur.executemany("INSERT INTO temp_snap_ids VALUES (?)", [(iid,) for iid in item_ids])
+                
+                if prices:
+                    cur.execute("DELETE FROM item_prices WHERE item_id IN (SELECT id FROM temp_snap_ids)")
+                    price_data = [
+                        (p["id"], p["item_id"], p["price_type"], p["amount"], p["currency"],
+                         p["is_default"], p["is_active"], p["pack_qty"], now_str, now_str)
+                        for p in prices
+                    ]
+                    cur.executemany("""
                         INSERT OR IGNORE INTO item_prices
                             (id, item_id, price_type, amount, currency,
                              is_default, is_active, pack_qty,
                              created_at, updated_at, sync_status, local_version, remote_version)
                         VALUES (?,?,?,?,?,?,?,?,?,?,'synced',1,0)
-                    """, (
-                        p["id"], p["item_id"], p["price_type"], p["amount"], p["currency"],
-                        p["is_default"], p["is_active"], p["pack_qty"],
-                        now_str, now_str,
-                    ))
+                    """, price_data)
 
-            # ── Barcodes: delete + reinsert for all snapshot items ────────────
-            # Safety: only delete local barcodes if the snapshot actually has barcodes
-            if item_ids and barcodes:
-                ph = ",".join("?" * len(item_ids))
-                cur.execute(f"DELETE FROM item_barcodes WHERE item_id IN ({ph})", item_ids)
-                for b in barcodes:
-                    cur.execute("""
+                if barcodes:
+                    cur.execute("DELETE FROM item_barcodes WHERE item_id IN (SELECT id FROM temp_snap_ids)")
+                    bc_data = [
+                        (b["id"], b["item_id"], b["barcode"], b["is_primary"], b["pack_qty"], now_str, now_str)
+                        for b in barcodes
+                    ]
+                    cur.executemany("""
                         INSERT OR IGNORE INTO item_barcodes
                             (id, item_id, barcode, is_primary, pack_qty,
                              created_at, updated_at)
                         VALUES (?,?,?,?,?,?,?)
-                    """, (
-                        b["id"], b["item_id"], b["barcode"],
-                        b["is_primary"], b["pack_qty"],
-                        now_str, now_str,
-                    ))
+                    """, bc_data)
+                
+                cur.execute("DROP TABLE temp_snap_ids")
 
             con.execute("COMMIT")
 
