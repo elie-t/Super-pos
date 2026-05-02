@@ -223,16 +223,17 @@ def apply_master_snapshot() -> tuple[int, str | None]:
         con = sqlite3.connect(str(LOCAL_DB_PATH))
         # High-performance pragmas for the raw connection
         con.execute("PRAGMA journal_mode=WAL")
-        con.execute("PRAGMA synchronous=NORMAL")
-        con.execute("PRAGMA cache_size=-16000")
+        con.execute("PRAGMA synchronous=OFF") # Extreme speed during full reload
+        con.execute("PRAGMA cache_size=-64000") # 64MB cache
         
         cur = con.cursor()
         try:
             cur.execute("PRAGMA foreign_keys = OFF")
             con.execute("BEGIN")
 
-            # ── Brands ────────────────────────────────────────────────────────
+            # ── Brands (Wipe and Reload) ──────────────────────────────────────
             if brands:
+                cur.execute("DELETE FROM brands")
                 brand_data = [
                     (b["id"], b["name"], b["is_active"], b.get("updated_at") or now_str, b.get("updated_at") or now_str)
                     for b in brands
@@ -242,13 +243,11 @@ def apply_master_snapshot() -> tuple[int, str | None]:
                         (id, name, is_active,
                          created_at, updated_at, sync_status, local_version, remote_version)
                     VALUES (?,?,?,?,?,'synced',1,0)
-                    ON CONFLICT(id) DO UPDATE SET
-                        name=excluded.name, is_active=excluded.is_active,
-                        updated_at=excluded.updated_at
                 """, brand_data)
 
-            # ── Categories ────────────────────────────────────────────────────
+            # ── Categories (Wipe and Reload) ──────────────────────────────────
             if categories:
+                cur.execute("DELETE FROM categories")
                 cat_data = [
                     (
                         c["id"], c["name"], c["parent_id"] or None,
@@ -265,17 +264,11 @@ def apply_master_snapshot() -> tuple[int, str | None]:
                          show_in_daily, show_on_touch, show_on_home, photo_url,
                          created_at, updated_at, sync_status, local_version, remote_version)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,'synced',1,0)
-                    ON CONFLICT(id) DO UPDATE SET
-                        name=excluded.name, parent_id=excluded.parent_id,
-                        sort_order=excluded.sort_order, is_active=excluded.is_active,
-                        show_in_daily=excluded.show_in_daily,
-                        show_on_touch=excluded.show_on_touch,
-                        show_on_home=excluded.show_on_home,
-                        photo_url=excluded.photo_url, updated_at=excluded.updated_at
                 """, cat_data)
 
-            # ── Items ─────────────────────────────────────────────────────────
+            # ── Items (Wipe and Reload) ───────────────────────────────────────
             if items:
+                cur.execute("DELETE FROM items")
                 item_data = [
                     (
                         i["id"], i["code"], i["name"], i["name_ar"] or None,
@@ -301,61 +294,37 @@ def apply_master_snapshot() -> tuple[int, str | None]:
                          photo_url, notes,
                          created_at, updated_at, sync_status, local_version, remote_version)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'synced',1,0)
-                    ON CONFLICT(id) DO UPDATE SET
-                        code=excluded.code, name=excluded.name,
-                        name_ar=excluded.name_ar,
-                        category_id=excluded.category_id,
-                        brand_id=excluded.brand_id,
-                        unit=excluded.unit, pack_size=excluded.pack_size,
-                        cost_price=excluded.cost_price,
-                        cost_currency=excluded.cost_currency,
-                        vat_rate=excluded.vat_rate, min_stock=excluded.min_stock,
-                        is_active=excluded.is_active,
-                        is_pos_featured=excluded.is_pos_featured,
-                        is_online=excluded.is_online,
-                        is_visible=excluded.is_visible,
-                        is_featured=excluded.is_featured,
-                        show_on_touch=excluded.show_on_touch,
-                        photo_url=excluded.photo_url, notes=excluded.notes,
-                        updated_at=excluded.updated_at
                 """, item_data)
 
-            # ── Prices & Barcodes: delete + reinsert for all snapshot items ───
-            item_ids = list({i["id"] for i in items})
-            if item_ids:
-                # Use a temp table for high-performance bulk deletion
-                cur.execute("CREATE TEMPORARY TABLE temp_snap_ids (id TEXT PRIMARY KEY)")
-                cur.executemany("INSERT INTO temp_snap_ids VALUES (?)", [(iid,) for iid in item_ids])
-                
-                if prices:
-                    cur.execute("DELETE FROM item_prices WHERE item_id IN (SELECT id FROM temp_snap_ids)")
-                    price_data = [
-                        (p["id"], p["item_id"], p["price_type"], p["amount"], p["currency"],
-                         p["is_default"], p["is_active"], p["pack_qty"], now_str, now_str)
-                        for p in prices
-                    ]
-                    cur.executemany("""
-                        INSERT OR IGNORE INTO item_prices
-                            (id, item_id, price_type, amount, currency,
-                             is_default, is_active, pack_qty,
-                             created_at, updated_at, sync_status, local_version, remote_version)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,'synced',1,0)
-                    """, price_data)
+            # ── Prices & Barcodes (Full Wipe and Reload) ──────────────────────
+            # Snapshot contains everything, so we can wipe these tables completely
+            if prices:
+                cur.execute("DELETE FROM item_prices")
+                price_data = [
+                    (p["id"], p["item_id"], p["price_type"], p["amount"], p["currency"],
+                     p["is_default"], p["is_active"], p["pack_qty"], now_str, now_str)
+                    for p in prices
+                ]
+                cur.executemany("""
+                    INSERT OR IGNORE INTO item_prices
+                        (id, item_id, price_type, amount, currency,
+                         is_default, is_active, pack_qty,
+                         created_at, updated_at, sync_status, local_version, remote_version)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,'synced',1,0)
+                """, price_data)
 
-                if barcodes:
-                    cur.execute("DELETE FROM item_barcodes WHERE item_id IN (SELECT id FROM temp_snap_ids)")
-                    bc_data = [
-                        (b["id"], b["item_id"], b["barcode"], b["is_primary"], b["pack_qty"], now_str, now_str)
-                        for b in barcodes
-                    ]
-                    cur.executemany("""
-                        INSERT OR IGNORE INTO item_barcodes
-                            (id, item_id, barcode, is_primary, pack_qty,
-                             created_at, updated_at)
-                        VALUES (?,?,?,?,?,?,?)
-                    """, bc_data)
-                
-                cur.execute("DROP TABLE temp_snap_ids")
+            if barcodes:
+                cur.execute("DELETE FROM item_barcodes")
+                bc_data = [
+                    (b["id"], b["item_id"], b["barcode"], b["is_primary"], b["pack_qty"], now_str, now_str)
+                    for b in barcodes
+                ]
+                cur.executemany("""
+                    INSERT OR IGNORE INTO item_barcodes
+                        (id, item_id, barcode, is_primary, pack_qty,
+                         created_at, updated_at)
+                    VALUES (?,?,?,?,?,?,?)
+                """, bc_data)
 
             con.execute("COMMIT")
 

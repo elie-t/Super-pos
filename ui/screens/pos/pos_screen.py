@@ -3649,19 +3649,32 @@ class POSScreen(QWidget):
                             c2, e2 = pull_master_items()
                             count = c2
                             err_msg = f"Snapshot failed ({snap_err}), fallback used: {e2}"
+                            # Only pull individual prices if we are NOT in snapshot mode or snapshot failed
+                            try:
+                                n, _ = pull_item_prices_only()
+                                count += n
+                            except Exception:
+                                pass
                         elif count == -1:
                             # Snapshot not found yet, fallback
                             count, err_msg = pull_master_items()
+                            try:
+                                n, _ = pull_item_prices_only()
+                                count += n
+                            except Exception:
+                                pass
+                        else:
+                            # Snapshot success! It already includes all items and prices.
+                            # We SKIP the redundant pull_item_prices_only() call.
+                            pass
                     else:
                         # Standard cursor-based pull
                         count, err_msg = pull_master_items()
-                    
-                    # Always pull latest prices specifically to ensure LBP rate etc. are fresh
-                    try:
-                        n, _ = pull_item_prices_only()
-                        if count != -1: count += n
-                    except Exception:
-                        pass
+                        try:
+                            n, _ = pull_item_prices_only()
+                            count += n
+                        except Exception:
+                            pass
                 else:
                     err_msg = "Sync not configured"
             except Exception as e:
