@@ -1487,6 +1487,8 @@ class OnlineOrdersDialog(QDialog):
 
 class POSScreen(QWidget):
     back = Signal()
+    # Thread-safe signal to notify UI when background sync finishes
+    _prices_sync_finished_sig = Signal(int, str)
 
     def __init__(self, parent=None, forced_warehouse_id: str | None = None):
         super().__init__(parent)
@@ -1510,6 +1512,10 @@ class POSScreen(QWidget):
         self._load_defaults()
         self._setup_shortcuts()
         self._install_focus_return_filter()
+        
+        # Connect the sync signal
+        self._prices_sync_finished_sig.connect(self._finish_prices_sync)
+        
         QTimer.singleShot(0, self._scan_input.setFocus)
         QTimer.singleShot(2000, self._poll_online_orders)  # first poll 2s after load
 
