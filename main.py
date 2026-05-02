@@ -45,10 +45,11 @@ def main():
         # ── Hourly item/price pull ────────────────────────────────────────────
         from sync.worker import SyncWorker
         _sync_worker = SyncWorker(app)
-        _sync_worker.sync_done.connect(
-            lambda s, f: window.statusBar().showMessage(
-                f"  Sync: {s} pushed" + (f", {f} failed" if f else ""), 5000)
-        )
+        def _on_sync_done(s, f):
+            if f:
+                window.statusBar().showMessage(f"  ⚠ Sync: {s} pushed, {f} failed", 10000)
+            # suppress silent success — no message when everything is clean
+        _sync_worker.sync_done.connect(_on_sync_done)
         _sync_worker.items_updated.connect(
             lambda n: window.statusBar().showMessage(f"  ✔ {n} item(s) updated from main", 6000)
         )
