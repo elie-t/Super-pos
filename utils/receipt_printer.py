@@ -322,15 +322,29 @@ def _render_to_printer(html: str, printer: QPrinter) -> None:
     paper_pt = printer.paperRect(QPrinter.Unit.Point)
     doc.setTextWidth(paper_pt.width())
 
-    # Render manually from (0, 0) of the paper.
-    # doc.print_() internally translates by pageRect().topLeft(), which adds
-    # the driver's left margin as an offset and shifts content to the right.
-    # By painting directly we skip that translation entirely.
+    # Render manually page by page.
+    # doc.print_() only draws one page; drawContents clips at paper_pt.height().
+    # We slice the document into page-height chunks and call newPage() between them
+    # so long receipts (shift reports, 30+ item invoices) are never truncated.
+    page_h   = paper_pt.height()
+    total_h  = doc.size().height()
+
     painter = QPainter(printer)
-    # Scale from points (72 pt/inch) to device pixels (resolution dpi/inch)
     scale = printer.resolution() / 72.0
     painter.scale(scale, scale)
-    doc.drawContents(painter, paper_pt)
+
+    y = 0.0
+    page = 0
+    while y < total_h:
+        if page > 0:
+            printer.newPage()
+        painter.save()
+        painter.translate(0.0, -y)
+        doc.drawContents(painter, QRectF(0, y, paper_pt.width(), page_h))
+        painter.restore()
+        y    += page_h
+        page += 1
+
     painter.end()
 
 
