@@ -33,9 +33,15 @@ class CategoriesScreen(QWidget):
         root.setContentsMargins(16, 12, 16, 12)
         root.setSpacing(10)
 
+        top = QHBoxLayout()
+        back_btn = QPushButton("← Back"); back_btn.setObjectName("secondaryBtn")
+        back_btn.setFixedHeight(32); back_btn.clicked.connect(self.back.emit)
+        top.addWidget(back_btn)
         title = QLabel("Sub Categories" if self._mode else "Categories")
         title.setObjectName("sectionTitle")
-        root.addWidget(title)
+        top.addWidget(title)
+        top.addStretch()
+        root.addLayout(top)
 
         splitter = QSplitter(Qt.Horizontal)
 
@@ -144,12 +150,6 @@ class CategoriesScreen(QWidget):
         btn_row.addStretch()
         rl.addLayout(btn_row)
         rl.addStretch()
-
-        back_btn = QPushButton("← Back")
-        back_btn.setObjectName("secondaryBtn")
-        back_btn.setFixedHeight(32)
-        back_btn.clicked.connect(self.back.emit)
-        rl.addWidget(back_btn)
 
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 2)

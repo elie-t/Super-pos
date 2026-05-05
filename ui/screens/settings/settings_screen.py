@@ -325,6 +325,29 @@ class SettingsScreen(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
+        # ── Header bar with back button ───────────────────────────────────────
+        hdr = QWidget()
+        hdr.setFixedHeight(44)
+        hdr.setStyleSheet("background:#1a3a5c;")
+        hdr_lay = QHBoxLayout(hdr)
+        hdr_lay.setContentsMargins(12, 0, 12, 0)
+        back_btn = QPushButton("←  Back")
+        back_btn.setStyleSheet(
+            "QPushButton{background:rgba(255,255,255,0.1);color:#fff;"
+            "border:1px solid rgba(255,255,255,0.25);border-radius:4px;"
+            "padding:4px 12px;font-size:12px;}"
+            "QPushButton:hover{background:rgba(255,255,255,0.25);}"
+        )
+        back_btn.setFixedHeight(28)
+        back_btn.setCursor(Qt.PointingHandCursor)
+        back_btn.clicked.connect(self.back.emit)
+        hdr_lay.addWidget(back_btn)
+        hdr_lbl = QLabel("Settings")
+        hdr_lbl.setStyleSheet("color:#fff;font-size:14px;font-weight:700;margin-left:8px;")
+        hdr_lay.addWidget(hdr_lbl)
+        hdr_lay.addStretch()
+        outer.addWidget(hdr)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -789,13 +812,6 @@ class SettingsScreen(QWidget):
         self._load_app_settings()
 
         root.addStretch()
-
-        # Back button
-        back_btn = QPushButton("← Back")
-        back_btn.setObjectName("secondaryBtn")
-        back_btn.setFixedWidth(100)
-        back_btn.clicked.connect(self.back.emit)
-        root.addWidget(back_btn, alignment=Qt.AlignLeft)
 
     def _load_app_settings(self):
         try:

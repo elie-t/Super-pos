@@ -22,9 +22,14 @@ class BrandsScreen(QWidget):
         root.setContentsMargins(16, 12, 16, 12)
         root.setSpacing(10)
 
-        QLabel("Brands").setObjectName("sectionTitle")
+        top = QHBoxLayout()
+        back_btn = QPushButton("← Back"); back_btn.setObjectName("secondaryBtn")
+        back_btn.setFixedHeight(32); back_btn.clicked.connect(self.back.emit)
+        top.addWidget(back_btn)
         title = QLabel("Brands"); title.setObjectName("sectionTitle")
-        root.addWidget(title)
+        top.addWidget(title)
+        top.addStretch()
+        root.addLayout(top)
 
         splitter = QSplitter(Qt.Horizontal)
 
@@ -53,10 +58,6 @@ class BrandsScreen(QWidget):
         save_btn.setFixedHeight(32); save_btn.clicked.connect(self._save)
         btn_row.addWidget(save_btn); btn_row.addStretch()
         rl.addLayout(btn_row); rl.addStretch()
-
-        back_btn = QPushButton("← Back"); back_btn.setObjectName("secondaryBtn")
-        back_btn.setFixedHeight(32); back_btn.clicked.connect(self.back.emit)
-        rl.addWidget(back_btn)
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 2); splitter.setStretchFactor(1, 1)
         root.addWidget(splitter)

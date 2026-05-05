@@ -82,9 +82,9 @@ class StockCardScreen(QWidget):
         back_btn.setObjectName("secondaryBtn")
         back_btn.setFixedHeight(32)
         back_btn.clicked.connect(self.back.emit)
+        top.addWidget(back_btn)
         top.addWidget(title)
         top.addStretch()
-        top.addWidget(back_btn)
         root.addLayout(top)
 
         # ── Filter panel ────────────────────────────────────────────────────

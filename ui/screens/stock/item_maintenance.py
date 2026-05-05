@@ -127,6 +127,17 @@ class ItemMaintenanceScreen(QWidget):
         layout.setContentsMargins(12, 6, 12, 6)
         layout.setSpacing(8)
 
+        back_btn = QPushButton("←  Back")
+        back_btn.setFixedHeight(34)
+        back_btn.setStyleSheet(
+            "QPushButton { background:rgba(255,255,255,0.1); color:#ffffff; border:1px solid rgba(255,255,255,0.25); "
+            "border-radius:4px; padding:4px 12px; font-size:12px; }"
+            "QPushButton:hover { background:rgba(255,255,255,0.25); }"
+        )
+        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        back_btn.clicked.connect(self.back.emit)
+        layout.addWidget(back_btn)
+
         title_lbl = QLabel("Item Maintenance")
         title_lbl.setStyleSheet("color:#ffffff; font-size:15px; font-weight:700;")
         layout.addWidget(title_lbl)
@@ -188,16 +199,6 @@ class ItemMaintenanceScreen(QWidget):
         )
         self._bar_mode_lbl.hide()
         layout.addWidget(self._bar_mode_lbl)
-
-        back_btn = QPushButton("← Back")
-        back_btn.setFixedHeight(34)
-        back_btn.setStyleSheet(
-            "QPushButton { background:rgba(255,255,255,0.1); color:#ffffff; border:1px solid rgba(255,255,255,0.25); "
-            "border-radius:4px; padding:4px 12px; font-size:12px; }"
-            "QPushButton:hover { background:rgba(255,255,255,0.25); }"
-        )
-        back_btn.clicked.connect(self.back.emit)
-        layout.addWidget(back_btn)
 
         return bar
 

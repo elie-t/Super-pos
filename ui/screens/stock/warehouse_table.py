@@ -22,8 +22,14 @@ class WarehouseTableScreen(QWidget):
         root.setContentsMargins(16, 12, 16, 12)
         root.setSpacing(10)
 
+        top = QHBoxLayout()
+        back_btn_top = QPushButton("← Back"); back_btn_top.setObjectName("secondaryBtn")
+        back_btn_top.setFixedHeight(32); back_btn_top.clicked.connect(self.back.emit)
+        top.addWidget(back_btn_top)
         title = QLabel("Warehouse Table"); title.setObjectName("sectionTitle")
-        root.addWidget(title)
+        top.addWidget(title)
+        top.addStretch()
+        root.addLayout(top)
 
         splitter = QSplitter(Qt.Horizontal)
 
@@ -66,10 +72,6 @@ class WarehouseTableScreen(QWidget):
         save_btn.setFixedHeight(32); save_btn.clicked.connect(self._save)
         btn_row.addWidget(save_btn); btn_row.addStretch()
         rl.addLayout(btn_row); rl.addStretch()
-
-        back_btn = QPushButton("← Back"); back_btn.setObjectName("secondaryBtn")
-        back_btn.setFixedHeight(32); back_btn.clicked.connect(self.back.emit)
-        rl.addWidget(back_btn)
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 2); splitter.setStretchFactor(1, 1)
         root.addWidget(splitter)
