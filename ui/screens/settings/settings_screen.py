@@ -432,40 +432,6 @@ class SettingsScreen(QWidget):
         self._sync_btn.clicked.connect(self._do_force_sync)
         btn_row.addWidget(self._sync_btn)
 
-        self._sync_items_btn = QPushButton("📥  Sync Items Now")
-        self._sync_items_btn.setFixedHeight(38)
-        self._sync_items_btn.setCursor(Qt.PointingHandCursor)
-        self._sync_items_btn.setEnabled(configured)
-        self._sync_items_btn.setToolTip(
-            "Pull latest item names, prices, and barcodes from the main PC.\n"
-            "This also happens automatically every hour in the background."
-        )
-        self._sync_items_btn.setStyleSheet(
-            "QPushButton{background:#2e7d32;color:#fff;border:none;"
-            "border-radius:5px;font-size:13px;font-weight:700;padding:0 20px;}"
-            "QPushButton:hover{background:#1b5e20;}"
-            "QPushButton:disabled{background:#aaa;}"
-        )
-        self._sync_items_btn.clicked.connect(self._do_sync_items)
-        btn_row.addWidget(self._sync_items_btn)
-
-        self._full_resync_btn = QPushButton("🔄  Full Re-Sync Items")
-        self._full_resync_btn.setFixedHeight(38)
-        self._full_resync_btn.setCursor(Qt.PointingHandCursor)
-        self._full_resync_btn.setEnabled(configured)
-        self._full_resync_btn.setToolTip(
-            "Re-download EVERY item from Supabase from scratch.\n"
-            "Use this to recover items that were missed due to sync issues.\n"
-            "Safe to run — existing items are updated, nothing is deleted."
-        )
-        self._full_resync_btn.setStyleSheet(
-            "QPushButton{background:#e65100;color:#fff;border:none;"
-            "border-radius:5px;font-size:13px;font-weight:700;padding:0 20px;}"
-            "QPushButton:hover{background:#bf360c;}"
-            "QPushButton:disabled{background:#aaa;}"
-        )
-        self._full_resync_btn.clicked.connect(self._do_full_resync_items)
-        btn_row.addWidget(self._full_resync_btn)
 
         btn_row.addStretch()
         sync_layout.addLayout(btn_row)
@@ -481,55 +447,6 @@ class SettingsScreen(QWidget):
         sync_layout.addWidget(self._result_lbl)
 
         root.addWidget(sync_box)
-
-        # ── Stock History panel ────────────────────────────────────────────────
-        stock_box = QGroupBox("Stock History")
-        stock_box.setStyleSheet(
-            "QGroupBox { font-weight:700; font-size:13px; padding-top:12px; }"
-        )
-        stock_lay = QVBoxLayout(stock_box)
-        stock_lay.setSpacing(10)
-
-        stock_desc = QLabel(
-            "Set a stock start date to wipe all stock movements before that date\n"
-            "on ALL branches. Opening balance will show 0 from that date forward.\n"
-            "Current stock quantities are NOT affected — only the history is cleared."
-        )
-        stock_desc.setWordWrap(True)
-        stock_desc.setStyleSheet("font-size:11px; color:#555;")
-        stock_lay.addWidget(stock_desc)
-
-        date_row = QHBoxLayout()
-        date_row.setSpacing(10)
-        from PySide6.QtWidgets import QDateEdit as _QDE
-        from PySide6.QtCore import QDate as _QD
-        date_row.addWidget(QLabel("Clear all movements before:"))
-        self._stock_start_date = _QDE()
-        self._stock_start_date.setCalendarPopup(True)
-        self._stock_start_date.setDate(_QD.currentDate())
-        self._stock_start_date.setDisplayFormat("dd/MM/yyyy")
-        self._stock_start_date.setFixedHeight(30)
-        self._stock_start_date.setFixedWidth(130)
-        date_row.addWidget(self._stock_start_date)
-
-        set_start_btn = QPushButton("🗑  Clear History Before This Date")
-        set_start_btn.setFixedHeight(34)
-        set_start_btn.setCursor(Qt.PointingHandCursor)
-        set_start_btn.setStyleSheet(
-            "QPushButton{background:#b71c1c;color:#fff;border:none;"
-            "border-radius:5px;font-size:12px;font-weight:700;padding:0 16px;}"
-            "QPushButton:hover{background:#7f0000;}"
-        )
-        set_start_btn.clicked.connect(self._do_set_stock_start)
-        date_row.addWidget(set_start_btn)
-        date_row.addStretch()
-        stock_lay.addLayout(date_row)
-
-        self._stock_start_status = QLabel("")
-        self._stock_start_status.setStyleSheet("font-size:11px; color:#2e7d32;")
-        stock_lay.addWidget(self._stock_start_status)
-
-        root.addWidget(stock_box)
 
         # ── General / Currency panel ───────────────────────────────────────────
         general_box = QGroupBox("General Settings")
