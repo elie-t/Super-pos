@@ -389,7 +389,8 @@ class SalesInvoiceService:
                 q = q.filter(SalesInvoice.invoice_date <= date_to)
             rows = (
                 q.order_by(SalesInvoice.invoice_date.desc(),
-                            SalesInvoice.created_at.desc())
+                           User.full_name.asc(),
+                           SalesInvoice.invoice_number.asc())
                 .limit(limit)
                 .all()
             )
