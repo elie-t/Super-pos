@@ -193,6 +193,14 @@ class BarcodePrintScreen(QWidget):
         self._currency_combo.setFixedHeight(30)
         pr.addWidget(self._currency_combo)
 
+        pr.addWidget(QLabel("Copies:"))
+        self._copies_spin = QSpinBox()
+        self._copies_spin.setRange(1, 20)
+        self._copies_spin.setValue(1)
+        self._copies_spin.setFixedSize(50, 30)
+        self._copies_spin.setToolTip("Number of full sets to print (one set per branch)")
+        pr.addWidget(self._copies_spin)
+
         pr.addStretch()
 
         self._print_btn = QPushButton("🖨  Print Labels")
@@ -391,6 +399,9 @@ class BarcodePrintScreen(QWidget):
                     "code":    entry["code"],
                     "price":   price_text,
                 })
+
+        copies = self._copies_spin.value()
+        labels = labels * copies   # full series repeated: [A,B,C] × 3 → [A,B,C,A,B,C,A,B,C]
 
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer_name = self._printer_combo.currentText()

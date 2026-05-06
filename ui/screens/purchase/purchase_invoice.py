@@ -511,6 +511,14 @@ class InvoiceBarcodePrintDialog(QDialog):
         self._h_spin = QSpinBox(); self._h_spin.setRange(10, 200); self._h_spin.setValue(30)
         opt_row.addWidget(self._h_spin)
 
+        opt_row.addSpacing(16)
+        opt_row.addWidget(QLabel("Copies:"))
+        self._copies_spin = QSpinBox()
+        self._copies_spin.setRange(1, 20); self._copies_spin.setValue(1)
+        self._copies_spin.setFixedSize(50, 28)
+        self._copies_spin.setToolTip("Number of full sets (one per branch)")
+        opt_row.addWidget(self._copies_spin)
+
         opt_row.addStretch()
         lay.addLayout(opt_row)
 
@@ -619,12 +627,15 @@ class InvoiceBarcodePrintDialog(QDialog):
         printer.setFullPage(True)
         printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
 
+        copies = self._copies_spin.value()
+        labels = self._queue * copies   # full series: [A,B,C] × 4 → [A,B,C, A,B,C, A,B,C, A,B,C]
+
         helper = BarcodePrintScreen.__new__(BarcodePrintScreen)
         try:
-            helper._send_to_printer(printer, self._queue, w_mm, h_mm)
+            helper._send_to_printer(printer, labels, w_mm, h_mm)
             QMessageBox.information(
                 self, "Done",
-                f"Sent {len(self._queue)} label(s) to '{name}'."
+                f"Sent {len(labels)} label(s) to '{name}'."
             )
             self.accept()
         except Exception as exc:
