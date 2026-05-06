@@ -164,6 +164,18 @@ class PricingReviewDialog(QDialog):
         close_btn.clicked.connect(self.reject)
         fl.addWidget(close_btn)
 
+        labels_btn = QPushButton("🏷  Print Labels")
+        labels_btn.setFixedHeight(36)
+        labels_btn.setMinimumWidth(130)
+        labels_btn.setStyleSheet(
+            "QPushButton{background:#6a1b9a;color:#fff;font-size:13px;font-weight:700;"
+            "border:none;border-radius:5px;}"
+            "QPushButton:hover{background:#4a148c;}"
+        )
+        labels_btn.setCursor(Qt.PointingHandCursor)
+        labels_btn.clicked.connect(self._print_labels)
+        fl.addWidget(labels_btn)
+
         fl.addStretch()
         self._status_lbl = QLabel("")
         self._status_lbl.setStyleSheet("font-size:12px;font-weight:700;")
@@ -365,3 +377,7 @@ class PricingReviewDialog(QDialog):
             self._updating = False
         else:
             QMessageBox.critical(self, "Error", f"Failed to save prices:\n{err}")
+
+    def _print_labels(self):
+        from ui.screens.purchase.purchase_invoice import InvoiceBarcodePrintDialog
+        InvoiceBarcodePrintDialog(self._invoice_id, self).exec()
