@@ -456,6 +456,181 @@ class CalculatorDialog(QDialog):
         return self._result
 
 
+# ── Invoice barcode print dialog ───────────────────────────────────────────────
+
+class InvoiceBarcodePrintDialog(QDialog):
+    """Print unit-barcode price labels for every item in a purchase invoice."""
+
+    def __init__(self, invoice_id: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Print Barcodes")
+        self.setMinimumSize(620, 460)
+        self._invoice_id = invoice_id
+        self._queue: list[dict] = []
+        self._build_ui()
+        self._load()
+
+    def _build_ui(self):
+        from PySide6.QtPrintSupport import QPrinterInfo
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(10)
+
+        # ── item table ────────────────────────────────────────────────────────
+        self._table = QListWidget()
+        self._table.setAlternatingRowColors(True)
+        lay.addWidget(self._table, 1)
+
+        self._warn_lbl = QLabel("")
+        self._warn_lbl.setStyleSheet("color:#e65100; font-size:11px;")
+        self._warn_lbl.setWordWrap(True)
+        lay.addWidget(self._warn_lbl)
+
+        # ── printer + label size row ──────────────────────────────────────────
+        opt_row = QHBoxLayout()
+
+        opt_row.addWidget(QLabel("Printer:"))
+        self._printer_combo = QComboBox()
+        self._printer_combo.setMinimumWidth(200)
+        for info in QPrinterInfo.availablePrinters():
+            self._printer_combo.addItem(info.printerName())
+        # pre-select label printer if found
+        for i in range(self._printer_combo.count()):
+            name = self._printer_combo.itemText(i).lower()
+            if any(k in name for k in ("zebra","dymo","tsc","label","barcode","bixolon","brother","xp-")):
+                self._printer_combo.setCurrentIndex(i)
+                break
+        opt_row.addWidget(self._printer_combo)
+
+        opt_row.addSpacing(16)
+        opt_row.addWidget(QLabel("W mm:"))
+        self._w_spin = QSpinBox(); self._w_spin.setRange(20, 200); self._w_spin.setValue(50)
+        opt_row.addWidget(self._w_spin)
+
+        opt_row.addWidget(QLabel("H mm:"))
+        self._h_spin = QSpinBox(); self._h_spin.setRange(10, 200); self._h_spin.setValue(30)
+        opt_row.addWidget(self._h_spin)
+
+        opt_row.addStretch()
+        lay.addLayout(opt_row)
+
+        # ── buttons ───────────────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+        self._print_btn = QPushButton("🖨  Print Labels")
+        self._print_btn.setFixedHeight(36)
+        self._print_btn.setStyleSheet(
+            "QPushButton{background:#6a1b9a;color:#fff;border:none;"
+            "border-radius:5px;font-size:13px;font-weight:700;padding:0 20px;}"
+            "QPushButton:hover{background:#4a148c;}"
+            "QPushButton:disabled{background:#aaa;}"
+        )
+        self._print_btn.clicked.connect(self._do_print)
+        btn_row.addWidget(self._print_btn)
+        lay.addLayout(btn_row)
+
+    def _load(self):
+        """Query invoice items → find unit barcode (pack_qty=1, not item code) + price."""
+        from database.engine import get_session, init_db
+        from database.models.invoices import SalesInvoice, PurchaseInvoice, PurchaseInvoiceItem
+        from database.models.items import Item, ItemBarcode, ItemPrice
+        import sqlalchemy as sa
+
+        init_db()
+        session = get_session()
+        no_barcode: list[str] = []
+        try:
+            lines = (
+                session.query(PurchaseInvoiceItem)
+                .filter_by(invoice_id=self._invoice_id)
+                .all()
+            )
+            for li in lines:
+                item = session.get(Item, li.item_id) if li.item_id else None
+                if not item:
+                    continue
+
+                # Unit barcode: pack_qty=1, barcode is NOT the item code
+                unit_bc = next(
+                    (b.barcode for b in item.barcodes
+                     if b.pack_qty == 1 and b.barcode != item.code),
+                    None
+                )
+                if not unit_bc:
+                    no_barcode.append(item.name)
+                    continue
+
+                # Price: individual → retail fallback
+                price_str = ""
+                for pt in ("individual", "retail"):
+                    p = next((x for x in item.prices if x.price_type == pt and x.is_active), None)
+                    if p:
+                        price_str = (
+                            f"{p.amount:,.0f} L" if p.currency == "LBP"
+                            else f"$ {p.amount:.2f}"
+                        )
+                        break
+
+                self._queue.append({
+                    "name":    item.name,
+                    "code":    item.code,
+                    "barcode": unit_bc,
+                    "price":   price_str,
+                })
+                self._table.addItem(
+                    f"{item.name}  |  {unit_bc}  |  {price_str or '—'}"
+                )
+        finally:
+            session.close()
+
+        if no_barcode:
+            self._warn_lbl.setText(
+                f"⚠ No unit barcode found for: {', '.join(no_barcode)} — skipped."
+            )
+        self._print_btn.setEnabled(bool(self._queue))
+
+    def _do_print(self):
+        try:
+            import barcode as _bc_check  # noqa: F401
+        except ImportError:
+            QMessageBox.critical(
+                self, "Missing dependency",
+                "python-barcode is not installed.\n\nRun:  pip install python-barcode"
+            )
+            return
+
+        from ui.screens.stock.barcode_print_screen import BarcodePrintScreen
+        from PySide6.QtPrintSupport import QPrinter
+        from PySide6.QtGui import QPageSize
+        from PySide6.QtCore import QSizeF, QMarginsF
+        from PySide6.QtGui import QPageLayout
+
+        w_mm = self._w_spin.value()
+        h_mm = self._h_spin.value()
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        name = self._printer_combo.currentText()
+        if name:
+            printer.setPrinterName(name)
+        printer.setPageSize(QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter))
+        printer.setFullPage(True)
+        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+
+        helper = BarcodePrintScreen.__new__(BarcodePrintScreen)
+        try:
+            helper._send_to_printer(printer, self._queue, w_mm, h_mm)
+            QMessageBox.information(
+                self, "Done",
+                f"Sent {len(self._queue)} label(s) to '{name}'."
+            )
+            self.accept()
+        except Exception as exc:
+            QMessageBox.critical(self, "Print Error", str(exc))
+
+
 # ── Post-save action dialog ────────────────────────────────────────────────────
 
 class PostSaveDialog(QDialog):
@@ -465,8 +640,8 @@ class PostSaveDialog(QDialog):
                  currency: str, invoice_id: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Invoice Saved")
-        self.setFixedSize(560, 240)
-        self.choice = None      # "done" | "print" | "edit" | "pricing"
+        self.setFixedSize(680, 240)
+        self.choice = None      # "done" | "print" | "edit" | "pricing" | "barcodes"
         self.payment_paid = True  # default: paid
         self._invoice_id = invoice_id
 
@@ -495,10 +670,11 @@ class PostSaveDialog(QDialog):
         btn_row.setSpacing(10)
 
         for label, bg, hover, key in [
-            ("✓  Done",       "#607d8b", "#455a64", "done"),
-            ("🖨  Print",     "#1a6cb5", "#1a3a5c", "print"),
-            ("✏  Edit",      "#e65100", "#bf360c", "edit"),
-            ("💰  Pricing",  "#2e7d32", "#1b5e20", "pricing"),
+            ("✓  Done",        "#607d8b", "#455a64", "done"),
+            ("🖨  Print",      "#1a6cb5", "#1a3a5c", "print"),
+            ("✏  Edit",       "#e65100", "#bf360c", "edit"),
+            ("💰  Pricing",   "#2e7d32", "#1b5e20", "pricing"),
+            ("🏷  Barcodes",  "#6a1b9a", "#4a148c", "barcodes"),
         ]:
             btn = QPushButton(label)
             btn.setFixedHeight(46)
@@ -1924,6 +2100,10 @@ class PurchaseInvoiceScreen(QWidget):
                 self._refresh_invoice_number()
             elif dlg.choice == "print":
                 QMessageBox.information(self, "Print", "Print feature coming soon.")
+                self._clear_all()
+                self._refresh_invoice_number()
+            elif dlg.choice == "barcodes":
+                InvoiceBarcodePrintDialog(invoice_id, self).exec()
                 self._clear_all()
                 self._refresh_invoice_number()
             else:  # "done" or dialog closed
