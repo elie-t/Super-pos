@@ -504,23 +504,22 @@ class BarcodePrintScreen(QWidget):
                 q_bc    = QImage(data, pil_img.width, pil_img.height,
                                  QImage.Format.Format_RGBA8888).copy()
 
-                aspect  = pil_img.width / pil_img.height   # should be > 1 (wider than tall)
-                max_w   = W - 2 * PAD
-                max_h   = bc_zone_h - 2
+                aspect   = pil_img.width / pil_img.height
+                # Explicit left margin so bars never touch the label edge
+                left_pad = max(int(W * 0.07), 14)   # ~2.8 mm on a 40 mm label
+                max_w    = W - left_pad - PAD        # barcode fills from left_pad to right edge
+                max_h    = bc_zone_h - 2
 
                 bc_w = max_w
                 bc_h = int(bc_w / aspect)
-                # Always fill at least 70% of the zone height (bars look taller / more extended)
-                bc_h = max(bc_h, int(max_h * 0.70))
+                bc_h = max(bc_h, int(max_h * 0.70))  # at least 70% zone height
                 if bc_h > max_h:
                     bc_h = max_h
                     bc_w = int(bc_h * aspect)
                 bc_w = min(bc_w, max_w)
 
-                SHIFT = 8                                        # px to the right
-                x_bc  = (W - bc_w) // 2 + SHIFT
-                x_bc  = min(x_bc, W - bc_w - PAD)              # don't bleed off right edge
-                y_bc  = name_zone_h + (bc_zone_h - bc_h) // 2  # centered in zone
+                x_bc = left_pad                                  # fixed left margin
+                y_bc = name_zone_h + (bc_zone_h - bc_h) // 2   # centered in zone
 
                 p.drawImage(QRectF(float(x_bc), float(y_bc), float(bc_w), float(bc_h)), q_bc)
 
