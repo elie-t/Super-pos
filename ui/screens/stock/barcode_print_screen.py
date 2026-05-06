@@ -531,9 +531,10 @@ class BarcodePrintScreen(QWidget):
         bot_y = H - bot_zone_h + (bot_zone_h - bfm.height()) // 2
         p.setFont(bot_font)
 
+        # Barcode number — centered across the full label width
         p.drawText(
-            QRectF(PAD, bot_y, W * 0.65, bfm.height()),
-            Qt_.AlignLeft | Qt_.AlignVCenter,
+            QRectF(0, bot_y, W, bfm.height()),
+            Qt_.AlignCenter | Qt_.AlignVCenter,
             bc_str,
         )
         if price:

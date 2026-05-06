@@ -504,7 +504,7 @@ class InvoiceBarcodePrintDialog(QDialog):
 
         opt_row.addSpacing(16)
         opt_row.addWidget(QLabel("W mm:"))
-        self._w_spin = QSpinBox(); self._w_spin.setRange(20, 200); self._w_spin.setValue(50)
+        self._w_spin = QSpinBox(); self._w_spin.setRange(20, 200); self._w_spin.setValue(40)
         opt_row.addWidget(self._w_spin)
 
         opt_row.addWidget(QLabel("H mm:"))
