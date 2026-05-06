@@ -2070,6 +2070,11 @@ class PurchaseInvoiceScreen(QWidget):
                 total=line["total"],
             ))
 
+        try:
+            inv_disc_pct = float(self._disc_edit.text().replace(",", ""))
+        except ValueError:
+            inv_disc_pct = 0.0
+
         ok, result = PurchaseService.save_invoice(
             supplier_id=self._supplier.id,
             operator_id=operator.id if operator else "",
@@ -2083,6 +2088,7 @@ class PurchaseInvoiceScreen(QWidget):
             payment_mode="account",
             notes=self._notes_input.text().strip(),
             invoice_id=self._loaded_invoice_id or None,
+            disc_pct=inv_disc_pct,
         )
 
         if ok:
@@ -2281,6 +2287,10 @@ class PurchaseInvoiceScreen(QWidget):
                 "vat":   li["vat"],
                 "total": li["total"],
             })
+
+        # Restore invoice-level discount
+        disc_pct = data.get("discount_pct", 0.0) or 0.0
+        self._disc_edit.setText(f"{disc_pct:.2f}")
 
         self._refresh_table()
         self._refresh_totals()

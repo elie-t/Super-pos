@@ -236,6 +236,7 @@ class PurchaseService:
                 "order_number":   inv.order_number or "",
                 "notes":          inv.notes or "",
                 "payment_status": inv.payment_status,
+                "discount_pct":   round((inv.discount_value / inv.subtotal * 100), 4) if inv.subtotal else 0.0,
                 "lines":          lines,
             }
         finally:
@@ -248,6 +249,7 @@ class PurchaseService:
         currency: str, lines: list[PurchaseLineItem],
         payment_mode: str, notes: str,
         invoice_id: str | None = None,
+        disc_pct: float = 0.0,
     ) -> tuple[bool, str]:
         init_db()
         session = get_session()
@@ -258,7 +260,9 @@ class PurchaseService:
             from database.models.base import new_uuid
             from datetime import datetime, timezone
 
-            subtotal = sum(l.total for l in lines)
+            subtotal       = sum(l.total for l in lines)
+            discount_value = round(subtotal * disc_pct / 100, 4)
+            grand_total    = round(subtotal - discount_value, 4)
 
             # ── Edit existing invoice ──────────────────────────────────────────
             if invoice_id:
@@ -293,10 +297,11 @@ class PurchaseService:
                     inv.invoice_date   = invoice_date
                     inv.due_date       = due_date
                     inv.order_number   = order_number or None
-                    inv.subtotal       = subtotal
-                    inv.total          = subtotal
-                    inv.currency       = currency
-                    inv.notes          = notes or None
+                    inv.subtotal        = subtotal
+                    inv.discount_value  = discount_value
+                    inv.total           = grand_total
+                    inv.currency        = currency
+                    inv.notes           = notes or None
                     session.flush()
                 else:
                     invoice_id = None  # fall through to create new
@@ -314,7 +319,8 @@ class PurchaseService:
                     order_number=order_number or None,
                     invoice_type="purchase",
                     subtotal=subtotal,
-                    total=subtotal,
+                    discount_value=discount_value,
+                    total=grand_total,
                     currency=currency,
                     status="finalized",
                     payment_status="unpaid" if payment_mode == "account" else "paid",
