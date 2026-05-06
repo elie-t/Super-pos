@@ -504,21 +504,22 @@ class BarcodePrintScreen(QWidget):
                 q_bc    = QImage(data, pil_img.width, pil_img.height,
                                  QImage.Format.Format_RGBA8888).copy()
 
-                aspect   = pil_img.width / pil_img.height
-                # Explicit left margin so bars never touch the label edge
-                left_pad = max(int(W * 0.07), 14)   # ~2.8 mm on a 40 mm label
-                max_w    = W - left_pad - PAD        # barcode fills from left_pad to right edge
-                max_h    = bc_zone_h - 2
+                aspect = pil_img.width / pil_img.height
+                # Fixed margins: BC_L pushes barcode right, BC_R keeps price visible
+                BC_L  = max(int(W * 0.15), 22)   # ~6 mm on 40 mm → pushed right
+                BC_R  = max(int(W * 0.05), 8)    # ~2 mm right margin
+                max_w = W - BC_L - BC_R           # narrower → bars closer together
+                max_h = bc_zone_h - 2
 
                 bc_w = max_w
                 bc_h = int(bc_w / aspect)
-                bc_h = max(bc_h, int(max_h * 0.70))  # at least 70% zone height
+                bc_h = max(bc_h, int(max_h * 0.70))
                 if bc_h > max_h:
                     bc_h = max_h
                     bc_w = int(bc_h * aspect)
                 bc_w = min(bc_w, max_w)
 
-                x_bc = left_pad                                  # fixed left margin
+                x_bc = BC_L                                      # start after left margin
                 y_bc = name_zone_h + (bc_zone_h - bc_h) // 2   # centered in zone
 
                 p.drawImage(QRectF(float(x_bc), float(y_bc), float(bc_w), float(bc_h)), q_bc)
@@ -545,8 +546,9 @@ class BarcodePrintScreen(QWidget):
             pf.setBold(True)
             pf.setPixelSize(bot_px)
             p.setFont(pf)
+            price_r = max(int(W * 0.05), 8)   # same right margin as barcode (BC_R)
             p.drawText(
-                QRectF(0, bot_y, W - PAD, bfm.height()),
+                QRectF(0, bot_y, W - price_r, bfm.height()),
                 Qt_.AlignRight | Qt_.AlignVCenter,
                 price,
             )
