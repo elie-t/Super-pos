@@ -506,17 +506,21 @@ class BarcodePrintScreen(QWidget):
 
                 aspect  = pil_img.width / pil_img.height   # should be > 1 (wider than tall)
                 max_w   = W - 2 * PAD
-                max_h   = bc_zone_h - 4
+                max_h   = bc_zone_h - 2
 
                 bc_w = max_w
                 bc_h = int(bc_w / aspect)
+                # Always fill at least 70% of the zone height (bars look taller / more extended)
+                bc_h = max(bc_h, int(max_h * 0.70))
                 if bc_h > max_h:
                     bc_h = max_h
                     bc_w = int(bc_h * aspect)
-                bc_w = min(bc_w, max_w)   # never exceed label width
+                bc_w = min(bc_w, max_w)
 
-                x_bc = (W - bc_w) // 2                          # centered horizontally
-                y_bc = name_zone_h + (bc_zone_h - bc_h) // 2   # centered in zone
+                SHIFT = 8                                        # px to the right
+                x_bc  = (W - bc_w) // 2 + SHIFT
+                x_bc  = min(x_bc, W - bc_w - PAD)              # don't bleed off right edge
+                y_bc  = name_zone_h + (bc_zone_h - bc_h) // 2  # centered in zone
 
                 p.drawImage(QRectF(float(x_bc), float(y_bc), float(bc_w), float(bc_h)), q_bc)
 
