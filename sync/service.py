@@ -3606,6 +3606,30 @@ def pull_delivery_invoices(status_filter: str = "pending") -> tuple[list[dict], 
             row["warehouse_name"] = wh_map.get(row.get("warehouse_id", ""), "—")
             row["operator_name"]  = op_map.get(row.get("operator_id",  ""), "—")
 
+        # Strip out any rows that are actually local purchase invoices wrongly pushed
+        # to Supabase without invoice_type (Supabase defaulted them to "delivery").
+        # A row is a real delivery invoice if its ID does NOT exist locally as a
+        # purchase invoice — converted delivery invoices get a brand-new local UUID.
+        try:
+            from database.engine import get_session, init_db
+            from database.models.invoices import PurchaseInvoice
+            init_db()
+            _s = get_session()
+            try:
+                row_ids = [r["id"] for r in rows]
+                if row_ids:
+                    local_ids = {
+                        pid for (pid,) in
+                        _s.query(PurchaseInvoice.id)
+                          .filter(PurchaseInvoice.id.in_(row_ids))
+                          .all()
+                    }
+                    rows = [r for r in rows if r["id"] not in local_ids]
+            finally:
+                _s.close()
+        except Exception:
+            pass   # never block the pull if local DB check fails
+
         return rows, ""
     except Exception as exc:
         return [], str(exc)
