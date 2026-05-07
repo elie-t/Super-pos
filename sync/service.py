@@ -2268,6 +2268,7 @@ def push_purchase_invoice(invoice_id: str) -> tuple[bool, str]:
             "id":             inv.id,
             "branch_id":      BRANCH_ID,
             "invoice_number": inv.invoice_number,
+            "invoice_type":   "purchase",
             "supplier_id":    inv.supplier_id or "",
             "supplier_name":  supplier_name,
             "operator_id":    inv.operator_id or "",
