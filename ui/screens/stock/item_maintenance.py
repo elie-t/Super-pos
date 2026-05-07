@@ -78,7 +78,7 @@ class ItemMaintenanceScreen(QWidget):
         # Top section — fixed height so it never steals space from the price grid
         top_widget = QWidget()
         top_widget.setStyleSheet("background:#ffffff; border-bottom:1px solid #c0ccd8;")
-        top_widget.setFixedHeight(300)
+        top_widget.setFixedHeight(260)
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 8, 10, 8)
         top_layout.setSpacing(10)
@@ -413,7 +413,7 @@ class ItemMaintenanceScreen(QWidget):
         # Alt description
         layout.addWidget(QLabel("Alternate Description :"))
         self._altdesc_edit = QTextEdit()
-        self._altdesc_edit.setFixedHeight(48)
+        self._altdesc_edit.setFixedHeight(38)
         layout.addWidget(self._altdesc_edit)
 
         # Category / Family / Brand
@@ -813,12 +813,10 @@ class ItemMaintenanceScreen(QWidget):
         self._price_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._price_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self._price_table.setAlternatingRowColors(True)
-        # Fixed height: header + 3 rows + frame — scrollbar appears when there are more rows
-        _row_h   = 28
-        _hdr_h   = self._price_table.horizontalHeader().sizeHint().height()
-        self._price_table.setFixedHeight(_hdr_h + 3 * _row_h + 4)
+        _row_h = 28
         self._price_table.verticalHeader().setDefaultSectionSize(_row_h)
-        self._price_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self._price_table.setMinimumHeight(80)
+        self._price_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._price_table.setEditTriggers(
             QAbstractItemView.DoubleClicked |
             QAbstractItemView.SelectedClicked |
