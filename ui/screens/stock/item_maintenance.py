@@ -78,7 +78,7 @@ class ItemMaintenanceScreen(QWidget):
         # Top section — fixed height so it never steals space from the price grid
         top_widget = QWidget()
         top_widget.setStyleSheet("background:#ffffff; border-bottom:1px solid #c0ccd8;")
-        top_widget.setFixedHeight(275)
+        top_widget.setFixedHeight(230)
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 8, 10, 8)
         top_layout.setSpacing(10)
@@ -411,11 +411,9 @@ class ItemMaintenanceScreen(QWidget):
         )
         layout.addWidget(self._name_edit)
 
-        # Alt description
-        layout.addWidget(QLabel("Alternate Description :"))
+        # Alt description — hidden, kept for save/load compatibility
         self._altdesc_edit = QTextEdit()
-        self._altdesc_edit.setFixedHeight(38)
-        layout.addWidget(self._altdesc_edit)
+        self._altdesc_edit.hide()
 
         # Category / Family / Brand
         self._cat_combo    = self._combo_row(layout, "Category :")
