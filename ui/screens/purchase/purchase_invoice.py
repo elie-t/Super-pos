@@ -755,6 +755,7 @@ class PurchaseInvoiceScreen(QWidget):
         self._current_pack_qty = 1
         self._current_pcs_price = 0.0         # last_cost in invoice currency (per piece)
         self._current_box_price = 0.0         # last_cost × pack_qty in invoice currency
+        self._no_cost_history   = False       # True when last_cost == 0 for loaded item
         self._editing_row: int = -1           # -1 = new line, ≥0 = editing existing row
         self._wh_num_map: dict[str, int] = {} # wh_id → warehouse number
         self._loaded_invoice_id: str = ""     # set when editing an existing invoice
@@ -1451,6 +1452,7 @@ class PurchaseInvoiceScreen(QWidget):
             rate = 1.0
         self._current_pcs_price = item.last_cost * rate
         self._current_box_price = item.last_cost * item.pack_qty * rate
+        self._no_cost_history   = (item.last_cost == 0)
 
         # Reset entry fields — set prices BEFORE touching spins so _on_box_changed
         # fires with correct values already in place
@@ -1486,6 +1488,15 @@ class PurchaseInvoiceScreen(QWidget):
         self._pcs_lbl.setText(f"Pcs ({pack_qty}):" if active else "Pcs:")
         self._pcs_spin.setStyleSheet("")
         self._price_lbl.setText("Price:")
+        no_cost = getattr(self, "_no_cost_history", False)
+        if no_cost:
+            self._price_lbl.setStyleSheet("font-weight:600;color:#e65100;")
+            self._price_lbl.setToolTip("⚠ No purchase history — enter price manually")
+            self._price_spin.setStyleSheet("background:#fff3e0;")
+        else:
+            self._price_lbl.setStyleSheet("font-weight:600;")
+            self._price_lbl.setToolTip("")
+            self._price_spin.setStyleSheet("")
 
     def _on_box_changed(self, val):
         if self._current_pack_qty > 1:
@@ -1582,6 +1593,7 @@ class PurchaseInvoiceScreen(QWidget):
                 rate = 1.0
             self._current_pcs_price = item.last_cost * rate
             self._current_box_price = item.last_cost * item.pack_qty * rate
+            self._no_cost_history   = (item.last_cost == 0)
 
             self._block_total(True)
             self._box_spin.setValue(0)
@@ -1752,6 +1764,7 @@ class PurchaseInvoiceScreen(QWidget):
         self._current_item = None
         self._current_pack_qty = 1
         self._editing_row = -1
+        self._no_cost_history = False
         self._bc_input.clear()
         self._item_desc_label.setText("")
         self._block_total(True)
