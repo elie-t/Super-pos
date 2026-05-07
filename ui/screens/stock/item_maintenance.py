@@ -78,7 +78,7 @@ class ItemMaintenanceScreen(QWidget):
         # Top section — fixed height so it never steals space from the price grid
         top_widget = QWidget()
         top_widget.setStyleSheet("background:#ffffff; border-bottom:1px solid #c0ccd8;")
-        top_widget.setFixedHeight(230)
+        top_widget.setFixedHeight(260)
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 8, 10, 8)
         top_layout.setSpacing(10)
@@ -414,10 +414,9 @@ class ItemMaintenanceScreen(QWidget):
         self._altdesc_edit = QTextEdit()
         self._altdesc_edit.hide()
 
-        # Category / Family / Brand
+        # Category / Family
         self._cat_combo    = self._combo_row(layout, "Category :")
         self._family_combo = self._combo_row(layout, "Family :", red=True)
-        self._brand_combo  = self._combo_row(layout, "Brand :")
 
         return w
 
@@ -874,7 +873,6 @@ class ItemMaintenanceScreen(QWidget):
         _set_combo(self._cost_currency, detail.cost_currency)
         _set_combo(self._cost_curr_combo, detail.cost_currency)
         _set_combo(self._cat_combo, detail.category_name)
-        _set_combo(self._brand_combo, detail.brand_name)
 
         # Online flags
         self._chk_online.setChecked(bool(detail.is_online))
@@ -1102,10 +1100,6 @@ class ItemMaintenanceScreen(QWidget):
             if pid:
                 self._family_combo.addItem(cname, cid)
 
-        self._brand_combo.clear()
-        self._brand_combo.addItem("— None —", "")
-        for bid, bname in ItemService.get_brands():
-            self._brand_combo.addItem(bname, bid)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Helpers
@@ -1571,8 +1565,8 @@ class ItemMaintenanceScreen(QWidget):
             name_ar=self._altdesc_edit.toPlainText().strip(),
             category_id=self._cat_combo.currentData() or "",
             category_name=self._cat_combo.currentText(),
-            brand_id=self._brand_combo.currentData() or "",
-            brand_name=self._brand_combo.currentText(),
+            brand_id="",
+            brand_name="",
             unit="PCS",
             pack_size=pack_size,
             cost_price=self._brut_cost.value(),
@@ -1720,7 +1714,6 @@ class ItemMaintenanceScreen(QWidget):
         self._load_combos()
         if self._detail:
             _set_combo(self._cat_combo, self._detail.category_name)
-            _set_combo(self._brand_combo, self._detail.brand_name)
 
 
 def _set_combo(combo: QComboBox, value: str):
