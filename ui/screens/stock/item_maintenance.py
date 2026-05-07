@@ -1143,6 +1143,7 @@ class ItemMaintenanceScreen(QWidget):
         self._net_cost_lbl.setText(f"{net:.4f}")
         self._avg_cost_lbl.setText(f"{net:.4f}")
         # Update cost column and recalc margins for every row
+        self._price_table.setUpdatesEnabled(False)
         self._price_table.blockSignals(True)
         try:
             for r in range(self._price_table.rowCount()):
@@ -1152,11 +1153,9 @@ class ItemMaintenanceScreen(QWidget):
                 except ValueError:
                     pkg = 1
                 row_cost_usd = net * pkg
-                # Keep cost column (col 3) in sync with brut_cost × pkg
                 cost_item = self._price_table.item(r, 3)
                 if cost_item:
                     cost_item.setText(f"{row_cost_usd:.4f}")
-                # Recalc % margins (keep prices fixed, update %)
                 for i, (price_col, pct_col) in enumerate([(5, 4), (7, 6), (9, 8), (11, 10)]):
                     price_item = self._price_table.item(r, price_col)
                     if price_item:
@@ -1171,6 +1170,7 @@ class ItemMaintenanceScreen(QWidget):
                             pass
         finally:
             self._price_table.blockSignals(False)
+            self._price_table.setUpdatesEnabled(True)
             self._price_table.viewport().update()
 
     def _focus_barcode_input(self):
@@ -1487,6 +1487,7 @@ class ItemMaintenanceScreen(QWidget):
         )
         if not ok:
             return
+        self._price_table.setUpdatesEnabled(False)
         self._price_table.blockSignals(True)
         try:
             for r in range(self._price_table.rowCount()):
@@ -1507,6 +1508,8 @@ class ItemMaintenanceScreen(QWidget):
                         price_item.setText(f"{base * (1 + pct / 100):.4f}")
         finally:
             self._price_table.blockSignals(False)
+            self._price_table.setUpdatesEnabled(True)
+            self._price_table.viewport().update()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Actions
