@@ -3578,6 +3578,7 @@ def pull_delivery_invoices(status_filter: str = "pending") -> tuple[list[dict], 
 
         if op_ids:
             id_list = ",".join(op_ids)
+            # First look in delivery_users (delivery-app operators)
             ur = requests.get(
                 f"{_url('delivery_users')}?select=id,full_name,username&id=in.({id_list})",
                 headers={**_headers(), "Prefer": ""},
@@ -3586,6 +3587,19 @@ def pull_delivery_invoices(status_filter: str = "pending") -> tuple[list[dict], 
             if ur.status_code == 200:
                 for u in ur.json():
                     op_map[u["id"]] = u.get("full_name") or u.get("username") or "—"
+
+            # Then fill any still-missing IDs from users_central (POS / admin users)
+            missing = [oid for oid in op_ids if oid not in op_map]
+            if missing:
+                id_list2 = ",".join(missing)
+                ur2 = requests.get(
+                    f"{_url('users_central')}?select=id,full_name,username&id=in.({id_list2})",
+                    headers={**_headers(), "Prefer": ""},
+                    timeout=10,
+                )
+                if ur2.status_code == 200:
+                    for u in ur2.json():
+                        op_map[u["id"]] = u.get("full_name") or u.get("username") or "—"
 
         for row in rows:
             row["warehouse_name"] = wh_map.get(row.get("warehouse_id", ""), "—")
