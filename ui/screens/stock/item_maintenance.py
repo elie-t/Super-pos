@@ -78,7 +78,7 @@ class ItemMaintenanceScreen(QWidget):
         # Top section — fixed height so it never steals space from the price grid
         top_widget = QWidget()
         top_widget.setStyleSheet("background:#ffffff; border-bottom:1px solid #c0ccd8;")
-        top_widget.setFixedHeight(260)
+        top_widget.setFixedHeight(275)
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 8, 10, 8)
         top_layout.setSpacing(10)
@@ -404,6 +404,7 @@ class ItemMaintenanceScreen(QWidget):
         layout.addWidget(desc_lbl)
 
         self._name_edit = QLineEdit()
+        self._name_edit.setFixedHeight(48)
         self._name_edit.setStyleSheet(
             "font-size:14px; font-weight:600; border:1px solid #1a6cb5; "
             "border-radius:3px; padding:6px;"
