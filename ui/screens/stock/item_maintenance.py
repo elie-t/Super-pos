@@ -357,7 +357,6 @@ class ItemMaintenanceScreen(QWidget):
         self._ref_edit.clear()
         self._name_edit.clear()
         self._altdesc_edit.clear()
-        self._notes_edit.clear()
         self._brut_cost.setValue(0)
         self._discount_spin.setValue(0)
         self._vat_spin.setValue(11.0)
@@ -634,10 +633,6 @@ class ItemMaintenanceScreen(QWidget):
         layout.setContentsMargins(8, 4, 8, 8)
         layout.setSpacing(4)
 
-        # Notes (hidden — kept for save/load, not displayed)
-        self._notes_edit = QTextEdit()
-        self._notes_edit.hide()
-
         # Dates
         self._date_created_lbl = QLabel("Created: —")
         self._date_created_lbl.setStyleSheet("color:#888; font-size:10px;")
@@ -873,7 +868,6 @@ class ItemMaintenanceScreen(QWidget):
         self._code_edit.setText(detail.code)
         self._name_edit.setText(detail.name)
         self._altdesc_edit.setPlainText(detail.name_ar)
-        self._notes_edit.setPlainText(detail.notes)
         self._brut_cost.setValue(detail.cost_price)
         self._vat_spin.setValue(detail.vat_rate * 100)
 
@@ -1591,7 +1585,7 @@ class ItemMaintenanceScreen(QWidget):
             show_on_touch=self._chk_touch.isChecked(),
             photo_url=self._photo_url_edit.text().strip(),
             is_visible=True,
-            notes=self._notes_edit.toPlainText(),
+            notes="",
             barcodes=barcodes,
             prices=prices,
             stock_entries=[],
