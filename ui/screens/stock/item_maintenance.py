@@ -1715,6 +1715,7 @@ class ItemMaintenanceScreen(QWidget):
         self._load_combos()
         if self._detail:
             _set_combo(self._cat_combo, self._detail.category_name)
+        self._lookup_input.setFocus()
 
 
 def _set_combo(combo: QComboBox, value: str):
