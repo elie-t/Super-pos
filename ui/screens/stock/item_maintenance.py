@@ -824,36 +824,38 @@ class ItemMaintenanceScreen(QWidget):
         self._price_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._price_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self._price_table.setAlternatingRowColors(True)
-        # Ensure text stays visible when a row is selected and when editing.
-        self._price_table.setStyleSheet(
-            "QTableWidget::item:selected {"
-            "  color: #000000;"
-            "  background-color: #c5d8f0;"
-            "}"
-        )
 
-        # Delegate that gives the inline editor visible styling regardless of
-        # cell background color (stylesheet on the table itself is unreliable
-        # for the editor widget Qt creates internally).
-        from PySide6.QtWidgets import QStyledItemDelegate
-        from PySide6.QtGui import QPalette, QColor as _QColor
-        class _EditDelegate(QStyledItemDelegate):
+        from PySide6.QtWidgets import QStyledItemDelegate, QStyle
+        from PySide6.QtGui import QPalette, QColor as _C
+        class _Delegate(QStyledItemDelegate):
+            def initStyleOption(self, option, index):
+                """Force readable colours at paint time — the only reliable hook."""
+                super().initStyleOption(option, index)
+                # Always black text
+                option.palette.setColor(QPalette.Text,            _C("#000000"))
+                option.palette.setColor(QPalette.WindowText,      _C("#000000"))
+                # Selected state: light-blue background, black text
+                option.palette.setColor(QPalette.Highlight,        _C("#c5d8f0"))
+                option.palette.setColor(QPalette.HighlightedText,  _C("#000000"))
+
             def createEditor(self, parent, option, index):
+                """Style the inline QLineEdit editor."""
                 ed = super().createEditor(parent, option, index)
                 if ed is not None:
                     pal = ed.palette()
-                    pal.setColor(QPalette.Text,             _QColor("#000000"))
-                    pal.setColor(QPalette.Base,             _QColor("#fffde7"))
-                    pal.setColor(QPalette.HighlightedText,  _QColor("#000000"))
-                    pal.setColor(QPalette.Highlight,        _QColor("#aed6f1"))
+                    pal.setColor(QPalette.Text,            _C("#000000"))
+                    pal.setColor(QPalette.Base,            _C("#fffde7"))
+                    pal.setColor(QPalette.HighlightedText, _C("#000000"))
+                    pal.setColor(QPalette.Highlight,       _C("#aed6f1"))
                     ed.setPalette(pal)
                     ed.setStyleSheet(
-                        "color:#000000; background:#fffde7;"
+                        "color:#000000;background:#fffde7;"
                         "border:2px solid #1a6cb5;"
-                        "font-size:13px; font-weight:600;"
+                        "font-size:13px;font-weight:600;"
                     )
                 return ed
-        self._price_table.setItemDelegate(_EditDelegate(self._price_table))
+
+        self._price_table.setItemDelegate(_Delegate(self._price_table))
         _row_h = 28
         self._price_table.verticalHeader().setDefaultSectionSize(_row_h)
         self._price_table.setMinimumHeight(80)
