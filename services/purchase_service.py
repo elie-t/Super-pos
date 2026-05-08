@@ -268,22 +268,19 @@ class PurchaseService:
             if invoice_id:
                 inv = session.get(PurchaseInvoice, invoice_id)
                 if inv:
-                    # Reverse old stock movements and wipe old line items
+                    # Reverse old stock movements and wipe old line items.
+                    # Use a cache in case the same item appeared more than once.
                     old_lines = session.query(PurchaseInvoiceItem).filter_by(invoice_id=invoice_id).all()
+                    reversal_cache: dict[str, ItemStock] = {}
                     for old_li in old_lines:
-                        mv = session.query(StockMovement).filter_by(
-                            reference_type="purchase_invoice",
-                            reference_id=invoice_id,
+                        sk = old_li.item_id
+                        stock = reversal_cache.get(sk) or session.query(ItemStock).filter_by(
                             item_id=old_li.item_id,
+                            warehouse_id=inv.warehouse_id,
                         ).first()
-                        if mv:
-                            # Reverse stock
-                            stock = session.query(ItemStock).filter_by(
-                                item_id=old_li.item_id,
-                                warehouse_id=inv.warehouse_id,
-                            ).first()
-                            if stock:
-                                stock.quantity = max(0.0, stock.quantity - old_li.quantity)
+                        if stock:
+                            stock.quantity = max(0.0, stock.quantity - old_li.quantity)
+                            reversal_cache[sk] = stock
                         session.delete(old_li)
                     session.query(StockMovement).filter_by(
                         reference_type="purchase_invoice",
@@ -329,6 +326,10 @@ class PurchaseService:
                 session.add(inv)
                 session.flush()
 
+            # Cache ItemStock objects within this save so duplicate item lines
+            # don't each try to INSERT a new row and hit the UNIQUE constraint.
+            stock_cache: dict[tuple, ItemStock] = {}
+
             for line in lines:
                 # When buying by box, line.price is per-box price.
                 # Store unit_cost per piece so last_cost is correct on next purchase.
@@ -367,12 +368,18 @@ class PurchaseService:
                 )
                 session.add(mv)
 
-                # Update ItemStock cache
-                stock = session.query(ItemStock).filter_by(
-                    item_id=line.item_id, warehouse_id=warehouse_id
-                ).first()
+                # Update ItemStock — use cache so a second line for the same item
+                # reuses the object rather than querying (and not finding) the
+                # unflushed row (session has autoflush=False).
+                sk = (line.item_id, warehouse_id)
+                stock = stock_cache.get(sk)
+                if stock is None:
+                    stock = session.query(ItemStock).filter_by(
+                        item_id=line.item_id, warehouse_id=warehouse_id
+                    ).first()
                 if stock:
                     stock.quantity += line.pcs_qty
+                    stock_cache[sk] = stock
                 else:
                     stock = ItemStock(
                         id=new_uuid(),
@@ -381,6 +388,7 @@ class PurchaseService:
                         quantity=line.pcs_qty,
                     )
                     session.add(stock)
+                    stock_cache[sk] = stock
 
             session.commit()
             PurchaseService.increment_invoice_number(warehouse_id)
