@@ -1565,6 +1565,14 @@ class ItemMaintenanceScreen(QWidget):
         if not self._name_edit.text().strip():
             self._show_error("Product description is required.")
             return
+        if not self._cat_combo.currentData():
+            self._show_error("Please select a category.")
+            self._cat_combo.setFocus()
+            return
+        if not self._supplier_combo.currentData():
+            self._show_error("Please select a supplier.")
+            self._supplier_combo.setFocus()
+            return
 
         # Collect prices from grid — one set per unique pack_qty.
         # pcs rows (pack_qty=1) share prices; box rows (pack_qty>1) are independent.
