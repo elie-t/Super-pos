@@ -47,6 +47,7 @@ class ItemDetail:
     notes: str
     show_on_touch: bool = False
     photo_url: str = ""
+    default_supplier_id: str = ""
     barcodes: list = field(default_factory=list)   # list of (id, barcode, is_primary, pack_qty)
     prices: list   = field(default_factory=list)   # list of (id, type, amount, currency, is_default)
     stock_entries: list = field(default_factory=list)  # list of (warehouse, qty)
@@ -232,9 +233,10 @@ class ItemService:
             item.is_pos_featured = detail.is_pos_featured
             item.is_online    = detail.is_online
             item.is_visible   = detail.is_visible
-            item.show_on_touch = detail.show_on_touch
-            item.photo_url    = detail.photo_url or None
-            item.notes        = detail.notes or None
+            item.show_on_touch        = detail.show_on_touch
+            item.photo_url            = detail.photo_url or None
+            item.notes                = detail.notes or None
+            item.default_supplier_id  = detail.default_supplier_id or None
 
             session.flush()
 

@@ -1580,6 +1580,7 @@ class ItemMaintenanceScreen(QWidget):
             photo_url=self._photo_url_edit.text().strip(),
             is_visible=True,
             notes="",
+            default_supplier_id=self._supplier_combo.currentData() or "",
             barcodes=barcodes,
             prices=prices,
             stock_entries=[],
