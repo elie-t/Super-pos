@@ -419,6 +419,13 @@ class ItemMaintenanceScreen(QWidget):
             "font-size:14px; font-weight:600; border:1px solid #1a6cb5; "
             "border-radius:3px; padding:6px;"
         )
+        def _force_upper(text):
+            up = text.upper()
+            if text != up:
+                pos = self._name_edit.cursorPosition()
+                self._name_edit.setText(up)
+                self._name_edit.setCursorPosition(pos)
+        self._name_edit.textEdited.connect(_force_upper)
         layout.addWidget(self._name_edit)
 
         # Alt description — hidden, kept for save/load compatibility
