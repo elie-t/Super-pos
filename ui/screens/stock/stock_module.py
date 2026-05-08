@@ -103,6 +103,8 @@ class StockModule(QWidget):
             self._run_import()
         elif key == "print_barcodes":
             self._show("print_barcodes", lambda: BarcodePrintScreen())
+        elif key == "rebuild_stock":
+            self._rebuild_stock()
         else:
             # Placeholder for upcoming screens
             from PySide6.QtWidgets import QLabel
@@ -131,6 +133,23 @@ class StockModule(QWidget):
             if hasattr(self._screens[key], "refresh"):
                 self._screens[key].refresh()
         self._stack.setCurrentWidget(self._screens[key])
+
+    def _rebuild_stock(self):
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Rebuild Stock Quantities",
+            "This will recalculate all stock levels from movement history.\n\n"
+            "Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        from services.maintenance_service import MaintenanceService
+        ok, msg = MaintenanceService.rebuild_stock_quantities()
+        if ok:
+            QMessageBox.information(self, "Done", msg)
+        else:
+            QMessageBox.critical(self, "Error", f"Rebuild failed:\n{msg}")
 
     def _show_item_maintenance(self, item_id: str):
         """Always create a fresh maintenance screen (new or existing item)."""

@@ -27,6 +27,8 @@ STOCK_TOOLS = [
     ("Import Items\nfrom Excel",  "import_items"),
     ("Old Inventory",             "old_inventory"),
     ("Print Barcodes",            "print_barcodes"),
+    # Row 4
+    ("🔧  Rebuild\nStock Quantities", "rebuild_stock"),
 ]
 
 
@@ -56,7 +58,19 @@ class StockHub(QWidget):
             btn = QPushButton(label)
             btn.setFixedSize(190, 80)
             btn.setCursor(Qt.PointingHandCursor)
-            if key == "warehouse_transfer":
+            if key == "rebuild_stock":
+                btn.setStyleSheet("""
+                    QPushButton {
+                        font-size: 13px; font-weight: 700;
+                        text-align: center;
+                        background: #e65100; color: #ffffff;
+                        border: 2px solid #bf360c;
+                        border-radius: 6px;
+                    }
+                    QPushButton:hover { background: #bf360c; }
+                    QPushButton:pressed { background: #8d2200; }
+                """)
+            elif key == "warehouse_transfer":
                 btn.setStyleSheet("""
                     QPushButton {
                         font-size: 13px; font-weight: 700;
