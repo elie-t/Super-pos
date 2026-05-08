@@ -219,8 +219,15 @@ class ItemMaintenanceScreen(QWidget):
             self._lookup_input.setFocus()
             return
 
+        # Strip EAN check digit so scanner input (13 digits) matches
+        # items stored without it (12 digits).
+        if query.isdigit() and len(query) in (8, 12, 13):
+            query_normalized = query[:-1]
+        else:
+            query_normalized = query
+
         limit = 100 if force_list else 5
-        results = ItemService.search_items(query=query, limit=limit)
+        results = ItemService.search_items(query=query_normalized, limit=limit)
         if not results:
             self._start_new_item_with_barcode(query)
             return
@@ -349,6 +356,10 @@ class ItemMaintenanceScreen(QWidget):
         except Exception:
             next_code = ""
         self._code_edit.setText(next_code)
+        # Strip the check digit: scanners send the full EAN (8/12/13 digits)
+        # but all existing items are stored without the last digit.
+        if barcode.isdigit() and len(barcode) in (8, 12, 13):
+            barcode = barcode[:-1]
         self._bc_input.setText(barcode)
         self._add_barcode_row()
 
