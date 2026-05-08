@@ -806,6 +806,11 @@ class ItemMaintenanceScreen(QWidget):
         self._price_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._price_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self._price_table.setAlternatingRowColors(True)
+        self._price_table.setStyleSheet(
+            "QTableWidget QLineEdit{"
+            "color:#000000;background:#fffde7;border:2px solid #1a6cb5;"
+            "font-size:13px;font-weight:600;}"
+        )
         _row_h = 28
         self._price_table.verticalHeader().setDefaultSectionSize(_row_h)
         self._price_table.setMinimumHeight(80)
