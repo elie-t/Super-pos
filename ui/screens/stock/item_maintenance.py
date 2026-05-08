@@ -824,11 +824,25 @@ class ItemMaintenanceScreen(QWidget):
         self._price_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._price_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self._price_table.setAlternatingRowColors(True)
-        self._price_table.setStyleSheet(
-            "QTableWidget QLineEdit{"
-            "color:#000000;background:#fffde7;border:2px solid #1a6cb5;"
-            "font-size:13px;font-weight:600;}"
-        )
+
+        # Delegate that gives the inline editor visible styling regardless of
+        # cell background color (stylesheet on the table itself is unreliable).
+        from PySide6.QtWidgets import QStyledItemDelegate
+        class _EditDelegate(QStyledItemDelegate):
+            def createEditor(self, parent, option, index):
+                ed = super().createEditor(parent, option, index)
+                if ed is not None:
+                    ed.setStyleSheet(
+                        "color:#000000;"
+                        "background:#fffde7;"
+                        "border:2px solid #1a6cb5;"
+                        "font-size:13px;"
+                        "font-weight:600;"
+                        "selection-color:#000000;"
+                        "selection-background-color:#aed6f1;"
+                    )
+                return ed
+        self._price_table.setItemDelegate(_EditDelegate(self._price_table))
         _row_h = 28
         self._price_table.verticalHeader().setDefaultSectionSize(_row_h)
         self._price_table.setMinimumHeight(80)
