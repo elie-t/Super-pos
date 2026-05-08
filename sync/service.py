@@ -60,7 +60,9 @@ def _headers() -> dict:
         "apikey":        SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type":  "application/json",
-        "Prefer":        "resolution=merge-duplicates",   # upsert
+        # return=minimal prevents Supabase from sending upserted rows back in the
+        # response body — cuts push egress roughly in half at no functional cost.
+        "Prefer":        "resolution=merge-duplicates,return=minimal",
     }
 
 
@@ -85,7 +87,7 @@ def upsert_rows(table: str, rows: list[dict]) -> tuple[bool, str]:
             json=rows,
             timeout=15,
         )
-        if r.status_code not in (200, 201):
+        if r.status_code not in (200, 201, 204):
             return False, f"HTTP {r.status_code}: {r.text[:200]}"
         return True, ""
     except Exception as e:
@@ -1381,7 +1383,7 @@ def push_stock_movements_for_invoice(reference_id: str) -> tuple[bool, str]:
 
 def pull_stock_movements() -> tuple[int, str]:
     """
-    Pull ALL stock movements from OTHER branches (no cursor).
+    Pull stock movements from OTHER branches since last pull.
     Uses applied_central_movements to skip already-processed ones.
     Applies qty changes to local ItemStock and creates local StockMovement rows.
     Returns (applied_count, error).
@@ -1394,10 +1396,23 @@ def pull_stock_movements() -> tuple[int, str]:
     if not is_configured():
         return 0, ""
 
+    last_pull = _state_get("stock_movements_pull")
+
+    # 2-hour overlap so movements near the cursor edge are never missed
+    _overlap_last = last_pull
+    if last_pull != "2000-01-01T00:00:00Z":
+        try:
+            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            _lp_dt = _dt.fromisoformat(last_pull.replace("Z", "+00:00"))
+            _overlap_last = (_lp_dt - _td(hours=2)).strftime("%Y-%m-%dT%H:%M:%S.000000Z")
+        except Exception:
+            pass
+
     try:
         r = requests.get(
             f"{_url('stock_movements_central')}"
             f"?branch_id=neq.{BRANCH_ID}"
+            f"&created_at=gt.{_overlap_last}"
             f"&order=created_at.asc&limit=2000",
             headers={**_headers(), "Prefer": ""},
             timeout=30,
@@ -1408,6 +1423,13 @@ def pull_stock_movements() -> tuple[int, str]:
         remote = r.json()
         if not remote:
             return 0, ""
+
+        # Advance cursor to latest created_at in this batch
+        latest_ts = last_pull
+        for rm in remote:
+            ts = rm.get("created_at") or ""
+            if ts > latest_ts:
+                latest_ts = ts
 
         init_db()
         session = get_session()
@@ -1569,6 +1591,7 @@ def pull_stock_movements() -> tuple[int, str]:
                 applied += 1
 
             session.commit()
+            _state_set("stock_movements_pull", latest_ts)
             return applied, ""
 
         except Exception as e:
@@ -1759,16 +1782,18 @@ def push_warehouses() -> tuple[bool, str]:
 
 
 def pull_warehouses() -> tuple[int, str]:
-    """Pull all warehouses from warehouses_central."""
+    """Pull warehouse changes from warehouses_central since last pull."""
     from database.engine import get_session, init_db
     from database.models.items import Warehouse
 
     if not is_configured():
         return 0, ""
 
+    last_pull = _state_get("warehouses_pull")
+
     try:
         r = requests.get(
-            f"{_url('warehouses_central')}?order=number.asc",
+            f"{_url('warehouses_central')}?updated_at=gt.{last_pull}&order=number.asc",
             headers={**_headers(), "Prefer": ""},
             timeout=15,
         )
@@ -1778,6 +1803,12 @@ def pull_warehouses() -> tuple[int, str]:
         remote = r.json()
         if not remote:
             return 0, ""
+
+        latest_ts = last_pull
+        for rw in remote:
+            ts = rw.get("updated_at") or ""
+            if ts > latest_ts:
+                latest_ts = ts
 
         init_db()
         session = get_session()
@@ -1796,6 +1827,7 @@ def pull_warehouses() -> tuple[int, str]:
                 w.default_customer_id = rw.get("default_customer_id") or None
                 updated += 1
             session.commit()
+            _state_set("warehouses_pull", latest_ts)
             return updated, ""
         except Exception as e:
             session.rollback()
@@ -2522,16 +2554,18 @@ def push_categories() -> tuple[bool, str]:
 
 
 def pull_categories() -> tuple[int, str]:
-    """Pull all categories from categories_central (always full sync)."""
+    """Pull category changes from categories_central since last pull."""
     from database.engine import get_session, init_db
     from database.models.items import Category
 
     if not is_configured():
         return 0, ""
 
+    last_pull = _state_get("categories_pull")
+
     try:
         r = requests.get(
-            f"{_url('categories_central')}?order=sort_order.asc",
+            f"{_url('categories_central')}?updated_at=gt.{last_pull}&order=sort_order.asc",
             headers={**_headers(), "Prefer": ""},
             timeout=15,
         )
@@ -2541,6 +2575,12 @@ def pull_categories() -> tuple[int, str]:
         remote = r.json()
         if not remote:
             return 0, ""
+
+        latest_ts = last_pull
+        for rc in remote:
+            ts = rc.get("updated_at") or ""
+            if ts > latest_ts:
+                latest_ts = ts
 
         init_db()
         session = get_session()
@@ -2566,6 +2606,7 @@ def pull_categories() -> tuple[int, str]:
                     if c:
                         c.parent_id = rc["parent_id"]
             session.commit()
+            _state_set("categories_pull", latest_ts)
             return updated, ""
         except Exception as e:
             session.rollback()
