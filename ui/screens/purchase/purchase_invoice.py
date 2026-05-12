@@ -913,6 +913,18 @@ class PurchaseInvoiceScreen(QWidget):
         self._bc_input.installEventFilter(self)
         lay.addWidget(self._bc_input)
 
+        add_item_btn = QPushButton("🔍  Add Item")
+        add_item_btn.setFixedHeight(32)
+        add_item_btn.setFixedWidth(100)
+        add_item_btn.setCursor(Qt.PointingHandCursor)
+        add_item_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;border:none;border-radius:4px;"
+            "font-size:12px;font-weight:700;}"
+            "QPushButton:hover{background:#1b5e20;}"
+        )
+        add_item_btn.clicked.connect(self._open_item_picker)
+        lay.addWidget(add_item_btn)
+
         self._item_desc_label = QLabel("")
         self._item_desc_label.setStyleSheet(
             "color:#1a3a5c;font-weight:600;min-width:180px;font-size:12px;"
