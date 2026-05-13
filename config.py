@@ -57,3 +57,9 @@ IS_MAIN_BRANCH = os.getenv("IS_MAIN_BRANCH", "false").lower() == "true"
 # Main branch generates the snapshot; branches download and apply it.
 # Falls back to cursor-based pull automatically when false or snapshot unavailable.
 USE_SNAPSHOT_SYNC = os.getenv("USE_SNAPSHOT_SYNC", "false").lower() == "true"
+
+# Optional local share path for snapshot (e.g. a Dropbox/OneDrive/network folder).
+# When set, generate saves here (primary) and apply reads from here (primary).
+# Supabase Storage is used as fallback only.
+# Example: /Users/elie_/Dropbox/super_pos_sync
+SNAPSHOT_SHARE_PATH = os.getenv("SNAPSHOT_SHARE_PATH", "")
