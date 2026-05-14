@@ -909,6 +909,7 @@ class ItemMaintenanceScreen(QWidget):
         from PySide6.QtWidgets import QCompleter
         self._recipe_ingredients: list[dict] = []
         self._recipe_item_results: list[dict] = []
+        self._recipe_selected_item: dict | None = None
         self._recipe_timer = None
 
         grp = QGroupBox("Recipe / Ingredients")
@@ -930,6 +931,7 @@ class ItemMaintenanceScreen(QWidget):
         comp.setFilterMode(Qt.MatchContains)
         self._recipe_search.setCompleter(comp)
         self._recipe_search.textChanged.connect(self._recipe_search_changed)
+        comp.activated.connect(self._recipe_completer_activated)
 
         self._recipe_qty = QLineEdit()
         self._recipe_qty.setPlaceholderText("Qty")
@@ -1000,15 +1002,27 @@ class ItemMaintenanceScreen(QWidget):
             [f"{i['name']}  [{i['code']}]" for i in self._recipe_item_results]
         )
 
+    def _recipe_completer_activated(self, text: str):
+        """Called when user picks an item from the completer dropdown."""
+        for item in self._recipe_item_results:
+            label = f"{item['name']}  [{item['code']}]"
+            if label == text or item["name"] == text:
+                self._recipe_selected_item = item
+                return
+        self._recipe_selected_item = None
+
     def _recipe_add_ingredient(self):
         text = self._recipe_search.text().strip()
         if not text:
             return
-        match = None
-        for item in self._recipe_item_results:
-            if text.lower() in item["name"].lower() or text in item["code"]:
-                match = item
-                break
+        # Prefer item captured directly from completer selection
+        match = self._recipe_selected_item
+        if not match:
+            # Fall back: search current results for a matching name/code substring
+            for item in self._recipe_item_results:
+                if item["name"].lower() in text.lower() or item["code"] in text:
+                    match = item
+                    break
         if not match:
             self._status_lbl.setStyleSheet("color:#c62828;")
             self._status_lbl.setText("Ingredient not found — type name and select from list.")
@@ -1028,6 +1042,7 @@ class ItemMaintenanceScreen(QWidget):
             "cost_currency": match["cost_currency"],
             "line_cost":     match["cost_price"] * qty,
         })
+        self._recipe_selected_item = None
         self._recipe_search.clear()
         self._recipe_qty.clear()
         self._recipe_refresh_table()
