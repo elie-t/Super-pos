@@ -47,6 +47,11 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 # Prefer service key for master data operations, fall back to API key
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY", "")
 
+# ── App mode ──────────────────────────────────────────────────────────────────
+# "pos"        → full supermarket back-office (default)
+# "restaurant" → restaurant POS: touch-first, no purchase/stock/suppliers
+APP_MODE = os.getenv("APP_MODE", "pos")
+
 # ── Branch role ───────────────────────────────────────────────────────────────
 # True  → Main warehouse: manages items, prices, categories, purchases, transfers.
 #         Pushes to Supabase products/items_central/app_categories.

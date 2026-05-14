@@ -1490,7 +1490,8 @@ class POSScreen(QWidget):
     # Thread-safe signal to notify UI when background sync finishes
     _prices_sync_finished_sig = Signal(int, str)
 
-    def __init__(self, parent=None, forced_warehouse_id: str | None = None):
+    def __init__(self, parent=None, forced_warehouse_id: str | None = None,
+                 default_touch: bool = False):
         super().__init__(parent)
         self._lines: list[dict] = []
         self._customer_id   = ""
@@ -1505,6 +1506,7 @@ class POSScreen(QWidget):
         self._active_online_order_id = ""   # set when an online order is loaded into cart
         self._vege_id: str = ""             # cached after first DB lookup
         self._alert_sound = None            # QSoundEffect, created lazily
+        self._default_touch = default_touch
         self._alert_playing = False
         self._alert_repeat_timer = None     # QTimer: re-beep every 10 s
 
@@ -1512,12 +1514,15 @@ class POSScreen(QWidget):
         self._load_defaults()
         self._setup_shortcuts()
         self._install_focus_return_filter()
-        
+
         # Connect the sync signal
         self._prices_sync_finished_sig.connect(self._finish_prices_sync)
-        
+
         QTimer.singleShot(0, self._scan_input.setFocus)
         QTimer.singleShot(2000, self._poll_online_orders)  # first poll 2s after load
+
+        if self._default_touch:
+            QTimer.singleShot(100, self._toggle_touch_mode)
 
         # Auto-refresh cart prices when a remote price push is detected
         try:

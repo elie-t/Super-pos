@@ -12,6 +12,21 @@ from ui.styles import APP_STYLE
 from ui.screens.login_screen import LoginScreen
 from ui.screens.dashboard_screen import DashboardScreen
 from services.auth_service import AuthService
+from config import APP_MODE
+
+
+def _get_app_name() -> str:
+    try:
+        from database.engine import get_session
+        from database.models.items import Setting
+        s = get_session()
+        row = s.get(Setting, "shop_name")
+        s.close()
+        if row and row.value and row.value.strip():
+            return row.value.strip()
+    except Exception:
+        pass
+    return "SuperPOS"
 
 
 class HeaderBar(QFrame):
@@ -27,7 +42,7 @@ class HeaderBar(QFrame):
         layout.setContentsMargins(16, 0, 16, 0)
         layout.setSpacing(8)
 
-        home_btn = QPushButton("🏠  TannouryMarket")
+        home_btn = QPushButton(f"🏠  {_get_app_name()}")
         home_btn.setObjectName("headerTitle")
         home_btn.setStyleSheet(
             "QPushButton { background:transparent; border:none; "
@@ -71,7 +86,9 @@ class HeaderBar(QFrame):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("TannouryMarket — Retail Management")
+        _name = _get_app_name()
+        _mode = "Restaurant POS" if APP_MODE == "restaurant" else "Retail Management"
+        self.setWindowTitle(f"{_name} — {_mode}")
         self.resize(1280, 800)
         self.setMinimumSize(QSize(1024, 640))
         self.setStyleSheet(APP_STYLE)
@@ -128,7 +145,8 @@ class MainWindow(QMainWindow):
         key = f"pos_{warehouse_id or 'default'}"
         if key not in self._modules:
             from ui.screens.pos.pos_screen import POSScreen
-            w = POSScreen(forced_warehouse_id=warehouse_id or None)
+            w = POSScreen(forced_warehouse_id=warehouse_id or None,
+                          default_touch=(APP_MODE == "restaurant"))
             w.back.connect(self._do_logout)   # cashier "back" = logout
             self._modules[key] = w
             self._stack.addWidget(w)
@@ -169,7 +187,7 @@ class MainWindow(QMainWindow):
             return PurchaseModule()
         if key == "pos":
             from ui.screens.pos.pos_screen import POSScreen
-            w = POSScreen()
+            w = POSScreen(default_touch=(APP_MODE == "restaurant"))
             w.back.connect(self._go_dashboard)
             return w
         if key == "sales":

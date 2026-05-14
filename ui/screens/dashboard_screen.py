@@ -8,23 +8,24 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 from PySide6.QtCore import Qt, Signal
-from config import IS_MAIN_BRANCH
+from config import IS_MAIN_BRANCH, APP_MODE
 from services.auth_service import AuthService
 
 
-# (icon_text, title, subtitle, module_key, admin_only, main_only)
+# (icon, title, subtitle, key, admin_only, main_only, pos_only)
+# pos_only=True → hidden in restaurant mode
 DASHBOARD_TILES = [
-    ("🛒", "Purchase",    "Suppliers & invoices",   "purchase",    False, True),
-    ("🧾", "Sales",       "Invoices & receipts",    "sales",       False, False),
-    ("🖥️", "POS",         "Fast cashier screen",    "pos",         False, False),
-    ("📦", "Stock",       "Items & movements",      "stock",       False, True),
-    ("👥", "Customers",   "Client management",      "customers",   False, False),
-    ("🏭", "Suppliers",   "Supplier management",    "suppliers",   False, True),
-    ("📊", "Reports",     "Sales & stock reports",  "reports",     False, False),
-    ("💰", "Financials",  "Payments & balances",    "financials",  False, False),
-    ("⚙️", "Settings",    "System configuration",   "settings",    False, False),
-    ("📱", "App Manager", "Mobile app control",     "app_manager", False, True),
-    ("👤", "Users",       "Manage cashier accounts","users",       True,  False),
+    ("🛒", "Purchase",    "Suppliers & invoices",   "purchase",    False, True,  True),
+    ("🧾", "Sales",       "Invoices & receipts",    "sales",       False, False, False),
+    ("🖥️", "POS",         "Fast cashier screen",    "pos",         False, False, False),
+    ("📦", "Stock",       "Items & movements",      "stock",       False, True,  True),
+    ("👥", "Customers",   "Client management",      "customers",   False, False, False),
+    ("🏭", "Suppliers",   "Supplier management",    "suppliers",   False, True,  True),
+    ("📊", "Reports",     "Sales & stock reports",  "reports",     False, False, False),
+    ("💰", "Financials",  "Payments & balances",    "financials",  False, False, False),
+    ("⚙️", "Settings",    "System configuration",   "settings",    False, False, False),
+    ("📱", "App Manager", "Mobile app control",     "app_manager", False, True,  True),
+    ("👤", "Users",       "Manage cashier accounts","users",       True,  False, False),
 ]
 
 
@@ -103,11 +104,14 @@ class DashboardScreen(QWidget):
         grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
         is_admin = user and user.role in ("admin", "manager")
+        is_restaurant = APP_MODE == "restaurant"
         visible_tiles = [
             t for t in DASHBOARD_TILES
-            if (not t[4] or is_admin) and (not t[5] or IS_MAIN_BRANCH)
+            if (not t[4] or is_admin)
+            and (not t[5] or IS_MAIN_BRANCH)
+            and (not t[6] or not is_restaurant)
         ]
-        for i, (icon, title, subtitle, key, _admin, _main) in enumerate(visible_tiles):
+        for i, (icon, title, subtitle, key, _admin, _main, _pos) in enumerate(visible_tiles):
             tile = DashboardTile(icon, title, subtitle, key)
             tile.clicked.connect(lambda checked=False, k=key: self.module_requested.emit(k))
             row, col = divmod(i, 5)
