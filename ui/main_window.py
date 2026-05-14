@@ -9,24 +9,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize
 
 from ui.styles import APP_STYLE
-from ui.screens.login_screen import LoginScreen
+from ui.screens.login_screen import LoginScreen, _get_app_name
 from ui.screens.dashboard_screen import DashboardScreen
 from services.auth_service import AuthService
 from config import APP_MODE
-
-
-def _get_app_name() -> str:
-    try:
-        from database.engine import get_session
-        from database.models.items import Setting
-        s = get_session()
-        row = s.get(Setting, "shop_name")
-        s.close()
-        if row and row.value and row.value.strip():
-            return row.value.strip()
-    except Exception:
-        pass
-    return "SuperPOS"
 
 
 class HeaderBar(QFrame):

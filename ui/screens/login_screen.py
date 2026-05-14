@@ -12,6 +12,20 @@ from PySide6.QtCore import Qt, Signal
 from services.auth_service import AuthService
 
 
+def _get_app_name() -> str:
+    try:
+        from database.engine import get_session
+        from database.models.items import Setting
+        s = get_session()
+        row = s.get(Setting, "shop_name")
+        s.close()
+        if row and row.value and row.value.strip():
+            return row.value.strip()
+    except Exception:
+        pass
+    return "SuperPOS"
+
+
 # ── Password prompt dialog (with touch numpad) ────────────────────────────────
 
 class _PasswordDialog(QDialog):
@@ -161,7 +175,6 @@ class LoginScreen(QWidget):
         card_lay.setSpacing(0)
 
         # Title
-        from ui.main_window import _get_app_name
         from config import APP_MODE
         title = QLabel(_get_app_name())
         title.setObjectName("appTitle")
