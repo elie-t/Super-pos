@@ -18,7 +18,7 @@ DASHBOARD_TILES = [
     ("🛒", "Purchase",    "Suppliers & invoices",   "purchase",    False, True,  True),
     ("🧾", "Sales",       "Invoices & receipts",    "sales",       False, False, False),
     ("🖥️", "POS",         "Fast cashier screen",    "pos",         False, False, False),
-    ("📦", "Stock",       "Items & movements",      "stock",       False, True,  True),
+    ("📦", "Stock",       "Items & movements",      "stock",       False, False, False),
     ("👥", "Customers",   "Client management",      "customers",   False, False, False),
     ("🏭", "Suppliers",   "Supplier management",    "suppliers",   False, True,  True),
     ("📊", "Reports",     "Sales & stock reports",  "reports",     False, False, False),
