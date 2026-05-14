@@ -33,6 +33,30 @@ def get_session() -> Session:
     return SessionLocal()
 
 
+def _seed_default_admin() -> None:
+    """Create a built-in admin account if no users exist yet."""
+    try:
+        from database.models.users import User
+        from database.models.base import new_uuid
+        import bcrypt
+        session = SessionLocal()
+        try:
+            if session.query(User).count() == 0:
+                pw_hash = bcrypt.hashpw(b"admin123", bcrypt.gensalt()).decode()
+                session.add(User(
+                    id=new_uuid(),
+                    username="admin",
+                    password_hash=pw_hash,
+                    full_name="Administrator",
+                    role="admin",
+                ))
+                session.commit()
+        finally:
+            session.close()
+    except Exception:
+        pass
+
+
 def init_db() -> None:
     """Create all tables if they don't exist (used on first run)."""
     # Import all model modules so SQLAlchemy registers them before create_all
@@ -45,6 +69,7 @@ def init_db() -> None:
     import database.models.sync         # noqa: F401
     import database.models.inventory    # noqa: F401
     Base.metadata.create_all(bind=engine)
+    _seed_default_admin()
     # Idempotent migrations for columns added after initial schema
     # NOTE: SQLite ALTER TABLE ADD COLUMN cannot have UNIQUE — uniqueness is
     # enforced at the application/model layer instead.
