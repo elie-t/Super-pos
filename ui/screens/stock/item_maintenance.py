@@ -347,7 +347,18 @@ class ItemMaintenanceScreen(QWidget):
         self._bar_mode_lbl.show()
 
     def _start_new_item_with_barcode(self, barcode: str):
-        """Not found — open new item form, pre-fill barcode as-is (reader already strips check digit)."""
+        """Not found — open new item form pre-filled with barcode.
+
+        If a new item form is already open with existing barcode rows, just
+        append the new barcode instead of restarting (prevents accidental wipe
+        when the scanner fires into the lookup bar mid-entry).
+        """
+        if self._is_new and self._card_widget.isVisible() and self._price_table.rowCount() > 0:
+            self._lookup_input.clear()
+            self._bc_input.setText(barcode)
+            self._bc_input.setFocus()
+            self._add_barcode_row()
+            return
         self._start_new_item()
         self._bc_input.setText(barcode)
         self._add_barcode_row()
