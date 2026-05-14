@@ -203,6 +203,11 @@ class MainWindow(QMainWindow):
             w = SupplierListScreen()
             w.back.connect(self._go_dashboard)
             return w
+        if key == "recipes":
+            from ui.screens.restaurant.recipe_screen import RecipeScreen
+            w = RecipeScreen()
+            w.back.connect(self._go_dashboard)
+            return w
         if key == "app_manager":
             from ui.screens.app.app_manager_screen import AppManagerScreen
             w = AppManagerScreen()

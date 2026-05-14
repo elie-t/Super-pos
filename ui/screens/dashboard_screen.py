@@ -12,20 +12,22 @@ from config import IS_MAIN_BRANCH, APP_MODE
 from services.auth_service import AuthService
 
 
-# (icon, title, subtitle, key, admin_only, main_only, pos_only)
-# pos_only=True → hidden in restaurant mode
+# (icon, title, subtitle, key, admin_only, main_only, pos_only, restaurant_only)
+# pos_only=True        → hidden in restaurant mode
+# restaurant_only=True → hidden in supermarket mode
 DASHBOARD_TILES = [
-    ("🛒", "Purchase",    "Suppliers & invoices",   "purchase",    False, True,  True),
-    ("🧾", "Sales",       "Invoices & receipts",    "sales",       False, False, False),
-    ("🖥️", "POS",         "Fast cashier screen",    "pos",         False, False, False),
-    ("📦", "Stock",       "Items & movements",      "stock",       False, False, False),
-    ("👥", "Customers",   "Client management",      "customers",   False, False, False),
-    ("🏭", "Suppliers",   "Supplier management",    "suppliers",   False, True,  True),
-    ("📊", "Reports",     "Sales & stock reports",  "reports",     False, False, False),
-    ("💰", "Financials",  "Payments & balances",    "financials",  False, False, False),
-    ("⚙️", "Settings",    "System configuration",   "settings",    False, False, False),
-    ("📱", "App Manager", "Mobile app control",     "app_manager", False, True,  True),
-    ("👤", "Users",       "Manage cashier accounts","users",       True,  False, False),
+    ("🛒", "Purchase",    "Suppliers & invoices",   "purchase",    False, True,  True,  False),
+    ("🧾", "Sales",       "Invoices & receipts",    "sales",       False, False, False, False),
+    ("🖥️", "POS",         "Fast cashier screen",    "pos",         False, False, False, False),
+    ("📦", "Stock",       "Items & movements",      "stock",       False, False, False, False),
+    ("👥", "Customers",   "Client management",      "customers",   False, False, False, False),
+    ("🏭", "Suppliers",   "Supplier management",    "suppliers",   False, True,  True,  False),
+    ("🍽️", "Recipes",     "Dishes & costing",       "recipes",     False, False, False, True),
+    ("📊", "Reports",     "Sales & stock reports",  "reports",     False, False, False, False),
+    ("💰", "Financials",  "Payments & balances",    "financials",  False, False, False, False),
+    ("⚙️", "Settings",    "System configuration",   "settings",    False, False, False, False),
+    ("📱", "App Manager", "Mobile app control",     "app_manager", False, True,  True,  False),
+    ("👤", "Users",       "Manage cashier accounts","users",       True,  False, False, False),
 ]
 
 
@@ -110,8 +112,9 @@ class DashboardScreen(QWidget):
             if (not t[4] or is_admin)
             and (not t[5] or IS_MAIN_BRANCH)
             and (not t[6] or not is_restaurant)
+            and (not t[7] or is_restaurant)
         ]
-        for i, (icon, title, subtitle, key, _admin, _main, _pos) in enumerate(visible_tiles):
+        for i, (icon, title, subtitle, key, *_) in enumerate(visible_tiles):
             tile = DashboardTile(icon, title, subtitle, key)
             tile.clicked.connect(lambda checked=False, k=key: self.module_requested.emit(k))
             row, col = divmod(i, 5)

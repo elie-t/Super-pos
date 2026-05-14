@@ -68,6 +68,7 @@ def init_db() -> None:
     import database.models.financials   # noqa: F401
     import database.models.sync         # noqa: F401
     import database.models.inventory    # noqa: F401
+    import database.models.restaurant   # noqa: F401
     Base.metadata.create_all(bind=engine)
     _seed_default_admin()
     # Idempotent migrations for columns added after initial schema
