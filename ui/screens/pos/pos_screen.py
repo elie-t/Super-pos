@@ -1664,7 +1664,7 @@ class POSScreen(QWidget):
         self._delivery_lbl.setVisible(False)
         lay.addWidget(self._delivery_lbl)
 
-        change_cust = QPushButton("Change")
+        change_cust = QPushButton("👥 Customers [F5]")
         change_cust.setFixedHeight(24)
         change_cust.setStyleSheet(
             "QPushButton{background:#2a5a8c;color:#fff;border:1px solid #4a7aac;"
@@ -2016,10 +2016,10 @@ class POSScreen(QWidget):
         fn_btn("⏸  Hold  [F2]",      "#e65100", "#bf360c", self._hold_sale,      0, 0)
         fn_btn("▶  Recall  [F3]",   "#1a6cb5", "#1a3a5c", self._recall_sale,    0, 1)
         fn_btn("📋  Invoices",       "#37474f", "#263238", self._open_invoices,  1, 0)
-        fn_btn("🌐  Online Orders", "#1a6cb5", "#0d4a8a", self._open_online_orders, 1, 1)
+        fn_btn("🚚  Delivery  [F6]","#1a6cb5", "#0d4a8a", self._open_online_orders, 1, 1)
         self._touch_mode_btn = fn_btn(
             "⊞  Touch Mode", "#00838f", "#006064", self._toggle_touch_mode, 2, 0)
-        fn_btn("👤  Customer",     "#5c6bc0", "#3949ab", self._change_customer, 2, 1)
+        fn_btn("👥  Customers [F5]","#5c6bc0", "#3949ab", self._change_customer, 2, 1)
         fn_btn("🔍  Price  [F10]", "#455a64", "#263238", self._price_check,       3, 0)
         fn_btn("🖨  Print  [F9]",  "#2e7d32", "#1b5e20", self._print_last,        3, 1)
         fn_btn("📊  Daily Sales",  "#4a148c", "#311b92", self._open_daily_sales,  4, 0)
@@ -2110,7 +2110,7 @@ class POSScreen(QWidget):
         self._online_poll_timer.start(10_000)
 
         hints = QLabel(
-            "F8=Pay · F9=Print · F10=Price · F2=Hold · F3=Recall · F4=New · +=Qty+ · −=Qty− · Del=Void"
+            "F8=Pay · F9=Print · F10=Price · F2=Hold · F3=Recall · F4=New · F5=Customers · F6=Delivery · +=Qty+ · −=Qty− · Del=Void"
         )
         hints.setStyleSheet("font-size:10px;color:#8899aa;")
         hints.setAlignment(Qt.AlignCenter)
@@ -2202,6 +2202,8 @@ class POSScreen(QWidget):
         QShortcut(QKeySequence("F2"),  self).activated.connect(self._hold_sale)
         QShortcut(QKeySequence("F3"),  self).activated.connect(self._recall_sale)
         QShortcut(QKeySequence("F4"),  self).activated.connect(self._new_sale)
+        QShortcut(QKeySequence("F5"),  self).activated.connect(self._change_customer)
+        QShortcut(QKeySequence("F6"),  self).activated.connect(self._open_online_orders)
         QShortcut(QKeySequence("Del"), self).activated.connect(self._void_line)
         QShortcut(QKeySequence("Escape"), self).activated.connect(
             lambda: self._scan_input.setFocus()
@@ -3784,40 +3786,140 @@ class POSScreen(QWidget):
             )
 
     def _change_customer(self):
-        from PySide6.QtWidgets import QInputDialog
-        query, ok = QInputDialog.getText(self, "Customer Search", "Search customer:")
-        if not ok or not query.strip():
-            return
-        results = PosService.search_customers(query.strip())
-        if not results:
-            QMessageBox.information(self, "Not Found", "No customer matched.")
-            return
-        if len(results) == 1:
-            c = results[0]
-        else:
-            dlg = QDialog(self)
-            dlg.setWindowTitle("Select Customer")
-            dlg.setFixedSize(380, 280)
-            vl = QVBoxLayout(dlg)
-            vl.setContentsMargins(12, 12, 12, 12)
-            lst = QListWidget()
-            lst.setStyleSheet("font-size:13px;")
-            for c in results:
-                it = QListWidgetItem(f"  {c['name']}  — {c['phone']}")
-                it.setData(Qt.UserRole, c)
-                lst.addItem(it)
-            lst.itemDoubleClicked.connect(lambda _: dlg.accept())
-            vl.addWidget(lst)
-            bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            bb.accepted.connect(dlg.accept)
-            bb.rejected.connect(dlg.reject)
-            vl.addWidget(bb)
-            if not dlg.exec() or not lst.currentItem():
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
+            QLineEdit, QTableWidget, QTableWidgetItem,
+            QDialogButtonBox, QPushButton, QLabel, QHeaderView,
+        )
+        from PySide6.QtCore import Qt, QTimer
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Customers")
+        dlg.setMinimumSize(520, 420)
+        dlg.setStyleSheet("background:#fff;")
+
+        vl = QVBoxLayout(dlg)
+        vl.setContentsMargins(14, 14, 14, 14)
+        vl.setSpacing(10)
+
+        # ── Search fields ─────────────────────────────────────────────────
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        name_lbl = QLabel("Name:")
+        name_lbl.setStyleSheet("font-size:12px;font-weight:600;")
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("Search by name…")
+        name_edit.setFixedHeight(30)
+        phone_lbl = QLabel("Phone:")
+        phone_lbl.setStyleSheet("font-size:12px;font-weight:600;")
+        phone_edit = QLineEdit()
+        phone_edit.setPlaceholderText("Search by phone…")
+        phone_edit.setFixedHeight(30)
+        grid.addWidget(name_lbl,  0, 0)
+        grid.addWidget(name_edit, 0, 1)
+        grid.addWidget(phone_lbl,  0, 2)
+        grid.addWidget(phone_edit, 0, 3)
+        vl.addLayout(grid)
+
+        # ── Results table ─────────────────────────────────────────────────
+        tbl = QTableWidget(0, 4)
+        tbl.setHorizontalHeaderLabels(["Name", "Phone", "Phone 2", "Balance"])
+        tbl.horizontalHeader().setStretchLastSection(False)
+        tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        tbl.setSelectionBehavior(QTableWidget.SelectRows)
+        tbl.setEditTriggers(QTableWidget.NoEditTriggers)
+        tbl.setAlternatingRowColors(True)
+        tbl.setStyleSheet("font-size:12px;")
+        tbl.verticalHeader().setVisible(False)
+        vl.addWidget(tbl, 1)
+
+        # ── Buttons ───────────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        new_btn = QPushButton("➕  New Customer")
+        new_btn.setObjectName("primaryBtn")
+        new_btn.setFixedHeight(30)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btn_row.addWidget(new_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(bb)
+        vl.addLayout(btn_row)
+
+        # ── Helpers ───────────────────────────────────────────────────────
+        _timer = QTimer(dlg)
+        _timer.setSingleShot(True)
+        _timer.setInterval(250)
+
+        def _populate(results):
+            tbl.setRowCount(0)
+            for r in results:
+                row = tbl.rowCount()
+                tbl.insertRow(row)
+                bal = f"{r['balance']:,.0f} {r['currency']}" if r.get("balance") else "—"
+                for col, val in enumerate([r["name"], r["phone"], r.get("phone2",""), bal]):
+                    it = QTableWidgetItem(val or "")
+                    it.setData(Qt.UserRole, r)
+                    tbl.setItem(row, col, it)
+
+        def _search():
+            q = (name_edit.text().strip() or phone_edit.text().strip())
+            if not q:
+                tbl.setRowCount(0)
                 return
-            c = lst.currentItem().data(Qt.UserRole)
-        self._customer_id   = c["id"]
-        self._customer_name = c["name"]
-        self._cust_name_lbl.setText(c["name"])
+            results = PosService.search_customers(q)
+            _populate(results)
+
+        def _on_text_changed():
+            _timer.start()
+
+        _timer.timeout.connect(_search)
+        name_edit.textChanged.connect(_on_text_changed)
+        phone_edit.textChanged.connect(_on_text_changed)
+
+        def _accept_row():
+            row = tbl.currentRow()
+            if row < 0:
+                return
+            c = tbl.item(row, 0).data(Qt.UserRole)
+            self._customer_id   = c["id"]
+            self._customer_name = c["name"]
+            self._cust_name_lbl.setText(c["name"])
+            dlg.accept()
+
+        tbl.itemDoubleClicked.connect(lambda _: _accept_row())
+        bb.accepted.connect(_accept_row)
+        bb.rejected.connect(dlg.reject)
+
+        def _new_customer():
+            from PySide6.QtWidgets import QInputDialog
+            cname, ok = QInputDialog.getText(dlg, "New Customer", "Customer name:")
+            if not ok or not cname.strip():
+                return
+            cphone, ok2 = QInputDialog.getText(dlg, "New Customer", "Phone (optional):")
+            try:
+                from database.engine import get_session, init_db
+                from database.models.parties import Customer as _Cust
+                from database.models.base import new_uuid
+                init_db()
+                s = get_session()
+                nc = _Cust(id=new_uuid(), name=cname.strip(),
+                           phone=cphone.strip() if ok2 else "",
+                           is_active=True)
+                s.add(nc)
+                s.commit()
+                self._customer_id   = nc.id
+                self._customer_name = nc.name
+                self._cust_name_lbl.setText(nc.name)
+                s.close()
+                dlg.accept()
+            except Exception as exc:
+                QMessageBox.warning(dlg, "Error", str(exc))
+
+        new_btn.clicked.connect(_new_customer)
+
+        # Pre-populate with recent customers on open
+        _populate(PosService.search_customers(""))
+        name_edit.setFocus()
+        dlg.exec()
 
     # ── Price check ────────────────────────────────────────────────────────────
 

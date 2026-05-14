@@ -771,11 +771,18 @@ class PosService:
         try:
             from database.models.parties import Customer
             like = f"%{query}%"
+            from sqlalchemy import or_
             rows = session.query(Customer).filter(
-                Customer.name.ilike(like), Customer.is_active == True
+                Customer.is_active == True,
+                or_(
+                    Customer.name.ilike(like),
+                    Customer.phone.ilike(like),
+                    Customer.phone2.ilike(like),
+                )
             ).limit(limit).all()
             return [{"id": r.id, "name": r.name,
                      "phone": getattr(r, "phone", "") or "",
+                     "phone2": getattr(r, "phone2", "") or "",
                      "balance": r.balance, "currency": r.currency}
                     for r in rows]
         finally:
