@@ -22,7 +22,7 @@ def push_all_online_items() -> tuple[int, int, list[str]]:
     session = get_session()
     try:
         s = session.get(Setting, "lbp_rate")
-        lbp_rate = int(s.value) if s and s.value else 90_000
+        lbp_rate = int(s.value) if s and s.value and s.value.strip() else 90_000
         items = session.query(Item).filter_by(is_online=True, is_active=True).all()
         rows = [_build_row(item, lbp_rate) for item in items]
     finally:

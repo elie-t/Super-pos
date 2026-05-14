@@ -1348,7 +1348,7 @@ class PurchaseInvoiceScreen(QWidget):
             _s = get_session()
             try:
                 r = _s.get(Setting, "lbp_rate")
-                self._lbp_rate = (int(r.value) if r and r.value else 0) or 90_000
+                self._lbp_rate = (int(r.value) if r and r.value and r.value.strip() else 0) or 90_000
             finally:
                 _s.close()
         except Exception:

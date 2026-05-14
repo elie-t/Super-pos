@@ -1162,7 +1162,7 @@ class ItemMaintenanceScreen(QWidget):
         session = get_session()
         try:
             s = session.get(Setting, "lbp_rate")
-            return int(s.value) if s else 89_500
+            return int(s.value) if s and s.value and s.value.strip() else 89_500
         finally:
             session.close()
 

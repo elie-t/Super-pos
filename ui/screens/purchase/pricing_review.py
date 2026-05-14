@@ -22,7 +22,7 @@ def _load_lbp_rate() -> int:
         s = get_session()
         try:
             r = s.get(Setting, "lbp_rate")
-            return int(r.value) if r and r.value else DEFAULT_LBP_RATE
+            return int(r.value) if r and r.value and r.value.strip() else DEFAULT_LBP_RATE
         finally:
             s.close()
     except Exception:

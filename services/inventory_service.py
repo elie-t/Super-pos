@@ -34,7 +34,7 @@ class InventoryService:
         session = get_session()
         try:
             s = session.get(Setting, "lbp_rate")
-            return int(s.value) if s else 90_000
+            return int(s.value) if s and s.value and s.value.strip() else 90_000
         except Exception:
             return 90_000
         finally:
