@@ -662,7 +662,9 @@ class PostSaveDialog(QDialog):
 
         msg = QLabel(
             f"✓  Invoice  <b>{inv_number}</b>  saved — "
-            f"{line_count} lines · Total: <b>{total:,.2f} {currency}</b>"
+            f"{line_count} lines · Total: <b>"
+            f"{'%.0f' % total if currency == 'LBP' else '%.2f' % total}"
+            f" {currency}</b>"
         )
         msg.setStyleSheet("font-size:14px; color:#1a3a5c;")
         msg.setAlignment(Qt.AlignCenter)
@@ -886,6 +888,7 @@ class PurchaseInvoiceScreen(QWidget):
         self._cur_combo.setFixedHeight(30)
         self._cur_combo.addItems(["USD", "LBP"])
         self._cur_combo.installEventFilter(self)
+        self._cur_combo.currentIndexChanged.connect(self._on_currency_changed)
         lay.addWidget(self._cur_combo)
 
         return frame
@@ -1360,6 +1363,23 @@ class PurchaseInvoiceScreen(QWidget):
     def _on_warehouse_changed(self):
         self._refresh_invoice_number()
 
+    # ── Currency helpers ──────────────────────────────────────────────────────
+
+    def _is_lbp(self) -> bool:
+        return self._cur_combo.currentText() == "LBP"
+
+    def _fmt_price(self, val: float) -> str:
+        return f"{val:,.0f}" if self._is_lbp() else f"{val:,.4f}"
+
+    def _fmt_money(self, val: float) -> str:
+        return f"{val:,.0f}" if self._is_lbp() else f"{val:,.2f}"
+
+    def _on_currency_changed(self):
+        decimals = 0 if self._is_lbp() else 2
+        self._price_spin.setDecimals(decimals)
+        self._total_spin.setDecimals(decimals)
+        self._update_totals()
+
     # ── Supplier autocomplete ─────────────────────────────────────────────────
 
     def _update_sup_completions(self):
@@ -1831,10 +1851,10 @@ class PurchaseInvoiceScreen(QWidget):
                 item.description,
                 box_str,
                 pcs_str,
-                f"{line['price']:.4f}",
+                self._fmt_price(line['price']),
                 f"{line['disc']:.2f}",
                 f"{line['vat']:.2f}",
-                f"{line['total']:.2f}",
+                self._fmt_money(line['total']),
                 "",
             ]
             for col, val in enumerate(vals):
@@ -1989,9 +2009,8 @@ class PurchaseInvoiceScreen(QWidget):
         }
         for i, p in enumerate(prices[:6]):
             kind = type_display.get(p.price_type, p.price_type.capitalize())
-            self._info_price_labels[i].setText(
-                f"{kind}: {p.amount:,.4f} {p.currency}   "
-            )
+            amt = f"{p.amount:,.0f}" if p.currency == "LBP" else f"{p.amount:,.4f}"
+            self._info_price_labels[i].setText(f"{kind}: {amt} {p.currency}   ")
 
     def _clear_item_info(self):
         self._info_name.setText("—")
@@ -2035,9 +2054,9 @@ class PurchaseInvoiceScreen(QWidget):
 
         self._lines_count_lbl.setText(str(len(self._lines)))
         self._units_count_lbl.setText(f"{total_units:,.0f}")
-        self._subtotal_lbl.setText(f"{net_total:,.2f}")
+        self._subtotal_lbl.setText(self._fmt_money(net_total))
         # do NOT reset _disc_edit — user controls it; only reset on clear
-        self._vat_edit.setText(f"{vat_val:.2f}")
+        self._vat_edit.setText(self._fmt_money(vat_val))
         self._recompute_grand()
 
     def _recompute_grand(self):
@@ -2055,7 +2074,7 @@ class PurchaseInvoiceScreen(QWidget):
         except ValueError:
             vat = 0.0
         grand = subtotal * (1 - disc_pct / 100) + vat
-        self._grand_total_lbl.setText(f"{grand:,.2f}")
+        self._grand_total_lbl.setText(self._fmt_money(grand))
 
     def _on_totals_edited(self):
         """Called when user edits Discount % or VAT — recompute grand total."""
