@@ -370,7 +370,7 @@ class ItemMaintenanceScreen(QWidget):
         self._altdesc_edit.clear()
         self._brut_cost.setValue(0)
         self._discount_spin.setValue(0)
-        self._vat_spin.setValue(11.0)
+        self._vat_spin.setValue(0.0)
         self._price_table.setRowCount(0)
         self._date_created_lbl.setText("Created: —")
         self._date_modified_lbl.setText("Modified: —")
@@ -498,7 +498,7 @@ class ItemMaintenanceScreen(QWidget):
 
         self._vat_spin = _xs_spin()
         self._vat_spin.setRange(0, 100); self._vat_spin.setSuffix("%")
-        self._vat_spin.setValue(11.0)
+        self._vat_spin.setValue(0.0)
 
         self._cost_currency = QComboBox()
         self._cost_currency.addItems(["USD", "LBP"])
