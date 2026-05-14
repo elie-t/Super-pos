@@ -24,17 +24,255 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QSplitter, QTextEdit,
     QRadioButton, QButtonGroup, QFrame, QSizePolicy,
-    QMessageBox, QCheckBox,
+    QMessageBox, QCheckBox, QDialog, QDialogButtonBox,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer, QStringListModel
 from PySide6.QtGui import QColor, QFont, QPixmap
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QCompleter, QFileDialog
 from services.item_service import ItemService, ItemDetail
 from database.models.base import new_uuid
 from config import APP_MODE
 
 # Price columns in the grid
 PRICE_TYPES = ["Individual", "Online", "Whole Sale", "Semi-Wholesale"]
+
+
+class RecipeDialog(QDialog):
+    """Modal dialog for editing a recipe attached to one item."""
+
+    def __init__(self, item_id: str, item_name: str, parent=None):
+        super().__init__(parent)
+        self._item_id = item_id
+        self._ingredients: list[dict] = []
+        self._item_results: list[dict] = []
+        self._selected_item: dict | None = None
+        self._timer: QTimer | None = None
+        self.calculated_cost: float = 0.0
+
+        self.setWindowTitle(f"Recipe — {item_name}")
+        self.setMinimumSize(700, 480)
+        self.setModal(True)
+        self._build_ui()
+        self._load()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
+        root.setContentsMargins(16, 16, 16, 16)
+
+        # ── Add ingredient row ────────────────────────────────────────────────
+        add_grp = QGroupBox("Add Ingredient")
+        add_grp.setStyleSheet("QGroupBox{font-weight:700;font-size:12px;padding-top:8px;}")
+        add_lay = QHBoxLayout(add_grp)
+        add_lay.setSpacing(8)
+
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Search by name or code…")
+        self._search.setFixedHeight(32)
+        self._completer_model = QStringListModel()
+        comp = QCompleter(self._completer_model, self._search)
+        comp.setCaseSensitivity(Qt.CaseInsensitive)
+        comp.setFilterMode(Qt.MatchContains)
+        self._search.setCompleter(comp)
+        self._search.textChanged.connect(self._on_search_changed)
+        comp.activated.connect(self._on_completer_activated)
+
+        self._qty = QLineEdit()
+        self._qty.setPlaceholderText("Qty")
+        self._qty.setFixedWidth(70)
+        self._qty.setFixedHeight(32)
+
+        self._unit = QComboBox()
+        self._unit.addItems(["PCS", "g", "kg", "ml", "L", "tsp", "tbsp", "cup"])
+        self._unit.setFixedHeight(32)
+        self._unit.setFixedWidth(75)
+
+        add_btn = QPushButton("+ Add")
+        add_btn.setFixedHeight(32)
+        add_btn.setFixedWidth(70)
+        add_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;border:none;"
+            "border-radius:5px;font-weight:700;font-size:12px;}"
+            "QPushButton:hover{background:#1b5e20;}"
+        )
+        add_btn.clicked.connect(self._add_ingredient)
+
+        add_lay.addWidget(self._search, 3)
+        add_lay.addWidget(QLabel("Qty:"))
+        add_lay.addWidget(self._qty)
+        add_lay.addWidget(QLabel("Unit:"))
+        add_lay.addWidget(self._unit)
+        add_lay.addWidget(add_btn)
+        root.addWidget(add_grp)
+
+        # ── Ingredients table ─────────────────────────────────────────────────
+        self._table = QTableWidget(0, 5)
+        self._table.setHorizontalHeaderLabels(
+            ["Ingredient", "Qty", "Unit", "Cost/Unit", ""])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        for c in (1, 2, 3):
+            self._table.horizontalHeader().setSectionResizeMode(c, QHeaderView.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
+        self._table.setColumnWidth(4, 36)
+        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setAlternatingRowColors(True)
+        self._table.setStyleSheet("font-size:12px;")
+        root.addWidget(self._table, 1)
+
+        # ── Cost summary ──────────────────────────────────────────────────────
+        self._cost_lbl = QLabel("Total ingredient cost: —")
+        self._cost_lbl.setStyleSheet(
+            "font-size:13px;font-weight:700;color:#1a3a5c;padding:4px 0;")
+        root.addWidget(self._cost_lbl)
+
+        # ── Status / error ────────────────────────────────────────────────────
+        self._status_lbl = QLabel("")
+        self._status_lbl.setStyleSheet("font-size:11px;color:#c62828;")
+        root.addWidget(self._status_lbl)
+
+        # ── Buttons ───────────────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        save_btn = QPushButton("💾  Save Recipe")
+        save_btn.setFixedHeight(36)
+        save_btn.setStyleSheet(
+            "QPushButton{background:#2e7d32;color:#fff;border:none;"
+            "border-radius:6px;font-weight:700;font-size:13px;}"
+            "QPushButton:hover{background:#1b5e20;}"
+        )
+        save_btn.clicked.connect(self._save)
+
+        close_btn = QPushButton("Close")
+        close_btn.setFixedHeight(36)
+        close_btn.setStyleSheet(
+            "QPushButton{background:#546e7a;color:#fff;border:none;"
+            "border-radius:6px;font-weight:700;font-size:13px;}"
+            "QPushButton:hover{background:#37474f;}"
+        )
+        close_btn.clicked.connect(self.reject)
+
+        btn_row.addWidget(save_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        root.addLayout(btn_row)
+
+    # ── Search / completer ────────────────────────────────────────────────────
+
+    def _on_search_changed(self):
+        if self._timer:
+            self._timer.stop()
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(220)
+        self._timer.timeout.connect(self._do_search)
+        self._timer.start()
+
+    def _do_search(self):
+        q = self._search.text().strip()
+        if not q:
+            return
+        from services.recipe_service import RecipeService
+        self._item_results = RecipeService.search_ingredients(q)
+        self._completer_model.setStringList(
+            [f"{i['name']}  [{i['code']}]" for i in self._item_results])
+
+    def _on_completer_activated(self, text: str):
+        for item in self._item_results:
+            if f"{item['name']}  [{item['code']}]" == text or item["name"] == text:
+                self._selected_item = item
+                return
+        self._selected_item = None
+
+    # ── Add / remove ──────────────────────────────────────────────────────────
+
+    def _add_ingredient(self):
+        text = self._search.text().strip()
+        if not text:
+            return
+        match = self._selected_item
+        if not match:
+            for item in self._item_results:
+                if item["name"].lower() in text.lower() or item["code"] in text:
+                    match = item
+                    break
+        if not match:
+            self._status_lbl.setText("Ingredient not found — type name and pick from the list.")
+            return
+        self._status_lbl.setText("")
+        try:
+            qty = float(self._qty.text().replace(",", "") or 1)
+        except ValueError:
+            qty = 1.0
+        unit = self._unit.currentText()
+        self._ingredients.append({
+            "item_id":       match["id"],
+            "item_name":     match["name"],
+            "item_code":     match["code"],
+            "quantity":      qty,
+            "unit":          unit,
+            "cost_per_unit": match["cost_price"],
+            "cost_currency": match["cost_currency"],
+            "line_cost":     match["cost_price"] * qty,
+        })
+        self._selected_item = None
+        self._search.clear()
+        self._qty.clear()
+        self._refresh_table()
+
+    def _remove(self, idx: int):
+        if 0 <= idx < len(self._ingredients):
+            self._ingredients.pop(idx)
+            self._refresh_table()
+
+    # ── Table refresh ─────────────────────────────────────────────────────────
+
+    def _refresh_table(self):
+        self._table.setRowCount(0)
+        total = 0.0
+        for i, ing in enumerate(self._ingredients):
+            r = self._table.rowCount()
+            self._table.insertRow(r)
+            self._table.setItem(r, 0, QTableWidgetItem(ing["item_name"]))
+            self._table.setItem(r, 1, QTableWidgetItem(str(ing["quantity"])))
+            self._table.setItem(r, 2, QTableWidgetItem(ing["unit"]))
+            cur = ing.get("cost_currency", "USD")
+            cpu = ing["cost_per_unit"]
+            fmt = f"{cpu:,.0f}" if cur == "LBP" else f"{cpu:,.4f}"
+            self._table.setItem(r, 3, QTableWidgetItem(f"{fmt} {cur}"))
+            rm = QPushButton("✕")
+            rm.setFixedSize(26, 26)
+            rm.setStyleSheet(
+                "QPushButton{background:#c62828;color:#fff;border:none;"
+                "border-radius:4px;font-size:11px;}"
+            )
+            rm.clicked.connect(lambda _, idx=i: self._remove(idx))
+            self._table.setCellWidget(r, 4, rm)
+            total += ing["line_cost"]
+        self.calculated_cost = total
+        self._cost_lbl.setText(f"Total ingredient cost: {total:,.4f}")
+
+    # ── Load / Save ───────────────────────────────────────────────────────────
+
+    def _load(self):
+        from services.recipe_service import RecipeService
+        detail = RecipeService.get_for_item(self._item_id)
+        self._ingredients = detail["ingredients"] if detail else []
+        self._refresh_table()
+
+    def _save(self):
+        from services.recipe_service import RecipeService
+        cost, err = RecipeService.save_for_item(
+            item_id=self._item_id,
+            notes="",
+            ingredients=self._ingredients,
+        )
+        if err:
+            self._status_lbl.setText(f"Error: {err}")
+            return
+        self.calculated_cost = cost
+        self._status_lbl.setStyleSheet("font-size:11px;color:#2e7d32;")
+        self._status_lbl.setText("✔ Recipe saved.")
+        self.accept()
 
 
 class ItemMaintenanceScreen(QWidget):
@@ -102,8 +340,6 @@ class ItemMaintenanceScreen(QWidget):
         bottom_left_layout.setSpacing(6)
         bottom_left_layout.addLayout(self._build_barcode_stock_row())
         bottom_left_layout.addWidget(self._build_price_grid(), 1)
-        if APP_MODE == "restaurant":
-            bottom_left_layout.addWidget(self._build_recipe_section())
         bottom_outer.addWidget(bottom_left, 1)
 
         # Right: action buttons column
@@ -336,11 +572,6 @@ class ItemMaintenanceScreen(QWidget):
             pass
         self._card_widget.show()
         self._code_edit.setFocus()
-        # Reset recipe for new item
-        from config import APP_MODE
-        if APP_MODE == "restaurant" and hasattr(self, "_recipe_ingredients"):
-            self._recipe_ingredients = []
-            self._recipe_refresh_table()
         # Reset lookup bar style
         self._lookup_input.clear()
         self._lookup_input.setStyleSheet(
@@ -627,6 +858,8 @@ class ItemMaintenanceScreen(QWidget):
             return btn
 
         layout.addWidget(_btn("💾  Save",       "#2e7d32", "#388e3c", self._save))
+        if APP_MODE == "restaurant":
+            layout.addWidget(_btn("🍽️  Recipe",  "#e65100", "#f57c00", self._open_recipe))
         layout.addWidget(_btn("📊  Stock Card", "#1565c0", "#1976d2", self._open_stock_card))
         layout.addWidget(_btn("🔍  Search",     "#5c6bc0", "#7986cb", self._go_search))
 
@@ -901,10 +1134,20 @@ class ItemMaintenanceScreen(QWidget):
         return w
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Recipe / Ingredients (restaurant mode)
+    # Recipe / Costing (restaurant mode) — opens modal dialog
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _build_recipe_section(self) -> QWidget:
+    def _open_recipe(self):
+        if self._is_new or not self._item_id:
+            QMessageBox.information(self, "Save First",
+                                    "Please save the item before editing its recipe.")
+            return
+        name = self._name_edit.text().strip() or self._item_id
+        dlg = RecipeDialog(self._item_id, name, parent=self)
+        if dlg.exec() == QDialog.Accepted and dlg.calculated_cost > 0:
+            self._brut_cost.setValue(dlg.calculated_cost)
+
+    def _build_recipe_section(self) -> QWidget:  # kept only to avoid AttributeError — not called
         from PySide6.QtCore import QStringListModel, QTimer
         from PySide6.QtWidgets import QCompleter
         self._recipe_ingredients: list[dict] = []
@@ -1147,11 +1390,6 @@ class ItemMaintenanceScreen(QWidget):
 
         # Load suppliers
         self._load_suppliers(detail)
-
-        # Load recipe (restaurant mode only)
-        from config import APP_MODE
-        if APP_MODE == "restaurant":
-            self._recipe_load(item_id)
 
         # Reflect active state on delete/activate button
         self._refresh_delete_btn(detail.is_active)
@@ -1858,10 +2096,6 @@ class ItemMaintenanceScreen(QWidget):
             if detail.category_id:
                 ItemMaintenanceScreen._last_category_id   = detail.category_id
                 ItemMaintenanceScreen._last_category_name = detail.category_name
-            # Save recipe if in restaurant mode
-            from config import APP_MODE
-            if APP_MODE == "restaurant":
-                self._recipe_save(self._item_id)
             self._status_lbl.setStyleSheet("color:#2e7d32;")
             self._status_lbl.setText("✔ Saved.")
             self.saved.emit(self._item_id)
