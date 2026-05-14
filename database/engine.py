@@ -269,3 +269,19 @@ def init_db() -> None:
                 conn.commit()
             except Exception:
                 pass
+
+        # ── Restaurant model migrations ───────────────────────────────────────
+        try:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE recipes ADD COLUMN item_id TEXT REFERENCES items(id)"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE recipes ADD COLUMN notes TEXT"
+            ))
+            conn.commit()
+        except Exception:
+            pass
