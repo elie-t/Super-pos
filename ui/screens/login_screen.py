@@ -12,74 +12,102 @@ from PySide6.QtCore import Qt, Signal
 from services.auth_service import AuthService
 
 
-# ── Password prompt dialog ────────────────────────────────────────────────────
+# ── Password prompt dialog (with touch numpad) ────────────────────────────────
 
 class _PasswordDialog(QDialog):
     def __init__(self, full_name: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Enter Password")
-        self.setFixedWidth(340)
+        self.setFixedWidth(320)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(30, 30, 30, 24)
-        lay.setSpacing(14)
+        lay.setContentsMargins(24, 24, 24, 20)
+        lay.setSpacing(10)
 
         name_lbl = QLabel(full_name)
         name_lbl.setAlignment(Qt.AlignCenter)
-        name_lbl.setStyleSheet(
-            "font-size:17px;font-weight:700;color:#1a3a5c;"
-        )
+        name_lbl.setStyleSheet("font-size:17px;font-weight:700;color:#1a3a5c;")
         lay.addWidget(name_lbl)
 
-        hint = QLabel("Enter your password to log in")
+        hint = QLabel("Enter your password")
         hint.setAlignment(Qt.AlignCenter)
-        hint.setStyleSheet("font-size:12px;color:#6b7a8d;")
+        hint.setStyleSheet("font-size:11px;color:#6b7a8d;")
         lay.addWidget(hint)
 
-        lay.addSpacing(4)
-
+        # Password field (keyboard + numpad both feed here)
         self._pw = QLineEdit()
         self._pw.setEchoMode(QLineEdit.Password)
-        self._pw.setPlaceholderText("Password")
-        self._pw.setFixedHeight(42)
+        self._pw.setPlaceholderText("Password / PIN")
+        self._pw.setFixedHeight(44)
+        self._pw.setAlignment(Qt.AlignCenter)
         self._pw.setStyleSheet(
             "QLineEdit{border:2px solid #b0bec5;border-radius:6px;"
-            "padding:0 10px;font-size:14px;color:#1a1a2e;}"
+            "padding:0 10px;font-size:18px;letter-spacing:4px;color:#1a1a2e;}"
             "QLineEdit:focus{border-color:#1a6cb5;}"
         )
+        self._pw.returnPressed.connect(self._submit)
         lay.addWidget(self._pw)
 
         self._err = QLabel("")
         self._err.setAlignment(Qt.AlignCenter)
-        self._err.setStyleSheet("color:#c62828;font-size:12px;")
+        self._err.setStyleSheet("color:#c62828;font-size:11px;")
         self._err.hide()
         lay.addWidget(self._err)
 
-        btn_row = QHBoxLayout()
+        # ── Numpad ────────────────────────────────────────────────────────────
+        pad = QGridLayout()
+        pad.setSpacing(8)
+
+        def _nstyle(bg="#f5f7fa", fg="#1a3a5c"):
+            return (
+                f"QPushButton{{background:{bg};color:{fg};border:1px solid #cfd8dc;"
+                f"border-radius:8px;font-size:20px;font-weight:700;}}"
+                f"QPushButton:hover{{background:#dce6f5;}}"
+                f"QPushButton:pressed{{background:#b0c4de;}}"
+            )
+
+        keys = [
+            ("1", 0, 0), ("2", 0, 1), ("3", 0, 2),
+            ("4", 1, 0), ("5", 1, 1), ("6", 1, 2),
+            ("7", 2, 0), ("8", 2, 1), ("9", 2, 2),
+            ("⌫",  3, 0), ("0", 3, 1), ("OK", 3, 2),
+        ]
+        for label, r, c in keys:
+            btn = QPushButton(label)
+            btn.setFixedHeight(58)
+            btn.setCursor(Qt.PointingHandCursor)
+            if label == "OK":
+                btn.setStyleSheet(_nstyle("#1a3a5c", "#fff"))
+                btn.clicked.connect(self._submit)
+            elif label == "⌫":
+                btn.setStyleSheet(_nstyle("#fff3e0", "#e65100"))
+                btn.clicked.connect(self._backspace)
+            else:
+                btn.setStyleSheet(_nstyle())
+                btn.clicked.connect(lambda _, d=label: self._append(d))
+            pad.addWidget(btn, r, c)
+
+        lay.addLayout(pad)
+
+        # Cancel link at bottom
         cancel = QPushButton("Cancel")
-        cancel.setFixedHeight(36)
+        cancel.setFixedHeight(32)
         cancel.setStyleSheet(
-            "QPushButton{background:#eceff1;color:#37474f;border:none;"
-            "border-radius:5px;font-size:13px;}"
-            "QPushButton:hover{background:#cfd8dc;}"
+            "QPushButton{background:transparent;color:#90a4ae;border:none;font-size:12px;}"
+            "QPushButton:hover{color:#546e7a;}"
         )
         cancel.clicked.connect(self.reject)
-        btn_row.addWidget(cancel)
+        lay.addWidget(cancel, alignment=Qt.AlignCenter)
 
-        self._ok = QPushButton("Log In")
-        self._ok.setFixedHeight(36)
-        self._ok.setStyleSheet(
-            "QPushButton{background:#1a3a5c;color:#fff;border:none;"
-            "border-radius:5px;font-size:13px;font-weight:700;}"
-            "QPushButton:hover{background:#1a6cb5;}"
-        )
-        self._ok.clicked.connect(self._submit)
-        btn_row.addWidget(self._ok)
-        lay.addLayout(btn_row)
-
-        self._pw.returnPressed.connect(self._submit)
         self._pw.setFocus()
+
+    def _append(self, digit: str):
+        self._pw.setText(self._pw.text() + digit)
+        self._err.hide()
+
+    def _backspace(self):
+        self._pw.setText(self._pw.text()[:-1])
 
     def _submit(self):
         if not self._pw.text():
@@ -133,12 +161,14 @@ class LoginScreen(QWidget):
         card_lay.setSpacing(0)
 
         # Title
-        title = QLabel("TannouryMarket")
+        from ui.main_window import _get_app_name
+        from config import APP_MODE
+        title = QLabel(_get_app_name())
         title.setObjectName("appTitle")
         title.setAlignment(Qt.AlignCenter)
         card_lay.addWidget(title)
 
-        subtitle = QLabel("Retail Management System")
+        subtitle = QLabel("Restaurant POS" if APP_MODE == "restaurant" else "Retail Management System")
         subtitle.setObjectName("appSubtitle")
         subtitle.setAlignment(Qt.AlignCenter)
         card_lay.addWidget(subtitle)
