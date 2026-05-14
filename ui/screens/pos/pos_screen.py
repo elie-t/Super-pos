@@ -3835,7 +3835,7 @@ class POSScreen(QWidget):
 
         # ── Buttons ───────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        new_btn = QPushButton("➕  New Customer")
+        new_btn = QPushButton("+  New Customer")
         new_btn.setObjectName("primaryBtn")
         new_btn.setFixedHeight(30)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
