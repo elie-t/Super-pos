@@ -87,14 +87,25 @@ class ItemService:
                 q = q.filter(Item.id.in_(barcode_ids))
             elif query:
                 like = f"%{query}%"
-                barcode_ids = session.query(ItemBarcode.item_id).filter(
-                    ItemBarcode.barcode.ilike(like)
-                ).scalar_subquery()
-                q = q.filter(
-                    Item.name.ilike(like) |
-                    Item.code.ilike(like) |
-                    Item.id.in_(barcode_ids)
-                )
+                # Numeric-only queries are barcode scans — use exact match to prevent
+                # a shorter scan result matching a longer stored barcode via LIKE contains.
+                if query.isdigit():
+                    barcode_ids = session.query(ItemBarcode.item_id).filter(
+                        ItemBarcode.barcode == query
+                    ).scalar_subquery()
+                    from sqlalchemy import or_
+                    q = q.filter(
+                        or_(Item.code == query, Item.id.in_(barcode_ids))
+                    )
+                else:
+                    barcode_ids = session.query(ItemBarcode.item_id).filter(
+                        ItemBarcode.barcode.ilike(like)
+                    ).scalar_subquery()
+                    q = q.filter(
+                        Item.name.ilike(like) |
+                        Item.code.ilike(like) |
+                        Item.id.in_(barcode_ids)
+                    )
 
             q = q.order_by(Item.name).limit(limit).offset(offset)
             rows = q.all()
