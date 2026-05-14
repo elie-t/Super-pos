@@ -219,15 +219,8 @@ class ItemMaintenanceScreen(QWidget):
             self._lookup_input.setFocus()
             return
 
-        # Strip EAN check digit so scanner input (13 digits) matches
-        # items stored without it (12 digits).
-        if query.isdigit() and len(query) in (8, 12, 13):
-            query_normalized = query[:-1]
-        else:
-            query_normalized = query
-
         limit = 100 if force_list else 5
-        results = ItemService.search_items(query=query_normalized, limit=limit)
+        results = ItemService.search_items(query=query, limit=limit)
         if not results:
             self._start_new_item_with_barcode(query)
             return
@@ -323,6 +316,21 @@ class ItemMaintenanceScreen(QWidget):
             idx = self._cat_combo.findData(ItemMaintenanceScreen._last_category_id)
             if idx >= 0:
                 self._cat_combo.setCurrentIndex(idx)
+        # Auto-generate next numeric item code
+        try:
+            from database.engine import get_session
+            from sqlalchemy import text as _text
+            _s = get_session()
+            try:
+                row = _s.execute(_text(
+                    "SELECT MAX(CAST(code AS INTEGER)) FROM items "
+                    "WHERE code GLOB '[0-9]*'"
+                )).fetchone()
+                self._code_edit.setText(str((row[0] or 0) + 1))
+            finally:
+                _s.close()
+        except Exception:
+            pass
         self._card_widget.show()
         self._code_edit.setFocus()
         # Reset lookup bar style
@@ -339,27 +347,8 @@ class ItemMaintenanceScreen(QWidget):
         self._bar_mode_lbl.show()
 
     def _start_new_item_with_barcode(self, barcode: str):
-        """Not found — open new item form, auto-generate code, pre-insert barcode."""
+        """Not found — open new item form, pre-fill barcode as-is (reader already strips check digit)."""
         self._start_new_item()
-        try:
-            from database.engine import get_session
-            from sqlalchemy import text
-            session = get_session()
-            try:
-                row = session.execute(text(
-                    "SELECT MAX(CAST(code AS INTEGER)) FROM items "
-                    "WHERE code GLOB '[0-9]*'"
-                )).fetchone()
-                next_code = str((row[0] or 0) + 1)
-            finally:
-                session.close()
-        except Exception:
-            next_code = ""
-        self._code_edit.setText(next_code)
-        # Strip the check digit: scanners send the full EAN (8/12/13 digits)
-        # but all existing items are stored without the last digit.
-        if barcode.isdigit() and len(barcode) in (8, 12, 13):
-            barcode = barcode[:-1]
         self._bc_input.setText(barcode)
         self._add_barcode_row()
 
