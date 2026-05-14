@@ -290,9 +290,12 @@ def _convert_delivery_to_purchase(delivery: dict) -> str:
             if item_id:
                 local_item = session.get(Item, item_id)
 
-            # 2. Try by barcode
+            # 2. Try by barcode — also try without check digit because the delivery
+            #    app sends full EAN (13 digits) while local items store 12 digits.
             if not local_item and barcode:
                 bc_row = session.query(ItemBarcode).filter_by(barcode=barcode).first()
+                if not bc_row and barcode.isdigit() and len(barcode) in (8, 12, 13):
+                    bc_row = session.query(ItemBarcode).filter_by(barcode=barcode[:-1]).first()
                 if bc_row:
                     local_item = session.get(Item, bc_row.item_id)
 
@@ -317,12 +320,14 @@ def _convert_delivery_to_purchase(delivery: dict) -> str:
                 session.flush()
 
                 if barcode:
-                    existing_bc = session.query(ItemBarcode).filter_by(barcode=barcode).first()
+                    # Strip check digit before storing — delivery app sends full EAN
+                    stored_bc = barcode[:-1] if barcode.isdigit() and len(barcode) in (8, 12, 13) else barcode
+                    existing_bc = session.query(ItemBarcode).filter_by(barcode=stored_bc).first()
                     if not existing_bc:
                         session.add(ItemBarcode(
                             id=new_uuid(),
                             item_id=local_item.id,
-                            barcode=barcode,
+                            barcode=stored_bc,
                             is_primary=True,
                             pack_qty=1,
                         ))
