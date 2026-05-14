@@ -23,24 +23,55 @@ _TILE_COLORS = [
     "#a04000", "#1a5276", "#196f3d", "#515a5a", "#922b21",
 ]
 
-def _tile_btn(label: str, sub: str, color: str, size: int = 80) -> QPushButton:
-    """Create a coloured square tile button."""
+def _tile_btn(label: str, sub: str, color: str, size: int = 80, photo: str = "") -> QPushButton:
+    """Create a coloured square tile button, optionally showing a local image."""
+    import os
+    from PySide6.QtGui import QPixmap
+
     b = QPushButton()
     b.setFixedSize(size, size)
     b.setCursor(Qt.PointingHandCursor)
-    text = f"<div style='text-align:center;font-size:11px;font-weight:700;color:#fff;" \
-           f"line-height:1.2;'>{label}</div>"
-    if sub:
-        text += f"<div style='text-align:center;font-size:9px;color:#ddd;" \
-                f"margin-top:2px;'>{sub}</div>"
     b.setText("")
-    # Use a QLabel overlay approach via stylesheet + text
     b.setStyleSheet(
         f"QPushButton{{background:{color};border-radius:6px;border:none;}}"
         f"QPushButton:hover{{background:{color}cc;}}"
         f"QPushButton:pressed{{background:{color}99;}}"
     )
-    # Embed HTML-like text via rich text on a child label
+
+    if photo and os.path.isfile(photo):
+        pix = QPixmap(photo)
+        if not pix.isNull():
+            img_h = int(size * 0.65)
+            txt_h = size - img_h
+
+            img_lbl = QLabel(b)
+            img_lbl.setGeometry(2, 2, size - 4, img_h - 2)
+            img_lbl.setAlignment(Qt.AlignCenter)
+            scaled = pix.scaled(size - 4, img_h - 2, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            img_lbl.setPixmap(scaled)
+            img_lbl.setStyleSheet("background:transparent;border:none;")
+            img_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+
+            txt = label + (f"\n{sub}" if sub else "")
+            txt_lbl = QLabel(txt, b)
+            txt_lbl.setGeometry(0, size - txt_h, size, txt_h)
+            txt_lbl.setAlignment(Qt.AlignCenter)
+            txt_lbl.setWordWrap(True)
+            font_px = max(8, size // 14)
+            txt_lbl.setStyleSheet(
+                f"background:rgba(0,0,0,165);color:#fff;font-size:{font_px}px;"
+                f"font-weight:700;border:none;"
+                f"border-bottom-left-radius:6px;border-bottom-right-radius:6px;"
+            )
+            txt_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+            return b
+
+    # No image — coloured tile with centred text
+    text = (f"<div style='text-align:center;font-size:11px;font-weight:700;"
+            f"color:#fff;line-height:1.2;'>{label}</div>")
+    if sub:
+        text += (f"<div style='text-align:center;font-size:9px;color:#ddd;"
+                 f"margin-top:2px;'>{sub}</div>")
     lbl = QLabel(text, b)
     lbl.setAlignment(Qt.AlignCenter)
     lbl.setWordWrap(True)
@@ -141,7 +172,7 @@ class TouchPanel(QWidget):
 
         for idx, cat in enumerate(cats):
             color = _TILE_COLORS[idx % len(_TILE_COLORS)]
-            btn   = _tile_btn(cat["name"], "", color, self._tile_size)
+            btn   = _tile_btn(cat["name"], "", color, self._tile_size, cat.get("photo_url", ""))
             btn.clicked.connect(
                 lambda _checked=False, c=cat: self._open_category(c["id"], c["name"])
             )
@@ -169,7 +200,7 @@ class TouchPanel(QWidget):
             else:
                 price_str = f"$ {it['price']:,.2f}"
             color = _TILE_COLORS[idx % len(_TILE_COLORS)]
-            btn   = _tile_btn(it["name"], price_str, color, self._tile_size)
+            btn   = _tile_btn(it["name"], price_str, color, self._tile_size, it.get("photo_url", ""))
             btn.clicked.connect(
                 lambda _checked=False, i=it: self.item_selected.emit(i)
             )

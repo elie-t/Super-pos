@@ -377,7 +377,7 @@ class ItemService:
                 .order_by(Category.sort_order, Category.name)
                 .all()
             )
-            return [{"id": c.id, "name": c.name} for c in rows]
+            return [{"id": c.id, "name": c.name, "photo_url": c.photo_url or ""} for c in rows]
         finally:
             session.close()
 
@@ -414,12 +414,13 @@ class ItemService:
             for item in items:
                 p = prices.get(item.id, {"amount": 0.0, "currency": "USD"})
                 result.append({
-                    "item_id":  item.id,
-                    "code":     item.code,
-                    "name":     item.name,
-                    "name_ar":  item.name_ar or "",
-                    "price":    p["amount"],
-                    "currency": p["currency"],
+                    "item_id":   item.id,
+                    "code":      item.code,
+                    "name":      item.name,
+                    "name_ar":   item.name_ar or "",
+                    "price":     p["amount"],
+                    "currency":  p["currency"],
+                    "photo_url": item.photo_url or "",
                 })
             return result
         finally:

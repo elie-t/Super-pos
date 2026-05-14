@@ -231,9 +231,21 @@ class CategoriesScreen(QWidget):
     # ── Photo helpers ─────────────────────────────────────────────────────────
 
     def _refresh_preview(self):
+        import os
         url = self._photo_url_edit.text().strip()
         self._photo_url = url
+        if url and os.path.isfile(url):
+            pix = QPixmap(url)
+            if not pix.isNull():
+                scaled = pix.scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self._img_preview.setPixmap(scaled)
+                self._img_preview.setText("")
+                self._img_preview.setStyleSheet(
+                    "background:#f0f7ff;border:1px solid #c0ccd8;border-radius:3px;"
+                )
+                return
         if url:
+            self._img_preview.setPixmap(QPixmap())
             self._img_preview.setText("🖼  Image set")
             self._img_preview.setStyleSheet(
                 "background:#f0f7ff; border:1px solid #c0ccd8; border-radius:3px; color:#1a6cb5;"
@@ -301,22 +313,16 @@ class CategoriesScreen(QWidget):
         )
         if not path:
             return
-        from sync.service import is_configured, upload_to_storage
-        if not is_configured():
-            QMessageBox.warning(self, "Not configured", "Supabase sync is not configured.")
-            return
-        import mimetypes, os
-        mime = mimetypes.guess_type(path)[0] or "image/jpeg"
+        import shutil, os
+        from pathlib import Path
+        img_dir = Path(__file__).resolve().parents[3] / "assets" / "touch_images"
+        img_dir.mkdir(parents=True, exist_ok=True)
         ext  = os.path.splitext(path)[1].lower()
-        remote_path = f"categories/{self._selected_id or 'new'}{ext}"
-        with open(path, "rb") as f:
-            data = f.read()
-        ok, result = upload_to_storage("product-images", remote_path, data, mime)
-        if ok:
-            self._photo_url_edit.setText(result)
-            self._refresh_preview()
-        else:
-            QMessageBox.warning(self, "Upload failed", result)
+        cat_key = self._selected_id or "new"
+        dest = str(img_dir / f"cat_{cat_key}{ext}")
+        shutil.copy2(path, dest)
+        self._photo_url_edit.setText(dest)
+        self._refresh_preview()
 
     def _clear_photo(self):
         self._photo_url_edit.clear()

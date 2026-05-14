@@ -1651,21 +1651,24 @@ class ItemMaintenanceScreen(QWidget):
         self._refresh_photo_preview()
 
     def _refresh_photo_preview(self):
+        import os
         url = self._photo_url_edit.text().strip()
         if url:
-            # Try to show a thumbnail from the URL
-            try:
-                import requests as _req
-                data = _req.get(url, timeout=5).content
-                pix = QPixmap()
-                pix.loadFromData(data)
-                if not pix.isNull():
-                    scaled = pix.scaled(90, 90, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self._img_preview.setPixmap(scaled)
-                    self._img_preview.setText("")
-                    return
-            except Exception:
-                pass
+            pix = QPixmap()
+            if os.path.isfile(url):
+                pix.load(url)
+            else:
+                try:
+                    import requests as _req
+                    pix.loadFromData(_req.get(url, timeout=5).content)
+                except Exception:
+                    pass
+            if not pix.isNull():
+                scaled = pix.scaled(90, 90, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self._img_preview.setPixmap(scaled)
+                self._img_preview.setText("")
+                self._img_preview.setStyleSheet("")
+                return
             self._img_preview.setPixmap(QPixmap())
             self._img_preview.setText("🖼 Image set")
             self._img_preview.setStyleSheet("color:#1a6cb5;")
@@ -1681,27 +1684,17 @@ class ItemMaintenanceScreen(QWidget):
         )
         if not path:
             return
-        from sync.service import is_configured, upload_to_storage
-        if not is_configured():
-            QMessageBox.warning(self, "Not configured", "Supabase sync is not configured.")
-            return
-
-        import mimetypes, os
-        mime = mimetypes.guess_type(path)[0] or "image/jpeg"
+        import shutil, os
+        from pathlib import Path
+        img_dir = Path(__file__).resolve().parents[3] / "assets" / "touch_images"
+        img_dir.mkdir(parents=True, exist_ok=True)
         ext  = os.path.splitext(path)[1].lower()
-        remote_path = f"items/{self._item_id}{ext}"
-
-        with open(path, "rb") as f:
-            data = f.read()
-
-        ok, result = upload_to_storage("product-images", remote_path, data, mime)
-        if ok:
-            self._photo_url_edit.setText(result)
-            self._refresh_photo_preview()
-            self._status_lbl.setStyleSheet("color:#2e7d32;")
-            self._status_lbl.setText("Photo uploaded — save to persist.")
-        else:
-            QMessageBox.warning(self, "Upload failed", result)
+        dest = str(img_dir / f"item_{self._item_id}{ext}")
+        shutil.copy2(path, dest)
+        self._photo_url_edit.setText(dest)
+        self._refresh_photo_preview()
+        self._status_lbl.setStyleSheet("color:#2e7d32;")
+        self._status_lbl.setText("Image saved locally — press Save Item to persist.")
 
     def _clear_photo(self):
         self._photo_url_edit.clear()
