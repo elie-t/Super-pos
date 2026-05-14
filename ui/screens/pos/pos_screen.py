@@ -1568,11 +1568,17 @@ class POSScreen(QWidget):
     # ── Build UI ───────────────────────────────────────────────────────────────
 
     def _build_ui(self):
+        from PySide6.QtWidgets import QStackedWidget
+        from ui.screens.pos.touch_overlay import TouchOverlay
+
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
         root.addWidget(self._make_top_bar())
+
+        # Body stack: index 0 = normal split view, index 1 = full-screen touch overlay
+        self._body_stack = QStackedWidget()
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setHandleWidth(3)
@@ -1581,7 +1587,13 @@ class POSScreen(QWidget):
         splitter.setStretchFactor(0, 55)
         splitter.setStretchFactor(1, 45)
         splitter.setSizes([660, 500])
-        root.addWidget(splitter, 1)
+        self._body_stack.addWidget(splitter)      # index 0
+
+        self._touch_overlay = TouchOverlay(self)
+        self._touch_overlay.exit_requested.connect(self._exit_touch_mode)
+        self._body_stack.addWidget(self._touch_overlay)  # index 1
+
+        root.addWidget(self._body_stack, 1)
 
         root.addWidget(self._make_status_bar())
 
@@ -2013,18 +2025,7 @@ class POSScreen(QWidget):
         fn_btn("📊  Daily Sales",  "#4a148c", "#311b92", self._open_daily_sales,  4, 0)
         fn_btn("🔴  End of Shift", "#b71c1c", "#7f0000", self._open_end_of_shift, 4, 1)
 
-        # ── Touch panel (hidden until touch mode activated) ───────────────
-        from ui.screens.pos.touch_panel import TouchPanel
-        self._touch_panel = TouchPanel()
-        self._touch_panel.item_selected.connect(self._on_touch_item)
-        self._touch_panel.exit_requested.connect(self._exit_touch_mode)
-
-        from PySide6.QtWidgets import QStackedWidget as _SW
-        self._fn_stack = _SW()
-        self._fn_stack.addWidget(fn_frame)        # index 0 — normal buttons
-        self._fn_stack.addWidget(self._touch_panel)  # index 1 — touch mode
-
-        lay.addWidget(self._fn_stack)
+        lay.addWidget(fn_frame)
 
         # ── Held invoices panel ────────────────────────────────────────────
         held_frame = QFrame()
@@ -2891,6 +2892,8 @@ class POSScreen(QWidget):
         self._grand_lbl.setText(f"{grand:,.0f}")
         usd = grand / LBP_RATE if grand else 0.0
         self._grand_usd_lbl.setText(f"≈ $ {usd:,.2f}" if grand else "")
+        if getattr(self, "_body_stack", None) and self._body_stack.currentIndex() == 1:
+            self._touch_overlay.refresh_cart()
 
     def _grand_total(self) -> float:
         subtotal = sum(l["qty"] * l["price"] * (1 - l["disc"] / 100) for l in self._lines)
@@ -3568,9 +3571,10 @@ class POSScreen(QWidget):
     # ── Touch Mode ─────────────────────────────────────────────────────────────
 
     def _toggle_touch_mode(self):
-        if self._fn_stack.currentIndex() == 0:
-            self._touch_panel.refresh()
-            self._fn_stack.setCurrentIndex(1)
+        if self._body_stack.currentIndex() == 0:
+            self._touch_overlay.refresh_tiles()
+            self._touch_overlay.refresh_cart()
+            self._body_stack.setCurrentIndex(1)
             self._touch_mode_btn.setStyleSheet(
                 "QPushButton{background:#ff6f00;color:#fff;font-size:12px;font-weight:700;"
                 "border:none;border-radius:5px;}"
@@ -3581,7 +3585,7 @@ class POSScreen(QWidget):
             self._exit_touch_mode()
 
     def _exit_touch_mode(self):
-        self._fn_stack.setCurrentIndex(0)
+        self._body_stack.setCurrentIndex(0)
         self._touch_mode_btn.setStyleSheet(
             "QPushButton{background:#00838f;color:#fff;font-size:12px;font-weight:700;"
             "border:none;border-radius:5px;}"
@@ -3609,6 +3613,24 @@ class POSScreen(QWidget):
             price_type = "retail",
         )
         self._add_item(line)
+
+    def touch_qty_delta(self, idx: int, delta: int):
+        """Called by TouchOverlay +/− buttons to adjust quantity in touch mode."""
+        if idx < 0 or idx >= len(self._lines):
+            return
+        new_qty = self._lines[idx]["qty"] + delta
+        if new_qty <= 0:
+            self._lines.pop(idx)
+        else:
+            self._lines[idx]["qty"] = new_qty
+        self._refresh_table()
+
+    def touch_remove_line(self, idx: int):
+        """Called by TouchOverlay × button to remove a line in touch mode."""
+        if idx < 0 or idx >= len(self._lines):
+            return
+        self._lines.pop(idx)
+        self._refresh_table()
 
     # ── Customer ───────────────────────────────────────────────────────────────
 

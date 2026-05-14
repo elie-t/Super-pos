@@ -23,9 +23,6 @@ _TILE_COLORS = [
     "#a04000", "#1a5276", "#196f3d", "#515a5a", "#922b21",
 ]
 
-COLS = 3   # tiles per row
-
-
 def _tile_btn(label: str, sub: str, color: str, size: int = 80) -> QPushButton:
     """Create a coloured square tile button."""
     b = QPushButton()
@@ -57,8 +54,10 @@ class TouchPanel(QWidget):
     item_selected  = Signal(dict)   # {item_id, code, name, price, currency}
     exit_requested = Signal()       # back pressed from category page
 
-    def __init__(self, parent=None):
+    def __init__(self, cols: int = 3, tile_size: int = 80, parent=None):
         super().__init__(parent)
+        self._cols      = cols
+        self._tile_size = tile_size
         self._build_ui()
 
     def _build_ui(self):
@@ -137,16 +136,16 @@ class TouchPanel(QWidget):
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setWordWrap(True)
             lbl.setStyleSheet("color:#888;font-size:11px;padding:20px;")
-            self._grid_lay.addWidget(lbl, 0, 0, 1, COLS)
+            self._grid_lay.addWidget(lbl, 0, 0, 1, self._cols)
             return
 
         for idx, cat in enumerate(cats):
             color = _TILE_COLORS[idx % len(_TILE_COLORS)]
-            btn   = _tile_btn(cat["name"], "", color)
+            btn   = _tile_btn(cat["name"], "", color, self._tile_size)
             btn.clicked.connect(
                 lambda _checked=False, c=cat: self._open_category(c["id"], c["name"])
             )
-            row, col = divmod(idx, COLS)
+            row, col = divmod(idx, self._cols)
             self._grid_lay.addWidget(btn, row, col)
 
     def _open_category(self, cat_id: str, cat_name: str):
@@ -161,7 +160,7 @@ class TouchPanel(QWidget):
             lbl = QLabel("No active items in this category.")
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setStyleSheet("color:#888;font-size:11px;padding:20px;")
-            self._grid_lay.addWidget(lbl, 0, 0, 1, COLS)
+            self._grid_lay.addWidget(lbl, 0, 0, 1, self._cols)
             return
 
         for idx, it in enumerate(items):
@@ -170,11 +169,11 @@ class TouchPanel(QWidget):
             else:
                 price_str = f"$ {it['price']:,.2f}"
             color = _TILE_COLORS[idx % len(_TILE_COLORS)]
-            btn   = _tile_btn(it["name"], price_str, color)
+            btn   = _tile_btn(it["name"], price_str, color, self._tile_size)
             btn.clicked.connect(
                 lambda _checked=False, i=it: self.item_selected.emit(i)
             )
-            row, col = divmod(idx, COLS)
+            row, col = divmod(idx, self._cols)
             self._grid_lay.addWidget(btn, row, col)
 
     def _on_back(self):
