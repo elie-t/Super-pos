@@ -330,6 +330,7 @@ class SalesInvoiceScreen(QWidget):
         self._cur_combo = QComboBox()
         self._cur_combo.setFixedHeight(30)
         self._cur_combo.addItems(["LBP", "USD"])
+        self._cur_combo.currentIndexChanged.connect(self._on_currency_changed)
         lay.addWidget(self._cur_combo)
 
         # Payment
@@ -401,7 +402,7 @@ class SalesInvoiceScreen(QWidget):
         lay.addWidget(price_lbl)
         self._price_spin = QDoubleSpinBox()
         self._price_spin.setRange(0, 999_999_999)
-        self._price_spin.setDecimals(2)
+        self._price_spin.setDecimals(0)
         self._price_spin.setFixedHeight(32)
         self._price_spin.setFixedWidth(110)
         self._price_spin.installEventFilter(self)
@@ -427,7 +428,7 @@ class SalesInvoiceScreen(QWidget):
         lay.addWidget(tot_lbl)
         self._total_spin = QDoubleSpinBox()
         self._total_spin.setRange(0, 999_999_999)
-        self._total_spin.setDecimals(2)
+        self._total_spin.setDecimals(0)
         self._total_spin.setFixedHeight(32)
         self._total_spin.setFixedWidth(120)
         self._total_spin.setStyleSheet("font-weight:700;font-size:13px;")
@@ -557,8 +558,8 @@ class SalesInvoiceScreen(QWidget):
             f"color:{stock_color};font-size:12px;min-width:90px;"
         )
         self._info_stock_lbl.setText(f"Stock: {item.stock_units:,.0f}")
-        self._info_price_lbl.setText(f"Price: {item.price:,.2f}")
-        self._info_cost_lbl.setText(f"Cost: {item.cost:,.2f}")
+        self._info_price_lbl.setText(f"Price: {self._fmt_money(item.price)}")
+        self._info_cost_lbl.setText(f"Cost: {self._fmt_money(item.cost)}")
 
     def _clear_info_bar(self):
         for lbl in (self._info_name_lbl, self._info_sub_lbl,
@@ -731,6 +732,18 @@ class SalesInvoiceScreen(QWidget):
         self._item_desc_label.setText("")
         self._clear_info_bar()
         self._current_item = None
+
+    def _is_lbp(self) -> bool:
+        return self._cur_combo.currentText() == "LBP"
+
+    def _fmt_money(self, val: float) -> str:
+        return f"{val:,.0f}" if self._is_lbp() else f"{val:,.2f}"
+
+    def _on_currency_changed(self):
+        decimals = 0 if self._is_lbp() else 2
+        self._price_spin.setDecimals(decimals)
+        self._total_spin.setDecimals(decimals)
+        self._refresh_table()
 
     # ── Customer search ────────────────────────────────────────────────────────
 
@@ -948,9 +961,9 @@ class SalesInvoiceScreen(QWidget):
                 (ln["barcode"],             Qt.AlignCenter),
                 (ln["desc"],                Qt.AlignLeft | Qt.AlignVCenter),
                 (f"{ln['qty']:,.3f}",       Qt.AlignCenter),
-                (f"{ln['price']:,.2f}",     Qt.AlignRight | Qt.AlignVCenter),
-                (f"{ln['disc']:,.1f}%",     Qt.AlignCenter),
-                (f"{ln['total']:,.2f}",     Qt.AlignRight | Qt.AlignVCenter),
+                (self._fmt_money(ln['price']), Qt.AlignRight | Qt.AlignVCenter),
+                (f"{ln['disc']:,.1f}%",      Qt.AlignCenter),
+                (self._fmt_money(ln['total']), Qt.AlignRight | Qt.AlignVCenter),
             ]):
                 cell = QTableWidgetItem(txt)
                 cell.setTextAlignment(align)
