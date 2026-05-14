@@ -74,6 +74,13 @@ def is_configured() -> bool:
     return bool(SUPABASE_URL and SUPABASE_KEY)
 
 
+def _remote_photo(url: str | None) -> str:
+    """Return url only when it's an HTTP(S) URL; local file paths must not be synced."""
+    if url and url.startswith("http"):
+        return url
+    return ""
+
+
 # ── Push helpers ──────────────────────────────────────────────────────────────
 
 def upsert_rows(table: str, rows: list[dict]) -> tuple[bool, str]:
@@ -178,7 +185,7 @@ def push_item(item_id: str) -> tuple[bool, str]:
             "stock":       total_stock,
             "unit":        item.unit,
             "is_featured": item.is_featured,
-            "photo_url":   item.photo_url or "",
+            "photo_url":   _remote_photo(item.photo_url),
             "is_active":   True,
             "updated_at":  datetime.now(timezone.utc).isoformat(),
         }
@@ -455,7 +462,7 @@ def push_item_master(item_id: str) -> tuple[bool, str]:
             "vat_rate": item.vat_rate, "is_active": item.is_active,
             "is_online": item.is_online, "is_pos_featured": item.is_pos_featured,
             "show_on_touch": item.show_on_touch,
-            "photo_url": item.photo_url or "", "notes": item.notes or "",
+            "photo_url": _remote_photo(item.photo_url), "notes": item.notes or "",
             "updated_at": now, "pushed_by": BRANCH_ID,
         }
         ok, err = upsert_rows("items_central", [item_row])
@@ -1042,7 +1049,7 @@ def pull_master_items(on_progress=None) -> tuple[int, str]:
                     item.is_online       = ri.get("is_online", False)
                     item.is_pos_featured = ri.get("is_pos_featured", False)
                     item.show_on_touch   = ri.get("show_on_touch", False)
-                    item.photo_url       = ri.get("photo_url") or ""
+                    item.photo_url       = _remote_photo(ri.get("photo_url") or "")
                     item.notes           = ri.get("notes") or ""
 
                     cat_name   = ri.get("category") or ""
@@ -2540,7 +2547,7 @@ def push_categories() -> tuple[bool, str]:
             if name not in seen_names or getattr(c, "show_on_home", False):
                 seen_names[name] = {
                     "name":         name,
-                    "image_url":    c.photo_url or None,
+                    "image_url":    _remote_photo(c.photo_url) or None,
                     "show_on_home": bool(getattr(c, "show_on_home", False)),
                     "is_active":    bool(getattr(c, "is_active", True)),
                     "updated_at":   now,

@@ -62,7 +62,8 @@ def generate_master_snapshot() -> tuple[bool, str]:
             dict(id=c.id, name=c.name, parent_id=c.parent_id,
                  sort_order=c.sort_order, is_active=c.is_active,
                  show_in_daily=c.show_in_daily, show_on_touch=c.show_on_touch,
-                 show_on_home=c.show_on_home, photo_url=c.photo_url,
+                 show_on_home=c.show_on_home,
+                 photo_url=c.photo_url if c.photo_url and c.photo_url.startswith("http") else None,
                  updated_at=c.updated_at.isoformat() if c.updated_at else "")
             for c in session.query(Category).all()
         ]
@@ -75,7 +76,8 @@ def generate_master_snapshot() -> tuple[bool, str]:
                  min_stock=float(i.min_stock or 0), is_active=i.is_active,
                  is_pos_featured=i.is_pos_featured, is_online=i.is_online,
                  is_visible=i.is_visible, is_featured=i.is_featured,
-                 show_on_touch=i.show_on_touch, photo_url=i.photo_url,
+                 show_on_touch=i.show_on_touch,
+                 photo_url=i.photo_url if i.photo_url and i.photo_url.startswith("http") else None,
                  notes=i.notes,
                  updated_at=i.updated_at.isoformat() if i.updated_at else "")
             for i in session.query(Item).all()
