@@ -762,7 +762,7 @@ class PosService:
         finally:
             session.close()
 
-    # ── Customer search ───────────────────────────────────────────────────────
+    # ── Customer queries ──────────────────────────────────────────────────────
 
     @staticmethod
     def search_customers(query: str, limit: int = 20) -> list[dict]:
@@ -785,5 +785,37 @@ class PosService:
                      "phone2": getattr(r, "phone2", "") or "",
                      "balance": r.balance, "currency": r.currency}
                     for r in rows]
+        finally:
+            session.close()
+
+    @staticmethod
+    def get_customer_orders(customer_id: str, limit: int = 5) -> list[dict]:
+        init_db()
+        session = get_session()
+        try:
+            from database.models.invoices import SalesInvoice
+            rows = (
+                session.query(SalesInvoice)
+                .filter(
+                    SalesInvoice.customer_id == customer_id,
+                    SalesInvoice.invoice_type == "sale",
+                )
+                .order_by(
+                    SalesInvoice.invoice_date.desc(),
+                    SalesInvoice.sale_time.desc(),
+                )
+                .limit(limit)
+                .all()
+            )
+            return [
+                {
+                    "invoice_number": r.invoice_number,
+                    "date": r.invoice_date,
+                    "total": r.total,
+                    "currency": r.currency,
+                    "payment_status": r.payment_status,
+                }
+                for r in rows
+            ]
         finally:
             session.close()

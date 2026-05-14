@@ -3787,24 +3787,106 @@ class POSScreen(QWidget):
 
     def _change_customer(self):
         from PySide6.QtWidgets import (
-            QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
-            QLineEdit, QTableWidget, QTableWidgetItem,
+            QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
+            QLineEdit, QTableWidget, QTableWidgetItem, QTextEdit,
             QDialogButtonBox, QPushButton, QLabel, QHeaderView,
+            QFrame, QWidget,
         )
         from PySide6.QtCore import Qt, QTimer
+        from PySide6.QtGui import QColor
 
+        # ── New Customer form dialog ───────────────────────────────────────
+        def _open_new_customer_form(parent_dlg):
+            form_dlg = QDialog(parent_dlg)
+            form_dlg.setWindowTitle("New Customer")
+            form_dlg.setFixedSize(400, 370)
+            form_dlg.setStyleSheet("background:#fff;")
+
+            fl = QVBoxLayout(form_dlg)
+            fl.setContentsMargins(16, 14, 16, 14)
+            fl.setSpacing(8)
+
+            form = QFormLayout()
+            form.setSpacing(8)
+            form.setLabelAlignment(Qt.AlignRight)
+
+            f_name  = QLineEdit(); f_name.setFixedHeight(28)
+            f_name.setPlaceholderText("Required")
+            f_phone = QLineEdit(); f_phone.setFixedHeight(28)
+            f_phone2= QLineEdit(); f_phone2.setFixedHeight(28)
+            f_email = QLineEdit(); f_email.setFixedHeight(28)
+            f_addr  = QTextEdit(); f_addr.setFixedHeight(58)
+            f_notes = QTextEdit(); f_notes.setFixedHeight(48)
+
+            form.addRow("Name *",  f_name)
+            form.addRow("Phone",   f_phone)
+            form.addRow("Phone 2", f_phone2)
+            form.addRow("Email",   f_email)
+            form.addRow("Address", f_addr)
+            form.addRow("Notes",   f_notes)
+            fl.addLayout(form)
+
+            err_lbl = QLabel("")
+            err_lbl.setStyleSheet("color:#c62828;font-size:11px;")
+            fl.addWidget(err_lbl)
+
+            fbb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+            fbb.rejected.connect(form_dlg.reject)
+            fl.addWidget(fbb)
+
+            def _save():
+                nm = f_name.text().strip()
+                if not nm:
+                    err_lbl.setText("Name is required.")
+                    return
+                try:
+                    from database.engine import get_session, init_db
+                    from database.models.parties import Customer as _Cust
+                    from database.models.base import new_uuid
+                    init_db()
+                    s = get_session()
+                    nc = _Cust(
+                        id=new_uuid(), name=nm,
+                        phone=f_phone.text().strip() or None,
+                        phone2=f_phone2.text().strip() or None,
+                        email=f_email.text().strip() or None,
+                        address=f_addr.toPlainText().strip() or None,
+                        notes=f_notes.toPlainText().strip() or None,
+                        is_active=True,
+                    )
+                    s.add(nc); s.commit()
+                    self._customer_id   = nc.id
+                    self._customer_name = nc.name
+                    self._cust_name_lbl.setText(nc.name)
+                    s.close()
+                    form_dlg.accept()
+                    parent_dlg.accept()
+                except Exception as exc:
+                    err_lbl.setText(str(exc))
+
+            fbb.accepted.connect(_save)
+            f_name.setFocus()
+            form_dlg.exec()
+
+        # ── Main search dialog ─────────────────────────────────────────────
         dlg = QDialog(self)
         dlg.setWindowTitle("Customers")
-        dlg.setMinimumSize(520, 420)
+        dlg.setMinimumSize(800, 480)
         dlg.setStyleSheet("background:#fff;")
 
-        vl = QVBoxLayout(dlg)
-        vl.setContentsMargins(14, 14, 14, 14)
-        vl.setSpacing(10)
+        root = QHBoxLayout(dlg)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # ── Search fields ─────────────────────────────────────────────────
-        grid = QGridLayout()
-        grid.setSpacing(6)
+        # Left: search + table
+        left_w = QWidget()
+        left_w.setStyleSheet("background:#fff;")
+        left_l = QVBoxLayout(left_w)
+        left_l.setContentsMargins(14, 14, 14, 10)
+        left_l.setSpacing(8)
+
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
         name_lbl = QLabel("Name:")
         name_lbl.setStyleSheet("font-size:12px;font-weight:600;")
         name_edit = QLineEdit()
@@ -3815,36 +3897,82 @@ class POSScreen(QWidget):
         phone_edit = QLineEdit()
         phone_edit.setPlaceholderText("Search by phone…")
         phone_edit.setFixedHeight(30)
-        grid.addWidget(name_lbl,  0, 0)
-        grid.addWidget(name_edit, 0, 1)
-        grid.addWidget(phone_lbl,  0, 2)
-        grid.addWidget(phone_edit, 0, 3)
-        vl.addLayout(grid)
+        search_row.addWidget(name_lbl)
+        search_row.addWidget(name_edit, 2)
+        search_row.addWidget(phone_lbl)
+        search_row.addWidget(phone_edit, 1)
+        left_l.addLayout(search_row)
 
-        # ── Results table ─────────────────────────────────────────────────
-        tbl = QTableWidget(0, 4)
-        tbl.setHorizontalHeaderLabels(["Name", "Phone", "Phone 2", "Balance"])
-        tbl.horizontalHeader().setStretchLastSection(False)
+        tbl = QTableWidget(0, 3)
+        tbl.setHorizontalHeaderLabels(["Name", "Phone", "Balance"])
         tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         tbl.setSelectionBehavior(QTableWidget.SelectRows)
         tbl.setEditTriggers(QTableWidget.NoEditTriggers)
         tbl.setAlternatingRowColors(True)
         tbl.setStyleSheet("font-size:12px;")
         tbl.verticalHeader().setVisible(False)
-        vl.addWidget(tbl, 1)
+        left_l.addWidget(tbl, 1)
 
-        # ── Buttons ───────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        new_btn = QPushButton("+  New Customer")
+        new_btn = QPushButton("+ New Customer")
         new_btn.setObjectName("primaryBtn")
         new_btn.setFixedHeight(30)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btn_row.addWidget(new_btn)
         btn_row.addStretch()
         btn_row.addWidget(bb)
-        vl.addLayout(btn_row)
+        left_l.addLayout(btn_row)
 
-        # ── Helpers ───────────────────────────────────────────────────────
+        root.addWidget(left_w, 3)
+
+        # Divider
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setStyleSheet("color:#e0e0e0;")
+        root.addWidget(sep)
+
+        # Right: customer briefing
+        right_w = QWidget()
+        right_w.setStyleSheet("background:#f5f7fa;")
+        right_w.setFixedWidth(240)
+        right_l = QVBoxLayout(right_w)
+        right_l.setContentsMargins(12, 14, 12, 10)
+        right_l.setSpacing(4)
+
+        brief_name = QLabel("Select a customer")
+        brief_name.setStyleSheet("font-size:14px;font-weight:700;color:#1a3a5c;")
+        brief_name.setWordWrap(True)
+        brief_phone = QLabel("")
+        brief_phone.setStyleSheet("font-size:11px;color:#546e7a;")
+        brief_bal = QLabel("")
+        brief_bal.setStyleSheet("font-size:12px;font-weight:700;color:#546e7a;")
+        brief_bal.setWordWrap(True)
+        orders_hdr = QLabel("Last Orders")
+        orders_hdr.setStyleSheet("font-size:11px;font-weight:700;color:#90a4ae;margin-top:8px;")
+
+        orders_tbl = QTableWidget(0, 3)
+        orders_tbl.setHorizontalHeaderLabels(["Date", "Inv#", "Total"])
+        orders_tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        orders_tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        orders_tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        orders_tbl.setEditTriggers(QTableWidget.NoEditTriggers)
+        orders_tbl.setSelectionMode(QTableWidget.NoSelection)
+        orders_tbl.setStyleSheet("font-size:11px;")
+        orders_tbl.verticalHeader().setVisible(False)
+        orders_tbl.setAlternatingRowColors(True)
+
+        right_l.addWidget(brief_name)
+        right_l.addWidget(brief_phone)
+        right_l.addWidget(brief_bal)
+        right_l.addWidget(orders_hdr)
+        right_l.addWidget(orders_tbl, 1)
+        right_l.addStretch()
+
+        root.addWidget(right_w)
+
+        # ── Logic ─────────────────────────────────────────────────────────
         _timer = QTimer(dlg)
         _timer.setSingleShot(True)
         _timer.setInterval(250)
@@ -3855,25 +3983,55 @@ class POSScreen(QWidget):
                 row = tbl.rowCount()
                 tbl.insertRow(row)
                 bal = f"{r['balance']:,.0f} {r['currency']}" if r.get("balance") else "—"
-                for col, val in enumerate([r["name"], r["phone"], r.get("phone2",""), bal]):
+                for col, val in enumerate([r["name"], r["phone"], bal]):
                     it = QTableWidgetItem(val or "")
                     it.setData(Qt.UserRole, r)
                     tbl.setItem(row, col, it)
 
         def _search():
-            q = (name_edit.text().strip() or phone_edit.text().strip())
-            if not q:
-                tbl.setRowCount(0)
-                return
-            results = PosService.search_customers(q)
-            _populate(results)
+            q = name_edit.text().strip() or phone_edit.text().strip()
+            _populate(PosService.search_customers(q))
 
-        def _on_text_changed():
-            _timer.start()
+        def _update_briefing(row):
+            if row < 0 or not tbl.item(row, 0):
+                return
+            c = tbl.item(row, 0).data(Qt.UserRole)
+            brief_name.setText(c["name"])
+            phones = "  |  ".join(filter(None, [c.get("phone",""), c.get("phone2","")]))
+            brief_phone.setText(phones or "No phone on file")
+            bal = float(c.get("balance") or 0)
+            cur = c.get("currency", "USD")
+            if bal > 0:
+                brief_bal.setStyleSheet("font-size:12px;font-weight:700;color:#c62828;")
+                brief_bal.setText(f"Owes: {bal:,.0f} {cur}")
+            elif bal < 0:
+                brief_bal.setStyleSheet("font-size:12px;font-weight:700;color:#2e7d32;")
+                brief_bal.setText(f"Credit: {abs(bal):,.0f} {cur}")
+            else:
+                brief_bal.setStyleSheet("font-size:12px;font-weight:700;color:#546e7a;")
+                brief_bal.setText("Balance: clear")
+            orders = PosService.get_customer_orders(c["id"])
+            orders_tbl.setRowCount(0)
+            if orders:
+                for o in orders:
+                    r2 = orders_tbl.rowCount()
+                    orders_tbl.insertRow(r2)
+                    date_short = o["date"][5:] if len(o["date"]) >= 7 else o["date"]
+                    paid_mark = " v" if o["payment_status"] == "paid" else ""
+                    orders_tbl.setItem(r2, 0, QTableWidgetItem(date_short))
+                    orders_tbl.setItem(r2, 1, QTableWidgetItem(o["invoice_number"] + paid_mark))
+                    orders_tbl.setItem(r2, 2, QTableWidgetItem(f"{o['total']:,.2f}"))
+            else:
+                orders_tbl.insertRow(0)
+                it = QTableWidgetItem("No orders yet")
+                it.setForeground(QColor("#bbb"))
+                orders_tbl.setItem(0, 0, it)
+                orders_tbl.setSpan(0, 0, 1, 3)
 
         _timer.timeout.connect(_search)
-        name_edit.textChanged.connect(_on_text_changed)
-        phone_edit.textChanged.connect(_on_text_changed)
+        name_edit.textChanged.connect(lambda: _timer.start())
+        phone_edit.textChanged.connect(lambda: _timer.start())
+        tbl.currentCellChanged.connect(lambda row, *_: _update_briefing(row))
 
         def _accept_row():
             row = tbl.currentRow()
@@ -3888,35 +4046,8 @@ class POSScreen(QWidget):
         tbl.itemDoubleClicked.connect(lambda _: _accept_row())
         bb.accepted.connect(_accept_row)
         bb.rejected.connect(dlg.reject)
+        new_btn.clicked.connect(lambda: _open_new_customer_form(dlg))
 
-        def _new_customer():
-            from PySide6.QtWidgets import QInputDialog
-            cname, ok = QInputDialog.getText(dlg, "New Customer", "Customer name:")
-            if not ok or not cname.strip():
-                return
-            cphone, ok2 = QInputDialog.getText(dlg, "New Customer", "Phone (optional):")
-            try:
-                from database.engine import get_session, init_db
-                from database.models.parties import Customer as _Cust
-                from database.models.base import new_uuid
-                init_db()
-                s = get_session()
-                nc = _Cust(id=new_uuid(), name=cname.strip(),
-                           phone=cphone.strip() if ok2 else "",
-                           is_active=True)
-                s.add(nc)
-                s.commit()
-                self._customer_id   = nc.id
-                self._customer_name = nc.name
-                self._cust_name_lbl.setText(nc.name)
-                s.close()
-                dlg.accept()
-            except Exception as exc:
-                QMessageBox.warning(dlg, "Error", str(exc))
-
-        new_btn.clicked.connect(_new_customer)
-
-        # Pre-populate with recent customers on open
         _populate(PosService.search_customers(""))
         name_edit.setFocus()
         dlg.exec()
