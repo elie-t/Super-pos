@@ -25,15 +25,31 @@ class _NumpadEnterFilter(QObject):
 
 
 class _VirtualKBSuppressor(QObject):
-    """Hide the Windows touch keyboard when focus moves to a non-text widget."""
+    """
+    Block the Windows touch keyboard from opening on non-text widgets.
+
+    Intercepts RequestSoftwareInputPanel (the event that triggers the VKB)
+    and consumes it for anything that isn't a real text input.
+    Also hides the input method on FocusIn as a secondary guard.
+    """
     _TEXT_TYPES = None
 
+    @staticmethod
+    def _text_types():
+        if _VirtualKBSuppressor._TEXT_TYPES is None:
+            from PySide6.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit
+            _VirtualKBSuppressor._TEXT_TYPES = (QLineEdit, QTextEdit, QPlainTextEdit)
+        return _VirtualKBSuppressor._TEXT_TYPES
+
     def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.FocusIn:
-            if _VirtualKBSuppressor._TEXT_TYPES is None:
-                from PySide6.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit
-                _VirtualKBSuppressor._TEXT_TYPES = (QLineEdit, QTextEdit, QPlainTextEdit)
-            if not isinstance(obj, _VirtualKBSuppressor._TEXT_TYPES):
+        et = event.type()
+        # Block virtual keyboard request for non-text widgets
+        if et == QEvent.Type.RequestSoftwareInputPanel:
+            if not isinstance(obj, self._text_types()):
+                return True  # consume — keyboard must not open
+        # Also hide on focus change as belt-and-suspenders
+        if et == QEvent.Type.FocusIn:
+            if not isinstance(obj, self._text_types()):
                 from PySide6.QtGui import QGuiApplication
                 QGuiApplication.inputMethod().hide()
         return False
