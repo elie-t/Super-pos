@@ -98,25 +98,28 @@ class TouchPanel(QWidget):
 
         # ── Top bar ──────────────────────────────────────────────────────────
         self._top_bar = QFrame()
-        self._top_bar.setFixedHeight(36)
+        self._top_bar.setFixedHeight(56)
         self._top_bar.setStyleSheet("background:#1a3a5c;")
         tb_lay = QHBoxLayout(self._top_bar)
-        tb_lay.setContentsMargins(6, 0, 6, 0)
-        tb_lay.setSpacing(6)
+        tb_lay.setContentsMargins(8, 6, 8, 6)
+        tb_lay.setSpacing(8)
 
-        self._back_btn = QPushButton("← Back")
-        self._back_btn.setFixedHeight(26)
+        self._back_btn = QPushButton("← Categories")
+        self._back_btn.setFixedHeight(44)
+        self._back_btn.setMinimumWidth(200)
         self._back_btn.setStyleSheet(
-            "QPushButton{background:#455a64;color:#fff;border:none;"
-            "border-radius:4px;font-size:11px;font-weight:700;padding:0 10px;}"
-            "QPushButton:hover{background:#607d8b;}"
+            "QPushButton{background:#37474f;color:#fff;border:none;"
+            "border-radius:8px;font-size:15px;font-weight:700;padding:0 20px;}"
+            "QPushButton:hover{background:#546e7a;}"
+            "QPushButton:pressed{background:#263238;}"
         )
         self._back_btn.setCursor(Qt.PointingHandCursor)
         self._back_btn.clicked.connect(self._on_back)
+        self._back_btn.setVisible(False)   # hidden until inside a category
         tb_lay.addWidget(self._back_btn)
 
         self._title_lbl = QLabel("Touch Mode")
-        self._title_lbl.setStyleSheet("color:#fff;font-size:12px;font-weight:700;")
+        self._title_lbl.setStyleSheet("color:#fff;font-size:14px;font-weight:700;")
         tb_lay.addWidget(self._title_lbl)
         tb_lay.addStretch()
 
@@ -159,6 +162,7 @@ class TouchPanel(QWidget):
         from services.item_service import ItemService
         self._clear_grid()
         self._mode = "categories"
+        self._back_btn.setVisible(False)
         self._title_lbl.setText("Touch Mode — Select Category")
 
         cats = ItemService.get_touch_categories()
@@ -184,6 +188,7 @@ class TouchPanel(QWidget):
         self._clear_grid()
         self._mode = "items"
         self._current_cat_id = cat_id
+        self._back_btn.setVisible(True)
         self._title_lbl.setText(cat_name)
 
         items = ItemService.get_touch_items(cat_id)

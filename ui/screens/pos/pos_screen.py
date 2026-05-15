@@ -1580,7 +1580,8 @@ class POSScreen(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        root.addWidget(self._make_top_bar())
+        self._top_bar = self._make_top_bar()
+        root.addWidget(self._top_bar)
 
         # Body stack: index 0 = normal split view, index 1 = full-screen touch overlay
         self._body_stack = QStackedWidget()
@@ -2972,6 +2973,7 @@ class POSScreen(QWidget):
             change = max(0.0, dlg.tendered - total) if dlg.method == "cash" else 0.0
             change_txt = f"  Change ل.ل {change:,.0f}" if change > 0 else ""
             self._last_inv_amt_lbl.setText(f"ل.ل {total:,.0f}{change_txt}")
+            self._touch_overlay.set_last_invoice(f"ل.ل {total:,.0f}{change_txt}")
             self._active_online_order_id = ""
             if self._print_copies == 1:   # ON only — ×2 is manual via F9
                 self._print_receipt(result, dlg.method, dlg.tendered)
@@ -3582,7 +3584,9 @@ class POSScreen(QWidget):
         if self._body_stack.currentIndex() == 0:
             self._touch_overlay.refresh_tiles()
             self._touch_overlay.refresh_cart()
+            self._touch_overlay.set_last_invoice(self._last_inv_amt_lbl.text())
             self._body_stack.setCurrentIndex(1)
+            self._top_bar.setVisible(False)
             self._touch_mode_btn.setStyleSheet(
                 "QPushButton{background:#ff6f00;color:#fff;font-size:12px;font-weight:700;"
                 "border:none;border-radius:5px;}"
@@ -3593,6 +3597,7 @@ class POSScreen(QWidget):
             self._exit_touch_mode()
 
     def _exit_touch_mode(self):
+        self._top_bar.setVisible(True)
         self._body_stack.setCurrentIndex(0)
         self._touch_mode_btn.setStyleSheet(
             "QPushButton{background:#00838f;color:#fff;font-size:12px;font-weight:700;"

@@ -87,6 +87,22 @@ class TouchOverlay(QWidget):
         hl.addWidget(exit_btn)
         lay.addWidget(hdr)
 
+        # ── Last invoice strip ────────────────────────────────────────────────
+        last_row = QFrame()
+        last_row.setFixedHeight(24)
+        last_row.setStyleSheet("background:#0d1117;border-bottom:1px solid #1a3a5c;")
+        lr_lay = QHBoxLayout(last_row)
+        lr_lay.setContentsMargins(14, 0, 14, 0)
+        lr_lay.setSpacing(6)
+        last_lbl = QLabel("Last Invoice:")
+        last_lbl.setStyleSheet("color:#607d8b;font-size:10px;")
+        lr_lay.addWidget(last_lbl)
+        self._last_inv_lbl = QLabel("—")
+        self._last_inv_lbl.setStyleSheet("color:#80cbc4;font-size:10px;font-weight:700;")
+        lr_lay.addWidget(self._last_inv_lbl)
+        lr_lay.addStretch()
+        lay.addWidget(last_row)
+
         # ── Line count pill ───────────────────────────────────────────────────
         self._count_lbl = QLabel("No items")
         self._count_lbl.setAlignment(Qt.AlignCenter)
@@ -219,6 +235,9 @@ class TouchOverlay(QWidget):
             self._usd_lbl.setText(f"≈ $ {usd:,.2f}" if grand else "")
         except Exception:
             self._usd_lbl.setText("")
+
+    def set_last_invoice(self, text: str):
+        self._last_inv_lbl.setText(text if text and text != "—" else "—")
 
     def _scroll_to_bottom(self):
         sb = self._scroll.verticalScrollBar()
