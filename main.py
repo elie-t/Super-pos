@@ -24,6 +24,21 @@ class _NumpadEnterFilter(QObject):
         return False
 
 
+class _VirtualKBSuppressor(QObject):
+    """Hide the Windows touch keyboard when focus moves to a non-text widget."""
+    _TEXT_TYPES = None
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.FocusIn:
+            if _VirtualKBSuppressor._TEXT_TYPES is None:
+                from PySide6.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit
+                _VirtualKBSuppressor._TEXT_TYPES = (QLineEdit, QTextEdit, QPlainTextEdit)
+            if not isinstance(obj, _VirtualKBSuppressor._TEXT_TYPES):
+                from PySide6.QtGui import QGuiApplication
+                QGuiApplication.inputMethod().hide()
+        return False
+
+
 def main():
     init_db()
 
@@ -33,6 +48,8 @@ def main():
     app = QApplication(sys.argv)
     _enter_filter = _NumpadEnterFilter(app)
     app.installEventFilter(_enter_filter)
+    _kb_suppressor = _VirtualKBSuppressor(app)
+    app.installEventFilter(_kb_suppressor)
     app.setApplicationName("TannouryMarket")
 
     window = MainWindow()
