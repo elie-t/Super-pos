@@ -1596,6 +1596,7 @@ class POSScreen(QWidget):
 
         self._touch_overlay = TouchOverlay(self)
         self._touch_overlay.exit_requested.connect(self._exit_touch_mode)
+        self._touch_overlay.invoices_requested.connect(self._open_invoices)
         self._body_stack.addWidget(self._touch_overlay)  # index 1
 
         root.addWidget(self._body_stack, 1)

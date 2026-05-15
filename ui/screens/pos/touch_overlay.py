@@ -13,7 +13,8 @@ from PySide6.QtCore import Qt, Signal, QTimer
 
 
 class TouchOverlay(QWidget):
-    exit_requested = Signal()
+    exit_requested     = Signal()
+    invoices_requested = Signal()
 
     def __init__(self, pos_screen, parent=None):
         super().__init__(parent)
@@ -63,6 +64,17 @@ class TouchOverlay(QWidget):
         self._cust_lbl.setStyleSheet("color:#f0c040;font-size:15px;font-weight:700;")
         hl.addWidget(self._cust_lbl)
         hl.addStretch()
+        inv_btn = QPushButton("🧾  Invoices")
+        inv_btn.setFixedHeight(34)
+        inv_btn.setCursor(Qt.PointingHandCursor)
+        inv_btn.setStyleSheet(
+            "QPushButton{background:#1565c0;color:#fff;border:none;"
+            "border-radius:5px;font-size:12px;font-weight:700;padding:0 14px;}"
+            "QPushButton:hover{background:#1976d2;}"
+        )
+        inv_btn.clicked.connect(self.invoices_requested)
+        hl.addWidget(inv_btn)
+
         exit_btn = QPushButton("✕  Exit Touch")
         exit_btn.setFixedHeight(34)
         exit_btn.setCursor(Qt.PointingHandCursor)
