@@ -141,7 +141,10 @@ class ChangePricesScreen(QWidget):
 
         # Which price types
         pt_grp = QGroupBox("Apply to price types")
-        pt_grp.setStyleSheet("QGroupBox{font-weight:700;font-size:12px;padding-top:8px;}")
+        pt_grp.setStyleSheet(
+            "QGroupBox{font-weight:700;font-size:12px;padding-top:8px;}"
+            "QCheckBox{font-size:12px;color:#1a1a1a;font-weight:normal;}"
+        )
         pt_l = QVBoxLayout(pt_grp)
         self._pt_checks: dict[str, QCheckBox] = {}
         for key, label in PRICE_TYPES:
@@ -163,7 +166,10 @@ class ChangePricesScreen(QWidget):
 
         # Adjust mode
         mode_grp = QGroupBox("Adjustment")
-        mode_grp.setStyleSheet("QGroupBox{font-weight:700;font-size:12px;padding-top:8px;}")
+        mode_grp.setStyleSheet(
+            "QGroupBox{font-weight:700;font-size:12px;padding-top:8px;}"
+            "QRadioButton{font-size:12px;color:#1a1a1a;font-weight:normal;}"
+        )
         mode_l = QVBoxLayout(mode_grp)
 
         self._mode_bg = QButtonGroup(w)
@@ -241,7 +247,10 @@ class ChangePricesScreen(QWidget):
 
         # Base price
         base_grp = QGroupBox("Base (source)")
-        base_grp.setStyleSheet("QGroupBox{font-weight:700;font-size:12px;padding-top:8px;}")
+        base_grp.setStyleSheet(
+            "QGroupBox{font-weight:700;font-size:12px;padding-top:8px;}"
+            "QRadioButton{font-size:12px;color:#1a1a1a;font-weight:normal;}"
+        )
         base_l = QVBoxLayout(base_grp)
         self._base_bg = QButtonGroup(w)
         self._base_cost = QRadioButton("Cost price")
@@ -255,7 +264,11 @@ class ChangePricesScreen(QWidget):
 
         # Per price type margin
         margins_grp = QGroupBox("Target price = Base × (1 + margin %)")
-        margins_grp.setStyleSheet("QGroupBox{font-weight:700;font-size:12px;padding-top:8px;}")
+        margins_grp.setStyleSheet(
+            "QGroupBox{font-weight:700;font-size:12px;padding-top:8px;}"
+            "QCheckBox{font-size:12px;color:#1a1a1a;font-weight:normal;}"
+            "QLabel{color:#1a1a1a;font-weight:normal;}"
+        )
         mg_l = QVBoxLayout(margins_grp)
         self._margin_spins: dict[str, QDoubleSpinBox] = {}
         self._margin_checks: dict[str, QCheckBox] = {}
