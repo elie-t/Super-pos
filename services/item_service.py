@@ -505,10 +505,10 @@ class ItemService:
                 session.query(Warehouse).filter(Warehouse.id != wh.id).update({"is_default": False})
             wh.is_default = is_default
             session.commit()
-            return True, ""
+            return True, "", wh.id
         except Exception as exc:
             session.rollback()
-            return False, str(exc)
+            return False, str(exc), ""
         finally:
             session.close()
 

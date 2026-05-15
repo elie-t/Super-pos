@@ -117,15 +117,16 @@ class WarehouseTableScreen(QWidget):
             self._status_lbl.setStyleSheet("color: #c62828;")
             self._status_lbl.setText("Name is required."); return
         num = self._num_spin.value() if self._num_spin.value() >= 0 else None  # -1 = "—" = no number
-        ok, err = ItemService.save_warehouse(
+        ok, err, saved_id = ItemService.save_warehouse(
             self._selected_id, name, self._loc_edit.text().strip(),
             self._default_chk.isChecked(),
             number=num,
             default_customer_id=self._cust_combo.currentData() or None,
         )
         if ok:
+            self._selected_id = saved_id  # keep ID so re-saving updates, not inserts
             self._status_lbl.setStyleSheet("color: #2e7d32;")
-            self._status_lbl.setText("✔  Saved."); self._load(); self._selected_id = ""
+            self._status_lbl.setText("✔  Saved."); self._load()
         else:
             self._status_lbl.setStyleSheet("color: #c62828;")
             self._status_lbl.setText(f"Error: {err}")
