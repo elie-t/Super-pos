@@ -631,6 +631,7 @@ class ItemMaintenanceScreen(QWidget):
         self._brut_cost.setValue(0)
         self._discount_spin.setValue(0)
         self._vat_spin.setValue(0.0)
+        self._item_unit_combo.setCurrentText("PCS")
         self._price_table.setRowCount(0)
         self._date_created_lbl.setText("Created: —")
         self._date_modified_lbl.setText("Modified: —")
@@ -765,16 +766,26 @@ class ItemMaintenanceScreen(QWidget):
         self._cost_currency.setFixedHeight(20)
         self._cost_currency.setStyleSheet("font-size:10px;")
 
-        for c, txt in enumerate(["Brut Cost:", "Discount:", "Net Cost:", "Avg Cost:", "VAT%:", "Currency:"]):
+        self._item_unit_combo = QComboBox()
+        self._item_unit_combo.addItems(["PCS", "kg", "g", "mg", "L", "ml", "tsp", "tbsp", "cup"])
+        self._item_unit_combo.setFixedHeight(20)
+        self._item_unit_combo.setStyleSheet("font-size:10px;")
+        self._item_unit_combo.setToolTip(
+            "Stock / recipe unit — sets what the cost price is 'per'.\n"
+            "e.g. kg → cost is per kg, so 200 g in a recipe costs 0.2 × cost.")
+
+        for c, txt in enumerate(["Brut Cost:", "Discount:", "Net Cost:", "Avg Cost:",
+                                  "VAT%:", "Currency:", "Unit:"]):
             ql = QLabel(txt); ql.setStyleSheet("font-size:10px;")
             cost_form.addWidget(ql, c // 2, (c % 2) * 2)
 
-        cost_form.addWidget(self._brut_cost,      0, 1)
-        cost_form.addWidget(self._discount_spin,  0, 3)
-        cost_form.addWidget(self._net_cost_lbl,   1, 1)
-        cost_form.addWidget(self._avg_cost_lbl,   1, 3)
-        cost_form.addWidget(self._vat_spin,       2, 1)
-        cost_form.addWidget(self._cost_currency,  2, 3)
+        cost_form.addWidget(self._brut_cost,        0, 1)
+        cost_form.addWidget(self._discount_spin,    0, 3)
+        cost_form.addWidget(self._net_cost_lbl,     1, 1)
+        cost_form.addWidget(self._avg_cost_lbl,     1, 3)
+        cost_form.addWidget(self._vat_spin,         2, 1)
+        cost_form.addWidget(self._cost_currency,    2, 3)
+        cost_form.addWidget(self._item_unit_combo,  3, 1)
         layout.addWidget(cost_grp)
 
         # Supplier row — compact
@@ -1390,6 +1401,9 @@ class ItemMaintenanceScreen(QWidget):
         _set_combo(self._cost_currency, detail.cost_currency)
         _set_combo(self._cost_curr_combo, detail.cost_currency)
         _set_combo(self._cat_combo, detail.category_name)
+        unit = detail.unit or "PCS"
+        idx = self._item_unit_combo.findText(unit)
+        self._item_unit_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
         # Online flags
         self._chk_online.setChecked(bool(detail.is_online))
@@ -2092,7 +2106,7 @@ class ItemMaintenanceScreen(QWidget):
             category_name=self._cat_combo.currentText(),
             brand_id="",
             brand_name="",
-            unit="PCS",
+            unit=self._item_unit_combo.currentText(),
             pack_size=pack_size,
             cost_price=self._brut_cost.value(),
             cost_currency=self._cost_currency.currentText(),
