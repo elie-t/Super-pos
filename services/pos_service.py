@@ -341,8 +341,8 @@ class PosService:
         session = get_session()
         try:
             from database.models.invoices import SalesInvoice, SalesInvoiceItem
-            from database.models.stock import StockMovement, Warehouse
-            from database.models.items import ItemStock
+            from database.models.stock import StockMovement
+            from database.models.items import ItemStock, Warehouse
             from database.models.base import new_uuid
             from datetime import date, datetime as _dt
             _now = _dt.now()
