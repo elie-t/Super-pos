@@ -1559,9 +1559,9 @@ class ItemMaintenanceScreen(QWidget):
                 amount, entry_cur = None, None
 
             if amount is not None:
-                # Use the price entry's own currency for accurate margin,
-                # regardless of what the combo currently shows
-                base = row_cost * self._lbp_rate if entry_cur == "LBP" else row_cost
+                # Convert cost to same currency as the stored sell price for accurate margin
+                cost_cur = self._cost_curr_combo.currentText()
+                base = self._convert_cost(row_cost, cost_cur, entry_cur)
                 margin = self._calc_margin(base, amount) if base > 0 else def_margin
             else:
                 # New row — auto-calculate price from default margin and combo currency
@@ -1707,16 +1707,16 @@ class ItemMaintenanceScreen(QWidget):
                     pkg = int(pkg_item.text()) if pkg_item else 1
                 except ValueError:
                     pkg = 1
-                row_cost_usd = net * pkg
+                row_cost = net * pkg
                 cost_item = self._price_table.item(r, 3)
                 if cost_item:
-                    cost_item.setText(f"{row_cost_usd:.4f}")
+                    cost_item.setText(f"{row_cost:.4f}")
                 for i, (price_col, pct_col) in enumerate([(5, 4), (7, 6), (9, 8), (11, 10)]):
                     price_item = self._price_table.item(r, price_col)
                     if price_item:
                         try:
                             price_val = float(price_item.text())
-                            base = self._base_cost_for_currency(row_cost_usd, i)
+                            base = self._base_cost_for_currency(row_cost, i)
                             margin = self._calc_margin(base, price_val)
                             pct_item = self._price_table.item(r, pct_col)
                             if pct_item:
@@ -1813,16 +1813,25 @@ class ItemMaintenanceScreen(QWidget):
         """Return 'USD' or 'LBP' for price column index 0-3."""
         return self._sale_currency_combos[price_idx].currentText()
 
-    def _base_cost_for_currency(self, row_cost_usd: float, price_idx: int) -> float:
+    def _convert_cost(self, amount: float, from_cur: str, to_cur: str) -> float:
+        """Convert amount between USD and LBP using the stored LBP rate."""
+        if from_cur == to_cur:
+            return amount
+        rate = self._lbp_rate if self._lbp_rate > 0 else 1
+        if from_cur == "USD" and to_cur == "LBP":
+            return amount * rate
+        if from_cur == "LBP" and to_cur == "USD":
+            return amount / rate
+        return amount
+
+    def _base_cost_for_currency(self, row_cost: float, price_idx: int) -> float:
         """
-        Return the cost to use as the base for margin calculation,
-        in the target currency of the given price column.
-        row_cost_usd is always the USD cost (col 3 value).
-        If the price column is LBP → multiply by LBP rate.
+        Return row_cost (in cost_currency) expressed in the sell currency of
+        price column price_idx, so margin can be calculated in a single currency.
         """
-        if self._sale_currency(price_idx) == "LBP":
-            return row_cost_usd * self._lbp_rate
-        return row_cost_usd
+        cost_cur = self._cost_curr_combo.currentText()
+        sell_cur = self._sale_currency(price_idx)
+        return self._convert_cost(row_cost, cost_cur, sell_cur)
 
     def _on_sale_currency_changed(self, price_idx: int):
         """When a currency combo changes, recalc that column's prices for all rows."""
