@@ -1147,7 +1147,6 @@ class ItemMaintenanceScreen(QWidget):
             def createEditor(self, parent, option, index):
                 ed = super().createEditor(parent, option, index)
                 if ed is not None:
-                    # ID-level selector beats app-level QLineEdit rules
                     ed.setObjectName("_priceEditor")
                     ed.setAutoFillBackground(True)
                     pal = QPalette()
@@ -1156,11 +1155,19 @@ class ItemMaintenanceScreen(QWidget):
                     pal.setColor(QPalette.HighlightedText, _C("#000000"))
                     pal.setColor(QPalette.Highlight,       _C("#aed6f1"))
                     ed.setPalette(pal)
+                    # Override global QLineEdit rules: padding/border-radius make a
+                    # "slim bubble", selection-color:#fff hides selected text,
+                    # :focus{background:#f4f8ff} overrides our yellow.
                     ed.setStyleSheet(
                         "QLineEdit#_priceEditor{"
                         "color:#000000;background:#fffde7;"
-                        "border:2px solid #1a6cb5;"
-                        "font-size:13px;font-weight:600;}"
+                        "border:2px solid #1a6cb5;border-radius:2px;"
+                        "padding:1px 4px;"
+                        "font-size:13px;font-weight:600;"
+                        "selection-background-color:#1a6cb5;"
+                        "selection-color:#000000;}"
+                        "QLineEdit#_priceEditor:focus{"
+                        "background:#fffde7;border:2px solid #1565c0;}"
                     )
                 return ed
 
