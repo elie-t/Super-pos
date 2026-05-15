@@ -294,3 +294,16 @@ def init_db() -> None:
             conn.commit()
         except Exception:
             pass
+
+        # ── Fix item_prices rows saved with wrong currency ────────────────────
+        # Prices > 1000 stored as 'USD' are certainly LBP (data-entry bug where
+        # the currency combo defaulted to USD instead of LBP).
+        # Real USD prices in a local POS never exceed $1000.
+        try:
+            conn.execute(__import__("sqlalchemy").text(
+                "UPDATE item_prices SET currency = 'LBP' "
+                "WHERE currency = 'USD' AND amount > 1000"
+            ))
+            conn.commit()
+        except Exception:
+            pass
