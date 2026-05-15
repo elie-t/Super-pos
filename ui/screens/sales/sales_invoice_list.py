@@ -401,24 +401,12 @@ class SalesInvoiceListScreen(QWidget):
         al.addWidget(self._delete_btn)
         al.addStretch()
 
-        # Superuser only: bulk purge shift invoices
         user = AuthService.current_user()
         is_super = user and (
             str(user.role).strip().lower() == "admin"
             or bool(getattr(user, "is_power_user", False))
         )
         if is_super:
-            purge_btn = QPushButton("🗑  Purge Shift Invoices…")
-            purge_btn.setFixedHeight(28)
-            purge_btn.setCursor(Qt.PointingHandCursor)
-            purge_btn.setStyleSheet(
-                "QPushButton{background:#4e342e;color:#fff;border:none;border-radius:4px;"
-                "font-size:11px;font-weight:700;padding:0 10px;}"
-                "QPushButton:hover{background:#3e2723;}"
-            )
-            purge_btn.clicked.connect(self._purge_shift_invoices)
-            al.addWidget(purge_btn)
-
             recv_btn = QPushButton("⬇  Receive Shift Invoices")
             recv_btn.setFixedHeight(28)
             recv_btn.setCursor(Qt.PointingHandCursor)
@@ -667,144 +655,6 @@ class SalesInvoiceListScreen(QWidget):
                                     f"✔ {pulled} invoice(s) received from server.")
         self._load()
 
-    def _purge_shift_invoices(self):
-        """Superuser: bulk-cancel all pos_shift invoices before a chosen date."""
-        from PySide6.QtWidgets import QDialogButtonBox, QFormLayout, QProgressDialog
-        from PySide6.QtCore import QDate
-
-        # ── Date picker dialog ────────────────────────────────────────────────
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Purge Shift Invoices")
-        dlg.setFixedWidth(380)
-        lay = QVBoxLayout(dlg)
-        lay.setSpacing(10)
-
-        lay.addWidget(QLabel(
-            "Delete (cancel) all POS shift invoices\n"
-            "<b>before</b> the selected date.\n\n"
-            "Stock will be restored for each invoice."
-        ))
-
-        form = QFormLayout()
-        date_edit = QDateEdit()
-        date_edit.setCalendarPopup(True)
-        date_edit.setDate(QDate.currentDate())
-        date_edit.setDisplayFormat("dd/MM/yyyy")
-        form.addRow("Delete invoices before:", date_edit)
-
-        # Warehouse filter
-        wh_combo = QComboBox()
-        wh_combo.addItem("All warehouses", "")
-        try:
-            from database.engine import get_session, init_db
-            from database.models.items import Warehouse
-            init_db()
-            s = get_session()
-            try:
-                for wh in s.query(Warehouse).filter_by(is_active=True).order_by(Warehouse.name).all():
-                    wh_combo.addItem(wh.name, wh.id)
-            finally:
-                s.close()
-        except Exception:
-            pass
-        form.addRow("Warehouse:", wh_combo)
-        lay.addLayout(form)
-
-        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.accepted.connect(dlg.accept)
-        btns.rejected.connect(dlg.reject)
-        lay.addWidget(btns)
-
-        if dlg.exec() != QDialog.Accepted:
-            return
-
-        before_date = date_edit.date().toString("yyyy-MM-dd")
-        wh_id = wh_combo.currentData()
-
-        # ── Count matching invoices ───────────────────────────────────────────
-        from database.engine import get_session, init_db
-        from database.models.invoices import SalesInvoice
-        import sqlalchemy
-        init_db()
-        session = get_session()
-        try:
-            q = session.query(SalesInvoice).filter(
-                SalesInvoice.source == "pos_shift",
-                SalesInvoice.invoice_date <= before_date,
-            )
-            if wh_id:
-                q = q.filter(SalesInvoice.warehouse_id == wh_id)
-            ids = [inv.id for inv in q.all()]
-        finally:
-            session.close()
-
-        if not ids:
-            QMessageBox.information(self, "Purge", "No matching shift invoices found.")
-            return
-
-        if QMessageBox.question(
-            self, "Confirm Purge",
-            f"This will cancel <b>{len(ids)}</b> shift invoice(s) before {before_date}"
-            f"{' for the selected warehouse' if wh_id else ''}.\n\n"
-            "Stock will be restored. This cannot be undone.\n\nContinue?",
-            QMessageBox.Yes | QMessageBox.No,
-        ) != QMessageBox.Yes:
-            return
-
-        # ── Delete with progress ──────────────────────────────────────────────
-        prog = QProgressDialog("Purging shift invoices…", "Cancel", 0, len(ids), self)
-        prog.setWindowTitle("Purge")
-        prog.setMinimumDuration(0)
-        prog.setValue(0)
-
-        ok_count = fail_count = 0
-        errors = []
-        from database.engine import get_session, init_db
-        from database.models.invoices import SalesInvoice, SalesInvoiceItem
-        init_db()
-        for i, inv_id in enumerate(ids):
-            if prog.wasCanceled():
-                break
-            prog.setValue(i)
-            try:
-                s = get_session()
-                try:
-                    s.query(SalesInvoiceItem).filter_by(invoice_id=inv_id).delete()
-                    s.query(SalesInvoice).filter_by(id=inv_id).delete()
-                    s.commit()
-                    ok_count += 1
-                except Exception as e:
-                    s.rollback()
-                    fail_count += 1
-                    errors.append(str(e))
-                finally:
-                    s.close()
-                # Also delete from Supabase so sync doesn't bring it back
-                try:
-                    from sync.service import is_configured, _headers, _url
-                    import requests as _req
-                    if is_configured():
-                        _req.delete(
-                            f"{_url('sales_invoice_items_central')}?invoice_id=eq.{inv_id}",
-                            headers=_headers(), timeout=10,
-                        )
-                        _req.delete(
-                            f"{_url('sales_invoices_central')}?id=eq.{inv_id}",
-                            headers=_headers(), timeout=10,
-                        )
-                except Exception:
-                    pass
-            except Exception as e:
-                fail_count += 1
-                errors.append(str(e))
-        prog.setValue(len(ids))
-
-        self._load()
-        msg = f"Purge complete.\n\n✔ {ok_count} invoices cancelled."
-        if fail_count:
-            sample = "\n".join(set(errors[:5]))
-            msg += f"\n✘ {fail_count} failed:\n{sample}"
-        QMessageBox.information(self, "Purge Complete", msg)
 
     def _ask_supervisor_pin(self) -> bool:
         """Prompt for a supervisor PIN. Checks admin passwords and power-user PINs."""
