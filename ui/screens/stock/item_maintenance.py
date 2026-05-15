@@ -1145,19 +1145,22 @@ class ItemMaintenanceScreen(QWidget):
                 option.palette.setColor(QPalette.HighlightedText,  _C("#000000"))
 
             def createEditor(self, parent, option, index):
-                """Style the inline QLineEdit editor."""
                 ed = super().createEditor(parent, option, index)
                 if ed is not None:
-                    pal = ed.palette()
+                    # ID-level selector beats app-level QLineEdit rules
+                    ed.setObjectName("_priceEditor")
+                    ed.setAutoFillBackground(True)
+                    pal = QPalette()
                     pal.setColor(QPalette.Text,            _C("#000000"))
                     pal.setColor(QPalette.Base,            _C("#fffde7"))
                     pal.setColor(QPalette.HighlightedText, _C("#000000"))
                     pal.setColor(QPalette.Highlight,       _C("#aed6f1"))
                     ed.setPalette(pal)
                     ed.setStyleSheet(
+                        "QLineEdit#_priceEditor{"
                         "color:#000000;background:#fffde7;"
                         "border:2px solid #1a6cb5;"
-                        "font-size:13px;font-weight:600;"
+                        "font-size:13px;font-weight:600;}"
                     )
                 return ed
 
