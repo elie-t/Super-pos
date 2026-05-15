@@ -7,6 +7,24 @@ from PySide6.QtCore import QObject, QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 
 
+def _disable_windows_touch_keyboard():
+    """
+    Disable the Windows touch keyboard auto-invoke via registry.
+    Safe no-op on non-Windows platforms or if registry access fails.
+    """
+    try:
+        import winreg
+        key_path = r"SOFTWARE\Microsoft\TabletTip\1.7"
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, key_path,
+            0, winreg.KEY_SET_VALUE
+        )
+        winreg.SetValueEx(key, "EnableDesktopModeAutoInvoke", 0, winreg.REG_DWORD, 0)
+        winreg.CloseKey(key)
+    except Exception:
+        pass
+
+
 class _NumpadEnterFilter(QObject):
     """Maps numpad Enter (Key_Enter) → regular Enter (Key_Return) app-wide."""
     def eventFilter(self, obj, event):
@@ -56,6 +74,7 @@ class _VirtualKBSuppressor(QObject):
 
 
 def main():
+    _disable_windows_touch_keyboard()
     init_db()
 
     from PySide6.QtWidgets import QApplication
