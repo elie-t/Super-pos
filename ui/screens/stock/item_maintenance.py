@@ -1547,21 +1547,25 @@ class ItemMaintenanceScreen(QWidget):
             key_pcs   = (ptype, 1)
             key_retail_exact = ("retail", pkg)
             key_retail_pcs   = ("retail", 1)
-            base = self._base_cost_for_currency(row_cost, i)
             if key_exact in price_map:
-                amount, _ = price_map[key_exact]
-                margin = self._calc_margin(base, amount) if base > 0 else def_margin
+                amount, entry_cur = price_map[key_exact]
             elif key_pcs in price_map:
-                amount, _ = price_map[key_pcs]
-                margin = self._calc_margin(base, amount) if base > 0 else def_margin
+                amount, entry_cur = price_map[key_pcs]
             elif i == 0 and key_retail_exact in price_map:
-                amount, _ = price_map[key_retail_exact]
-                margin = self._calc_margin(base, amount) if base > 0 else def_margin
+                amount, entry_cur = price_map[key_retail_exact]
             elif i == 0 and key_retail_pcs in price_map:
-                amount, _ = price_map[key_retail_pcs]
+                amount, entry_cur = price_map[key_retail_pcs]
+            else:
+                amount, entry_cur = None, None
+
+            if amount is not None:
+                # Use the price entry's own currency for accurate margin,
+                # regardless of what the combo currently shows
+                base = row_cost * self._lbp_rate if entry_cur == "LBP" else row_cost
                 margin = self._calc_margin(base, amount) if base > 0 else def_margin
             else:
-                # New row — auto-calculate price from default margin
+                # New row — auto-calculate price from default margin and combo currency
+                base = self._base_cost_for_currency(row_cost, i)
                 margin = def_margin
                 amount = base * (1 + margin / 100) if base > 0 else 0.0
 
@@ -1771,6 +1775,13 @@ class ItemMaintenanceScreen(QWidget):
                 sell_cur = self._bc_sell_currency.currentText()
                 for ptype in ("individual", "retail", "wholesale", "semi_wholesale"):
                     preset_map[(ptype, pkg)] = (sell_val, sell_cur)
+                # Sync all currency combos so saving stores the correct currency
+                for combo in self._sale_currency_combos:
+                    combo.blockSignals(True)
+                    idx = combo.findText(sell_cur)
+                    if idx >= 0:
+                        combo.setCurrentIndex(idx)
+                    combo.blockSignals(False)
             except ValueError:
                 pass
 
