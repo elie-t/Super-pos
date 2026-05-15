@@ -10,6 +10,7 @@ class Recipe(Base, TimestampMixin):
     __tablename__ = "recipes"
 
     id:      Mapped[str]      = mapped_column(String(36), primary_key=True, default=new_uuid)
+    name:    Mapped[str]      = mapped_column(String(200), nullable=False, default="")
     item_id: Mapped[str|None] = mapped_column(String(36), ForeignKey("items.id"),
                                               unique=True, nullable=True, index=True)
     notes:   Mapped[str|None] = mapped_column(Text, nullable=True)
