@@ -3922,8 +3922,12 @@ class POSScreen(QWidget):
 
         btn_row = QHBoxLayout()
         new_btn = QPushButton("+ New Customer")
-        new_btn.setObjectName("primaryBtn")
         new_btn.setFixedHeight(30)
+        new_btn.setStyleSheet(
+            "QPushButton{background:#1565c0;color:#fff;border:none;"
+            "border-radius:5px;font-weight:700;padding:0 12px;}"
+            "QPushButton:hover{background:#1976d2;}"
+        )
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btn_row.addWidget(new_btn)
         btn_row.addStretch()
