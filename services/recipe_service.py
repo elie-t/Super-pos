@@ -3,6 +3,41 @@ Recipe & costing service — recipes are linked to items (one recipe per item).
 """
 from database.engine import get_session, init_db
 
+# ── Unit conversion ───────────────────────────────────────────────────────────
+# All units normalised to a base: weight→kg, volume→L, count→PCS
+_UNIT_BASE = {
+    "kg": 1.0,        "g": 1e-3,       "mg": 1e-6,
+    "L":  1.0,        "ml": 1e-3,
+    "tsp": 4.929e-3,  "tbsp": 14.787e-3, "cup": 0.2366,
+    "PCS": 1.0,
+}
+_WEIGHT  = {"kg", "g", "mg"}
+_VOLUME  = {"L", "ml", "tsp", "tbsp", "cup"}
+_COUNT   = {"PCS"}
+
+
+def _unit_category(u: str) -> str:
+    if u in _WEIGHT: return "weight"
+    if u in _VOLUME: return "volume"
+    return "count"
+
+
+def calc_line_cost(cost_per_item_unit: float, item_unit: str,
+                   recipe_qty: float, recipe_unit: str) -> float:
+    """
+    Return the cost for using recipe_qty (in recipe_unit) of an ingredient
+    whose cost_price is expressed per item_unit.
+
+    Example: flour costs $1/kg, recipe uses 200 g → 0.2 × $1 = $0.20
+    Falls back to raw multiplication when units are unknown or incompatible.
+    """
+    ib = _UNIT_BASE.get(item_unit)
+    rb = _UNIT_BASE.get(recipe_unit)
+    if ib and rb and _unit_category(item_unit) == _unit_category(recipe_unit):
+        qty_in_item_unit = (recipe_qty * rb) / ib
+        return cost_per_item_unit * qty_in_item_unit
+    return cost_per_item_unit * recipe_qty
+
 
 class RecipeService:
 
@@ -60,7 +95,12 @@ class RecipeService:
                 from database.models.items import Item
                 ing_item = session.get(Item, row["item_id"])
                 if ing_item:
-                    total_cost += float(ing_item.cost_price or 0) * qty
+                    total_cost += calc_line_cost(
+                        float(ing_item.cost_price or 0),
+                        ing_item.unit or "PCS",
+                        qty,
+                        row.get("unit", "PCS"),
+                    )
 
             session.commit()
             return total_cost, ""
@@ -110,7 +150,8 @@ class RecipeService:
         for ing in recipe.ingredients:
             item = session.get(Item, ing.item_id)
             cpu = float(item.cost_price or 0) if item else 0.0
-            lc  = cpu * ing.quantity
+            lc  = calc_line_cost(cpu, item.unit or "PCS" if item else "PCS",
+                                 ing.quantity, ing.unit)
             total_cost += lc
             ingredients.append({
                 "id":           ing.id,

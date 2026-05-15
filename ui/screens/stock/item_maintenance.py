@@ -106,14 +106,14 @@ class RecipeDialog(QDialog):
         root.addWidget(add_grp)
 
         # ── Ingredients table ─────────────────────────────────────────────────
-        self._table = QTableWidget(0, 5)
+        self._table = QTableWidget(0, 6)
         self._table.setHorizontalHeaderLabels(
-            ["Ingredient", "Qty", "Unit", "Cost/Unit", ""])
+            ["Ingredient", "Usage", "Cost/Base Unit", "Line Cost", "Currency", ""])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        for c in (1, 2, 3):
+        for c in (1, 2, 3, 4):
             self._table.horizontalHeader().setSectionResizeMode(c, QHeaderView.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
-        self._table.setColumnWidth(4, 36)
+        self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
+        self._table.setColumnWidth(5, 36)
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(True)
@@ -180,6 +180,10 @@ class RecipeDialog(QDialog):
         for item in self._item_results:
             if f"{item['name']}  [{item['code']}]" == text or item["name"] == text:
                 self._selected_item = item
+                # Default unit combo to the item's own unit
+                idx = self._unit.findText(item.get("unit", "PCS"))
+                if idx >= 0:
+                    self._unit.setCurrentIndex(idx)
                 return
         self._selected_item = None
 
@@ -204,15 +208,19 @@ class RecipeDialog(QDialog):
         except ValueError:
             qty = 1.0
         unit = self._unit.currentText()
+        from services.recipe_service import calc_line_cost
+        line_cost = calc_line_cost(
+            match["cost_price"], match["unit"], qty, unit)
         self._ingredients.append({
             "item_id":       match["id"],
             "item_name":     match["name"],
             "item_code":     match["code"],
+            "item_unit":     match["unit"],
             "quantity":      qty,
             "unit":          unit,
             "cost_per_unit": match["cost_price"],
             "cost_currency": match["cost_currency"],
-            "line_cost":     match["cost_price"] * qty,
+            "line_cost":     line_cost,
         })
         self._selected_item = None
         self._search.clear()
@@ -232,13 +240,26 @@ class RecipeDialog(QDialog):
         for i, ing in enumerate(self._ingredients):
             r = self._table.rowCount()
             self._table.insertRow(r)
+            cur      = ing.get("cost_currency", "USD")
+            cpu      = ing["cost_per_unit"]
+            item_u   = ing.get("item_unit", ing.get("unit", "PCS"))
+            recipe_u = ing["unit"]
+            qty      = ing["quantity"]
+            lc       = ing["line_cost"]
+
+            # "200 g (item: kg)"
+            usage = f"{qty} {recipe_u}"
+            if recipe_u != item_u:
+                usage += f"  →  per {item_u}"
+
+            cpu_fmt = f"{cpu:,.0f}" if cur == "LBP" else f"{cpu:,.4f}"
+            lc_fmt  = f"{lc:,.0f}"  if cur == "LBP" else f"{lc:,.4f}"
+
             self._table.setItem(r, 0, QTableWidgetItem(ing["item_name"]))
-            self._table.setItem(r, 1, QTableWidgetItem(str(ing["quantity"])))
-            self._table.setItem(r, 2, QTableWidgetItem(ing["unit"]))
-            cur = ing.get("cost_currency", "USD")
-            cpu = ing["cost_per_unit"]
-            fmt = f"{cpu:,.0f}" if cur == "LBP" else f"{cpu:,.4f}"
-            self._table.setItem(r, 3, QTableWidgetItem(f"{fmt} {cur}"))
+            self._table.setItem(r, 1, QTableWidgetItem(usage))
+            self._table.setItem(r, 2, QTableWidgetItem(f"{cpu_fmt}"))
+            self._table.setItem(r, 3, QTableWidgetItem(lc_fmt))
+            self._table.setItem(r, 4, QTableWidgetItem(cur))
             rm = QPushButton("✕")
             rm.setFixedSize(26, 26)
             rm.setStyleSheet(
@@ -246,8 +267,8 @@ class RecipeDialog(QDialog):
                 "border-radius:4px;font-size:11px;}"
             )
             rm.clicked.connect(lambda _, idx=i: self._remove(idx))
-            self._table.setCellWidget(r, 4, rm)
-            total += ing["line_cost"]
+            self._table.setCellWidget(r, 5, rm)
+            total += lc
         self.calculated_cost = total
         self._cost_lbl.setText(f"Total ingredient cost: {total:,.4f}")
 
