@@ -341,11 +341,19 @@ class PosService:
         session = get_session()
         try:
             from database.models.invoices import SalesInvoice, SalesInvoiceItem
-            from database.models.stock import StockMovement
+            from database.models.stock import StockMovement, Warehouse
             from database.models.items import ItemStock
             from database.models.base import new_uuid
             from datetime import date, datetime as _dt
             _now = _dt.now()
+
+            # Resolve warehouse — fall back to first available if none set
+            if not warehouse_id:
+                wh = session.query(Warehouse).filter_by(is_default=True).first() \
+                     or session.query(Warehouse).first()
+                warehouse_id = wh.id if wh else None
+            if not warehouse_id:
+                return False, "No warehouse configured. Please create a warehouse in Settings."
 
             subtotal = sum(
                 l.qty * l.unit_price * (1 - l.disc_pct / 100)

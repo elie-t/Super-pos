@@ -34,9 +34,10 @@ def get_session() -> Session:
 
 
 def _seed_default_admin() -> None:
-    """Create a built-in admin account if no users exist yet."""
+    """Create built-in admin account and default warehouse if the DB is fresh."""
     try:
         from database.models.users import User
+        from database.models.stock import Warehouse
         from database.models.base import new_uuid
         import bcrypt
         session = SessionLocal()
@@ -49,6 +50,14 @@ def _seed_default_admin() -> None:
                     password_hash=pw_hash,
                     full_name="Administrator",
                     role="admin",
+                ))
+                session.commit()
+            # Seed a default warehouse if none exist (fresh restaurant install)
+            if session.query(Warehouse).count() == 0:
+                session.add(Warehouse(
+                    id=new_uuid(),
+                    name="Main",
+                    is_default=True,
                 ))
                 session.commit()
         finally:
