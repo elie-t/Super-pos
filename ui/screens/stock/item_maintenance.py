@@ -632,6 +632,8 @@ class ItemMaintenanceScreen(QWidget):
         self._discount_spin.setValue(0)
         self._vat_spin.setValue(0.0)
         self._item_unit_combo.setCurrentText("PCS")
+        self._bc_sell_price.clear()
+        self._bc_pkg_spin.setValue(1)
         self._price_table.setRowCount(0)
         self._date_created_lbl.setText("Created: —")
         self._date_modified_lbl.setText("Modified: —")
@@ -958,19 +960,19 @@ class ItemMaintenanceScreen(QWidget):
         row = QHBoxLayout()
         row.setSpacing(16)
 
-        # Barcode entry
+        # Barcode entry — no fixed width, fills available space
         bc_grp = QGroupBox("Barcode And Price Entry")
-        bc_grp.setFixedWidth(320)
         bc_layout = QVBoxLayout(bc_grp)
         bc_layout.setSpacing(6)
 
         # Barcode + Pkg on one row
         bc_input_row = QHBoxLayout()
-        bc_input_row.setSpacing(4)
+        bc_input_row.setSpacing(6)
         bc_input_row.addWidget(QLabel("Barcode:"))
         self._bc_input = QLineEdit()
-        self._bc_input.setPlaceholderText("Scan or type…")
+        self._bc_input.setPlaceholderText("Scan or type barcode…")
         self._bc_input.setFixedHeight(28)
+        self._bc_input.setMinimumWidth(180)
         self._bc_input.returnPressed.connect(self._add_barcode_row)
         bc_input_row.addWidget(self._bc_input, 1)
         pkg_lbl = QLabel("Pkg:")
@@ -978,23 +980,54 @@ class ItemMaintenanceScreen(QWidget):
         self._bc_pkg_spin = QSpinBox()
         self._bc_pkg_spin.setRange(1, 9999)
         self._bc_pkg_spin.setValue(1)
-        self._bc_pkg_spin.setFixedWidth(55)
+        self._bc_pkg_spin.setMinimumWidth(70)
         self._bc_pkg_spin.setFixedHeight(28)
         bc_input_row.addWidget(pkg_lbl)
         bc_input_row.addWidget(self._bc_pkg_spin)
         bc_layout.addLayout(bc_input_row)
 
+        # Sell price entry row
+        sell_row = QHBoxLayout()
+        sell_row.setSpacing(6)
+        sell_row.addWidget(QLabel("Sell Price:"))
+        self._bc_sell_price = QLineEdit()
+        self._bc_sell_price.setPlaceholderText("e.g. 1.50")
+        self._bc_sell_price.setFixedHeight(28)
+        self._bc_sell_price.setMinimumWidth(100)
+        sell_row.addWidget(self._bc_sell_price, 1)
+        self._bc_sell_currency = QComboBox()
+        self._bc_sell_currency.addItems(["USD", "LBP"])
+        self._bc_sell_currency.setFixedWidth(70)
+        self._bc_sell_currency.setFixedHeight(28)
+        sell_row.addWidget(self._bc_sell_currency)
+        bc_layout.addLayout(sell_row)
+
         # Buttons row
         bc_btn_row = QHBoxLayout()
-        gen_btn = QPushButton("⊕  Generate")
+        bc_btn_row.setSpacing(6)
+        gen_btn = QPushButton("Generate")
         gen_btn.setObjectName("secondaryBtn")
         gen_btn.setFixedHeight(30)
+        gen_btn.setToolTip("Generate a unique internal barcode into the field above")
         gen_btn.clicked.connect(self._generate_barcode)
-        add_bc_btn = QPushButton("⊕  Add to List")
+
+        gen_add_btn = QPushButton("Generate + Add")
+        gen_add_btn.setFixedHeight(30)
+        gen_add_btn.setStyleSheet(
+            "QPushButton{background:#00838f;color:#fff;border:none;"
+            "border-radius:5px;font-weight:700;font-size:11px;padding:0 8px;}"
+            "QPushButton:hover{background:#006064;}"
+        )
+        gen_add_btn.setToolTip("Generate barcode and immediately add row to the price table")
+        gen_add_btn.clicked.connect(self._generate_and_add)
+
+        add_bc_btn = QPushButton("Add to List")
         add_bc_btn.setObjectName("primaryBtn")
         add_bc_btn.setFixedHeight(30)
         add_bc_btn.clicked.connect(self._add_barcode_row)
+
         bc_btn_row.addWidget(gen_btn)
+        bc_btn_row.addWidget(gen_add_btn)
         bc_btn_row.addWidget(add_bc_btn)
         bc_layout.addLayout(bc_btn_row)
 
@@ -1004,8 +1037,7 @@ class ItemMaintenanceScreen(QWidget):
         del_bc_btn.clicked.connect(self._remove_barcode_row)
         bc_layout.addWidget(del_bc_btn)
 
-        row.addWidget(bc_grp)
-        row.addStretch()
+        row.addWidget(bc_grp, 1)
         return row
 
     # ── Price grid ────────────────────────────────────────────────────────────
@@ -1704,6 +1736,11 @@ class ItemMaintenanceScreen(QWidget):
         self._bc_input.setFocus()
         self._bc_input.selectAll()
 
+    def _generate_and_add(self):
+        """Generate a barcode then immediately add it as a price row."""
+        self._generate_barcode()
+        self._add_barcode_row()
+
     def _add_barcode_row(self):
         """Add the barcode in the input as a new editable row in the price table."""
         bc = self._bc_input.text().strip()
@@ -1721,17 +1758,32 @@ class ItemMaintenanceScreen(QWidget):
                 return
 
         pkg = self._bc_pkg_spin.value()
-        cost = self._brut_cost.value() * pkg
-        self._add_price_row(bc, pkg, self._brut_cost.value(), {})
 
-        # Scroll to and select the new row, then focus cost cell for editing
+        # Build pre-filled prices from the sell price field
+        # price_map format: {(ptype, pack_qty): (amount, currency)}
+        preset_map: dict = {}
+        sell_txt = self._bc_sell_price.text().strip()
+        if sell_txt:
+            try:
+                sell_val = float(sell_txt.replace(",", ""))
+                sell_cur = self._bc_sell_currency.currentText()
+                for ptype in ("individual", "retail", "wholesale", "semi_wholesale"):
+                    preset_map[(ptype, pkg)] = (sell_val, sell_cur)
+            except ValueError:
+                pass
+
+        self._add_price_row(bc, pkg, self._brut_cost.value(), preset_map)
+
+        # Scroll to new row
         new_row = self._price_table.rowCount() - 1
-        self._price_table.setCurrentCell(new_row, 3)   # col 3 = Cost
+        self._price_table.setCurrentCell(new_row, 3)
         self._price_table.scrollToItem(self._price_table.item(new_row, 1))
-        self._price_table.editItem(self._price_table.item(new_row, 3))
+        if not sell_txt:
+            self._price_table.editItem(self._price_table.item(new_row, 3))
 
         # Reset inputs
         self._bc_input.clear()
+        self._bc_sell_price.clear()
         self._bc_pkg_spin.setValue(1)
         self._bc_input.setStyleSheet("")
         self._bc_input.setFocus()
