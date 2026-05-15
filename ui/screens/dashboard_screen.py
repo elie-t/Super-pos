@@ -16,7 +16,7 @@ from services.auth_service import AuthService
 # pos_only=True        → hidden in restaurant mode
 # restaurant_only=True → hidden in supermarket mode
 DASHBOARD_TILES = [
-    ("🛒", "Purchase",    "Suppliers & invoices",   "purchase",    False, True,  True,  False),
+    ("🛒", "Purchase",    "Suppliers & invoices",   "purchase",    False, True,  False, False),
     ("🧾", "Sales",       "Invoices & receipts",    "sales",       False, False, False, False),
     ("🖥️", "POS",         "Fast cashier screen",    "pos",         False, False, False, False),
     ("📦", "Stock",       "Items & movements",      "stock",       False, False, False, False),

@@ -14,20 +14,16 @@ STOCK_TOOLS = [
     ("Item Maintenance",          "item_maintenance"),
     ("Categories",                "categories"),
     ("Sub Categories",            "subcategories"),
-    ("Brands",                    "brands"),
     ("Stock Card",                "stock_card"),
-    # Row 2
     ("Change Selling Prices",     "change_prices"),
+    # Row 2
     ("Inventory Invoice",         "inventory_invoice"),
     ("Items Transfer\nFrom W to W", "warehouse_transfer"),
     ("Warehouse Table",           "warehouse_table"),
-    ("Item Types",                "item_types"),
-    ("Item Classifications",      "item_classifications"),
-    # Row 3
     ("Import Items\nfrom Excel",  "import_items"),
     ("Old Inventory",             "old_inventory"),
     ("Print Barcodes",            "print_barcodes"),
-    # Row 4
+    # Row 3
     ("🔧  Rebuild\nStock Quantities", "rebuild_stock"),
 ]
 
