@@ -1547,22 +1547,23 @@ class ItemMaintenanceScreen(QWidget):
             key_pcs   = (ptype, 1)
             key_retail_exact = ("retail", pkg)
             key_retail_pcs   = ("retail", 1)
+            base = self._base_cost_for_currency(row_cost, i)
             if key_exact in price_map:
                 amount, _ = price_map[key_exact]
-                margin = self._calc_margin(row_cost, amount) if row_cost > 0 else def_margin
+                margin = self._calc_margin(base, amount) if base > 0 else def_margin
             elif key_pcs in price_map:
                 amount, _ = price_map[key_pcs]
-                margin = self._calc_margin(row_cost, amount) if row_cost > 0 else def_margin
+                margin = self._calc_margin(base, amount) if base > 0 else def_margin
             elif i == 0 and key_retail_exact in price_map:
                 amount, _ = price_map[key_retail_exact]
-                margin = self._calc_margin(row_cost, amount) if row_cost > 0 else def_margin
+                margin = self._calc_margin(base, amount) if base > 0 else def_margin
             elif i == 0 and key_retail_pcs in price_map:
                 amount, _ = price_map[key_retail_pcs]
-                margin = self._calc_margin(row_cost, amount) if row_cost > 0 else def_margin
+                margin = self._calc_margin(base, amount) if base > 0 else def_margin
             else:
                 # New row — auto-calculate price from default margin
                 margin = def_margin
-                amount = row_cost * (1 + margin / 100) if row_cost > 0 else 0.0
+                amount = base * (1 + margin / 100) if base > 0 else 0.0
 
             # % column
             pct_item = QTableWidgetItem(f"{margin:.2f}")
