@@ -49,15 +49,16 @@ class _ImportWorker(QObject):
         except Exception as exc:
             self.error.emit(f"{exc}\n\n{traceback.format_exc()}")
 
-from ui.screens.stock.stock_hub        import StockHub
-from ui.screens.stock.items_list       import ItemsListScreen
-from ui.screens.stock.item_maintenance import ItemMaintenanceScreen
-from ui.screens.stock.categories       import CategoriesScreen
-from ui.screens.stock.brands           import BrandsScreen
-from ui.screens.stock.warehouse_table  import WarehouseTableScreen
-from ui.screens.stock.stock_card       import StockCardScreen
+from ui.screens.stock.stock_hub          import StockHub
+from ui.screens.stock.items_list         import ItemsListScreen
+from ui.screens.stock.item_maintenance   import ItemMaintenanceScreen
+from ui.screens.stock.categories         import CategoriesScreen
+from ui.screens.stock.brands             import BrandsScreen
+from ui.screens.stock.warehouse_table    import WarehouseTableScreen
+from ui.screens.stock.stock_card         import StockCardScreen
 from ui.screens.stock.warehouse_transfer_screen import WarehouseTransferScreen
 from ui.screens.stock.barcode_print_screen import BarcodePrintScreen
+from ui.screens.stock.change_prices_screen import ChangePricesScreen
 
 
 class StockModule(QWidget):
@@ -103,6 +104,8 @@ class StockModule(QWidget):
             self._run_import()
         elif key == "print_barcodes":
             self._show("print_barcodes", lambda: BarcodePrintScreen())
+        elif key == "change_prices":
+            self._show("change_prices", lambda: ChangePricesScreen())
         elif key == "rebuild_stock":
             self._rebuild_stock()
         else:
