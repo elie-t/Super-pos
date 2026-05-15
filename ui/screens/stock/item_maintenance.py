@@ -1038,6 +1038,7 @@ class ItemMaintenanceScreen(QWidget):
         bc_layout.addWidget(del_bc_btn)
 
         row.addWidget(bc_grp, 1)
+        row.addStretch(1)
         return row
 
     # ── Price grid ────────────────────────────────────────────────────────────
