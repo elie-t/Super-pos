@@ -316,18 +316,15 @@ def _render_to_printer(html: str, printer: QPrinter) -> None:
     doc.setDefaultTextOption(opt)
     doc.setHtml(html)
 
-    # Layout the document using the full paper width (in points).
-    # We use paperRect — not pageRect — so we don't accidentally inherit
-    # the driver's margin offset as a layout width.
-    paper_pt = printer.paperRect(QPrinter.Unit.Point)
-    doc.setTextWidth(paper_pt.width())
+    # Use pageRect (printable area) so text width exactly matches what the
+    # painter can draw — paperRect is the full physical sheet which is wider
+    # than the printable area, causing a wide right margin.
+    page_pt = printer.pageRect(QPrinter.Unit.Point)
+    doc.setTextWidth(page_pt.width())
 
-    # Render manually page by page.
-    # doc.print_() only draws one page; drawContents clips at paper_pt.height().
-    # We slice the document into page-height chunks and call newPage() between them
-    # so long receipts (shift reports, 30+ item invoices) are never truncated.
-    page_h   = paper_pt.height()
-    total_h  = doc.size().height()
+    # Render manually page by page so long receipts are never truncated.
+    page_h  = page_pt.height()
+    total_h = doc.size().height()
 
     painter = QPainter(printer)
     scale = printer.resolution() / 72.0
@@ -340,7 +337,7 @@ def _render_to_printer(html: str, printer: QPrinter) -> None:
             printer.newPage()
         painter.save()
         painter.translate(0.0, -y)
-        doc.drawContents(painter, QRectF(0, y, paper_pt.width(), page_h))
+        doc.drawContents(painter, QRectF(0, y, page_pt.width(), page_h))
         painter.restore()
         y    += page_h
         page += 1
