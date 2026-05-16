@@ -4146,6 +4146,9 @@ class POSScreen(QWidget):
         _populate(PosService.search_customers(""))
         name_edit.setFocus()
         dlg.exec()
+        # Sync touch overlay label after any customer change / creation
+        if getattr(self, "_touch_overlay", None):
+            self._touch_overlay.refresh_cart()
 
     # ── Price check ────────────────────────────────────────────────────────────
 
