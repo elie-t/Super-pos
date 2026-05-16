@@ -63,6 +63,18 @@ class TouchOverlay(QWidget):
         self._cust_lbl = QLabel("👤  Walk-In")
         self._cust_lbl.setStyleSheet("color:#f0c040;font-size:15px;font-weight:700;")
         hl.addWidget(self._cust_lbl)
+
+        cust_btn = QPushButton("👥  Customer")
+        cust_btn.setFixedHeight(34)
+        cust_btn.setCursor(Qt.PointingHandCursor)
+        cust_btn.setStyleSheet(
+            "QPushButton{background:#5c6bc0;color:#fff;border:none;"
+            "border-radius:5px;font-size:12px;font-weight:700;padding:0 14px;}"
+            "QPushButton:hover{background:#3949ab;}"
+        )
+        cust_btn.clicked.connect(lambda: self._pos._change_customer())
+        hl.addWidget(cust_btn)
+
         hl.addStretch()
         inv_btn = QPushButton("🧾  Invoices")
         inv_btn.setFixedHeight(34)
