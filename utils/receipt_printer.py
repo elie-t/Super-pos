@@ -107,8 +107,10 @@ def _build_receipt_text(data: dict, payment_method: str, tendered: float) -> str
 
 
 def _build_html(data: dict, payment_method: str, tendered: float) -> str:
-    """Render receipt as <pre> plain text — no HTML table, no Qt kerning artifacts."""
+    """Styled header + <pre> body — big shop name, no HTML table kerning artifacts."""
     import html as _h
+
+    def e(s): return _h.escape(str(s))
 
     # Add LBP rate to data so _build_receipt_text can use it for USD equivalent
     if not data.get("lbp_rate"):
@@ -125,11 +127,31 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         except Exception:
             pass
 
-    text    = _build_receipt_text(data, payment_method, tendered)
-    escaped = _h.escape(text)
+    # ── Styled header (shop name big, address/phone smaller) ──────────────────
+    header = (
+        f"<div style='text-align:center;font-family:monospace;font-size:14pt;"
+        f"font-weight:700;letter-spacing:1px;margin-bottom:2px;'>{e(data.get('shop_name',''))}</div>"
+    )
+    if data.get("shop_address"):
+        header += f"<div style='text-align:center;font-family:monospace;font-size:8pt;line-height:1.3;'>{e(data['shop_address'])}</div>"
+    if data.get("shop_phone"):
+        header += f"<div style='text-align:center;font-family:monospace;font-size:8pt;line-height:1.3;'>Tel: {e(data['shop_phone'])}</div>"
+    if data.get("warehouse") and data.get("warehouse") != data.get("shop_address"):
+        header += f"<div style='text-align:center;font-family:monospace;font-size:8pt;line-height:1.3;'>{e(data['warehouse'])}</div>"
+
+    # ── Body: plain text starting from the first separator ────────────────────
+    full_text = _build_receipt_text(data, payment_method, tendered)
+    # _build_receipt_text includes the header lines; strip them (everything up
+    # to and including the first "-" separator line) since we render it above.
+    sep_line = "-" * CHARS_PER_LINE
+    idx = full_text.find(sep_line)
+    body_text = full_text[idx:] if idx >= 0 else full_text
+
+    escaped = _h.escape(body_text)
     return (
         "<html dir='ltr'><head><meta charset='utf-8'></head>"
         "<body dir='ltr' style='margin:0;padding:0;'>"
+        f"{header}"
         f"<pre style='font-family:monospace;font-size:8pt;line-height:1.25;"
         f"white-space:pre;margin:0;padding:0;color:#000;'>{escaped}</pre>"
         "</body></html>"
