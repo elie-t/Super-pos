@@ -500,7 +500,58 @@ class SettingsScreen(QWidget):
         self._pole_baud.setFixedWidth(100)
         gen_form.addRow("Pole Display Baud:", self._pole_baud)
 
+        self._pole_protocol = QComboBox()
+        self._pole_protocol.setFixedWidth(260)
+        self._pole_protocol.addItem("Simple  (\\x0C clear + 40 chars)",    "simple")
+        self._pole_protocol.addItem("CR/LF  (plain text, 2 lines)",        "crlf")
+        self._pole_protocol.addItem("Logic Controls  (LD9000 / CD5220)",   "logic_ctrl")
+        self._pole_protocol.addItem("ESC/POS  (Epson DM-D110/210)",        "esc_pos")
+        self._pole_protocol.addItem("Posiflex  (ESC Q A/B)",               "posiflex")
+        self._pole_protocol.addItem("BA63  (Bixolon BCD-1000)",            "ba63")
+        gen_form.addRow("Pole Protocol:", self._pole_protocol)
+
+        # Serial framing (data bits / parity / stop bits)
+        framing_row = QHBoxLayout()
+        self._pole_databits = QComboBox()
+        self._pole_databits.addItems(["8", "7"])
+        self._pole_databits.setFixedWidth(50)
+        framing_row.addWidget(QLabel("Data:"))
+        framing_row.addWidget(self._pole_databits)
+
+        self._pole_parity = QComboBox()
+        for pname, pval in [("None (N)", "N"), ("Even (E)", "E"), ("Odd (O)", "O")]:
+            self._pole_parity.addItem(pname, pval)
+        self._pole_parity.setFixedWidth(100)
+        framing_row.addWidget(QLabel("  Parity:"))
+        framing_row.addWidget(self._pole_parity)
+
+        self._pole_stopbits = QComboBox()
+        self._pole_stopbits.addItems(["1", "2"])
+        self._pole_stopbits.setFixedWidth(50)
+        framing_row.addWidget(QLabel("  Stop:"))
+        framing_row.addWidget(self._pole_stopbits)
+
+        framing_row.addStretch()
+        gen_form.addRow("Pole Framing:", framing_row)
+
         gen_lay.addLayout(gen_form)
+
+        # Test pole button
+        test_pole_row = QHBoxLayout()
+        self._test_pole_btn = QPushButton("📺  Test Pole Display")
+        self._test_pole_btn.setFixedHeight(30)
+        self._test_pole_btn.setStyleSheet(
+            "QPushButton{background:#37474f;color:#fff;border:none;"
+            "border-radius:4px;font-size:12px;font-weight:700;padding:0 14px;}"
+            "QPushButton:hover{background:#546e7a;}"
+        )
+        self._test_pole_btn.clicked.connect(self._test_pole)
+        test_pole_row.addWidget(self._test_pole_btn)
+        self._pole_test_lbl = QLabel("")
+        self._pole_test_lbl.setStyleSheet("font-size:11px; color:#1a6cb5; margin-left:8px;")
+        test_pole_row.addWidget(self._pole_test_lbl)
+        test_pole_row.addStretch()
+        gen_lay.addLayout(test_pole_row)
 
         save_gen_btn = QPushButton("💾  Save General Settings")
         save_gen_btn.setFixedHeight(32)
@@ -800,6 +851,22 @@ class SettingsScreen(QWidget):
                     self._pos_currency.setCurrentIndex(idx)
                 _load("pole_port",      self._pole_port)
                 _load("pole_baud",      self._pole_baud)
+                # Pole protocol
+                proto = (session.get(Setting, "pole_protocol") or type("", (), {"value": "simple"})()).value
+                for i in range(self._pole_protocol.count()):
+                    if self._pole_protocol.itemData(i) == proto:
+                        self._pole_protocol.setCurrentIndex(i); break
+                # Framing
+                db_val = (session.get(Setting, "pole_databits") or type("", (), {"value": "8"})()).value
+                idx = self._pole_databits.findText(db_val)
+                if idx >= 0: self._pole_databits.setCurrentIndex(idx)
+                par_val = (session.get(Setting, "pole_parity") or type("", (), {"value": "N"})()).value
+                for i in range(self._pole_parity.count()):
+                    if self._pole_parity.itemData(i) == par_val:
+                        self._pole_parity.setCurrentIndex(i); break
+                sb_val = (session.get(Setting, "pole_stopbits") or type("", (), {"value": "1"})()).value
+                idx = self._pole_stopbits.findText(sb_val)
+                if idx >= 0: self._pole_stopbits.setCurrentIndex(idx)
             finally:
                 session.close()
         except Exception:
@@ -826,13 +893,16 @@ class SettingsScreen(QWidget):
                 _save("lbp_rate",       self._lbp_rate)
                 _save("pole_port",      self._pole_port)
 
-                # pos_currency is a QComboBox, save separately
-                cur_val = self._pos_currency.currentText()
-                s_cur = session.get(Setting, "pos_currency")
-                if s_cur:
-                    s_cur.value = cur_val
-                else:
-                    session.add(Setting(key="pos_currency", value=cur_val))
+                def _set(key, val):
+                    s = session.get(Setting, key)
+                    if s: s.value = val
+                    else: session.add(Setting(key=key, value=val))
+
+                _set("pos_currency",  self._pos_currency.currentText())
+                _set("pole_protocol", self._pole_protocol.currentData())
+                _set("pole_databits", self._pole_databits.currentText())
+                _set("pole_parity",   self._pole_parity.currentData())
+                _set("pole_stopbits", self._pole_stopbits.currentText())
                 _save("pole_baud",      self._pole_baud)
                 session.commit()
                 self._gen_status_lbl.setText("✔  Saved.")
@@ -842,6 +912,37 @@ class SettingsScreen(QWidget):
         except Exception as exc:
             self._gen_status_lbl.setText(f"Error: {exc}")
             self._gen_status_lbl.setStyleSheet("font-size:11px; color:#c62828;")
+
+    def _test_pole(self):
+        """Send a test message to the pole display using the current settings."""
+        self._save_general_settings()   # save first so pole_display reads fresh values
+        try:
+            from utils.pole_display import _get_port_settings, _build_packet
+            import serial
+            cfg = _get_port_settings()
+            if not cfg.get("port"):
+                self._pole_test_lbl.setText("No port configured.")
+                return
+            packet = _build_packet("** POLE TEST **", "Hello  12345678", cfg["protocol"])
+            ser = serial.Serial(
+                cfg["port"],
+                baudrate = cfg["baud"],
+                bytesize = cfg["databits"],
+                parity   = cfg["parity"],
+                stopbits = cfg["stopbits"],
+                timeout  = 1,
+            )
+            ser.write(packet)
+            ser.close()
+            self._pole_test_lbl.setText(
+                f"Sent {len(packet)} bytes via {cfg['port']} "
+                f"({cfg['baud']} {cfg['databits']}{cfg['parity']}{int(cfg['stopbits'])}) "
+                f"protocol={cfg['protocol']}"
+            )
+            self._pole_test_lbl.setStyleSheet("font-size:11px; color:#2e7d32;")
+        except Exception as e:
+            self._pole_test_lbl.setText(f"Error: {e}")
+            self._pole_test_lbl.setStyleSheet("font-size:11px; color:#c62828;")
 
     def _do_force_sync(self):
         self._sync_btn.setEnabled(False)
