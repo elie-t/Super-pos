@@ -62,8 +62,8 @@ def _seed_default_admin() -> None:
                 session.commit()
         finally:
             session.close()
-    except Exception:
-        pass
+    except Exception as _e:
+        print(f"[WARNING] _seed_default_admin failed: {_e} — run: pip install -r requirements.txt")
 
 
 def init_db() -> None:
