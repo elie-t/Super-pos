@@ -48,11 +48,12 @@ class StockHub(QWidget):
 
         # Tile grid — 6 columns × 2 rows
         grid = QGridLayout()
-        grid.setSpacing(8)
+        grid.setSpacing(12)
+        grid.setContentsMargins(0, 0, 0, 0)
 
         for i, (label, key) in enumerate(STOCK_TOOLS):
             btn = QPushButton(label)
-            btn.setFixedSize(190, 80)
+            btn.setFixedSize(150, 80)
             btn.setCursor(Qt.PointingHandCursor)
             if key == "rebuild_stock":
                 btn.setStyleSheet("""
@@ -60,8 +61,8 @@ class StockHub(QWidget):
                         font-size: 13px; font-weight: 700;
                         text-align: center;
                         background: #e65100; color: #ffffff;
-                        border: 2px solid #bf360c;
-                        border-radius: 6px;
+                        border: none;
+                        border-radius: 8px;
                     }
                     QPushButton:hover { background: #bf360c; }
                     QPushButton:pressed { background: #8d2200; }
@@ -72,20 +73,23 @@ class StockHub(QWidget):
                         font-size: 13px; font-weight: 700;
                         text-align: center;
                         background: #1a6cb5; color: #ffffff;
-                        border: 2px solid #0d47a1;
-                        border-radius: 6px;
+                        border: none;
+                        border-radius: 8px;
                     }
                     QPushButton:hover { background: #0d47a1; }
                     QPushButton:pressed { background: #082c6b; }
                 """)
             else:
-                btn.setObjectName("hubTile")
                 btn.setStyleSheet("""
-                    QPushButton#hubTile {
-                        font-size: 13px;
-                        font-weight: 600;
+                    QPushButton {
+                        font-size: 13px; font-weight: 600;
                         text-align: center;
+                        background: #ffffff; color: #1a3a5c;
+                        border: 1px solid #c5ccd6;
+                        border-radius: 8px;
                     }
+                    QPushButton:hover { background: #e8f0fb; border-color: #1a6cb5; }
+                    QPushButton:pressed { background: #d0e4f7; }
                 """)
             btn.clicked.connect(lambda checked=False, k=key: self.tool_requested.emit(k))
             row, col = divmod(i, 6)
