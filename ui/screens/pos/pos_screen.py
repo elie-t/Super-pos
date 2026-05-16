@@ -2839,10 +2839,11 @@ class POSScreen(QWidget):
         self._table.setItem(r, COL_DESC,  ro(it.description, Qt.AlignLeft | Qt.AlignVCenter))
         qty_cell = ro(f"{line['qty']:.3f}") if line["qty"] < 0 else ed(f"{line['qty']:.3f}")
         self._table.setItem(r, COL_QTY, qty_cell)
-        self._table.setItem(r, COL_PRICE, ed(f"{line['price']:.0f}"))
+        _pfmt = ".2f" if self._currency == "USD" else ".0f"
+        self._table.setItem(r, COL_PRICE, ed(f"{line['price']:{_pfmt}}"))
         self._table.setItem(r, COL_DISC,  ed(f"{line['disc']:.1f}"))
 
-        tot_cell = ro(f"{line['total']:,.0f}")
+        tot_cell = ro(f"{line['total']:,.{2 if self._currency == 'USD' else 0}f}")
         tot_cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         tot_cell.setFont(QFont("", -1, QFont.Bold))
         self._table.setItem(r, COL_TOT, tot_cell)
@@ -2944,7 +2945,8 @@ class POSScreen(QWidget):
         self._table_updating = True
         tot_cell = self._table.item(row, COL_TOT)
         if tot_cell:
-            tot_cell.setText(f"{self._lines[row]['total']:,.0f}")
+            _fmt = ",.2f" if self._currency == "USD" else ",.0f"
+            tot_cell.setText(f"{self._lines[row]['total']:{_fmt}}")
         self._table_updating = False
         self._update_totals()
         self._update_box_bar(row)
