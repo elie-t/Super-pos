@@ -22,7 +22,7 @@ def _build_receipt_lines(data: dict, payment_method: str, tendered: float,
     is_lbp   = currency == "LBP"
 
     def fmt(v: float) -> str:
-        return f"{v:,.0f} L" if is_lbp else f"$ {v:,.2f}"
+        return f"{v:,.0f} LBP" if is_lbp else f"$ {v:,.2f}"
 
     def rrow(label: str, value: str) -> str:
         value = str(value)
@@ -512,7 +512,7 @@ def _build_transfer_html(
     is_lbp = currency == "LBP"
 
     def fmt(v: float) -> str:
-        return f"{v:,.0f} L" if is_lbp else f"$ {v:,.2f}"
+        return f"{v:,.0f} LBP" if is_lbp else f"$ {v:,.2f}"
 
     L  = "width:72%;padding:1px 2px 1px 0;white-space:normal;word-break:break-word;vertical-align:top;"
     R  = "width:28%;text-align:right;padding:1px 0 1px 2px;white-space:nowrap;vertical-align:top;"
@@ -692,7 +692,7 @@ def print_receipt_escpos(
     is_lbp   = currency == "LBP"
 
     def fmt(v: float) -> str:
-        return f"{v:,.0f} L" if is_lbp else f"$ {v:,.2f}"
+        return f"{v:,.0f} LBP" if is_lbp else f"$ {v:,.2f}"
 
     def rrow(label: str, value: str) -> str:
         label = str(label or "")
