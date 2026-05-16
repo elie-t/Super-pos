@@ -14,9 +14,9 @@ from PySide6.QtCore import QSizeF, QMarginsF
 CHARS_PER_LINE = 48   # conservative safe width for 80mm / 203dpi printers
 
 
-def _build_receipt_text(data: dict, payment_method: str, tendered: float,
-                        width: int = CHARS_PER_LINE) -> str:
-    """Build a plain-text receipt (same layout as ESC/POS) — used for HTML <pre> and Qt print."""
+def _build_receipt_lines(data: dict, payment_method: str, tendered: float,
+                          width: int = CHARS_PER_LINE) -> list:
+    """Return list of (text, is_bold) tuples — used by QPainter and plain-text renderers."""
     W        = width
     currency = data.get("currency", "LBP")
     is_lbp   = currency == "LBP"
@@ -31,27 +31,30 @@ def _build_receipt_text(data: dict, payment_method: str, tendered: float,
         label = label[:lw]
         return f"{label:<{lw}}{value}"
 
-    rows: list[str] = []
+    rows: list[tuple[str, bool]] = []  # (text, bold)
+
+    def add(text: str, bold: bool = False):
+        rows.append((text, bold))
 
     # Header
-    rows.append(data.get("shop_name", "Shop").center(W))
+    add(data.get("shop_name", "Shop").center(W))
     if data.get("shop_address"):
-        rows.append(data["shop_address"].center(W))
+        add(data["shop_address"].center(W))
     if data.get("shop_phone"):
-        rows.append(f"Tel: {data['shop_phone']}".center(W))
+        add(f"Tel: {data['shop_phone']}".center(W))
     if data.get("warehouse") and data.get("warehouse") != data.get("shop_address"):
-        rows.append(data["warehouse"].center(W))
-    rows.append("-" * W)
+        add(data["warehouse"].center(W))
+    add("-" * W)
 
     # Meta
-    rows.append(rrow("Receipt #:", data.get("invoice_number", "")))
-    rows.append(rrow("Date:",      data.get("sale_datetime") or data.get("date", "")))
-    rows.append(rrow("Cashier:",   data.get("cashier", "")))
+    add(rrow("Receipt #:", data.get("invoice_number", "")))
+    add(rrow("Date:",      data.get("sale_datetime") or data.get("date", "")))
+    add(rrow("Cashier:",   data.get("cashier", "")))
     if data.get("customer"):
-        rows.append(rrow("Customer:", data["customer"]))
-    rows.append("-" * W)
+        add(rrow("Customer:", data["customer"]))
+    add("-" * W)
 
-    # Items — two-line format: name then qty x price → total
+    # Items — two-line format: name (bold) then qty x price → total (normal)
     for li in data.get("lines", []):
         desc  = str(li.get("description", ""))
         qty   = li.get("qty",        0)
@@ -59,52 +62,60 @@ def _build_receipt_text(data: dict, payment_method: str, tendered: float,
         total = li.get("total",      0.0)
         disc  = li.get("disc_pct",   0.0)
 
-        # Name line (wrap if needed)
+        # Name line — bold; wrap if needed
+        first = True
         while desc:
-            rows.append(desc[:W])
-            desc = desc[W:]
+            add(desc[:W], bold=first)
+            desc  = desc[W:]
+            first = False
 
         # Detail line: "  qty x price" right-aligned with total
         qty_str  = f"{qty:g}"
         disc_tag = f" (-{disc:.0f}%)" if disc else ""
         detail   = f"  {qty_str} x {fmt(price)}{disc_tag}"
-        rows.append(rrow(detail, fmt(total)))
+        add(rrow(detail, fmt(total)))
 
     # Totals
-    rows.append("-" * W)
-    rows.append(rrow("Subtotal:", fmt(data.get("subtotal", 0.0))))
+    add("-" * W)
+    add(rrow("Subtotal:", fmt(data.get("subtotal", 0.0))))
     if data.get("discount", 0.0):
-        rows.append(rrow("Discount:", f"-{fmt(data['discount'])}"))
+        add(rrow("Discount:", f"-{fmt(data['discount'])}"))
     if data.get("vat", 0.0):
-        rows.append(rrow("VAT (11%):", fmt(data.get("vat", 0.0))))
-    rows.append("=" * W)
-    rows.append(rrow("TOTAL:", fmt(data.get("total", 0.0))))
+        add(rrow("VAT (11%):", fmt(data.get("vat", 0.0))))
+    add("=" * W)
+    add(rrow("TOTAL:", fmt(data.get("total", 0.0))), bold=True)
     line_count = len(data.get("lines", []))
-    rows.append(rrow("Lines:", str(line_count)))
+    add(rrow("Lines:", str(line_count)))
 
     method_label = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
         payment_method, payment_method.capitalize()
     )
-    rows.append(rrow(f"Paid ({method_label}):", fmt(data.get("amount_paid", 0.0))))
+    add(rrow(f"Paid ({method_label}):", fmt(data.get("amount_paid", 0.0))))
 
     change = max(0.0, tendered - data.get("total", 0.0)) if payment_method == "cash" else 0.0
     if change > 0:
-        rows.append(rrow("Change:", fmt(change)))
+        add(rrow("Change:", fmt(change)), bold=True)
 
     # USD equivalent for LBP invoices
     lbp_rate  = int(data.get("lbp_rate") or 0)
     inv_total = data.get("total", 0.0)
     if is_lbp and inv_total and lbp_rate:
         usd_equiv = inv_total / lbp_rate
-        rows.append(rrow("= USD:", f"$ {usd_equiv:,.2f}"))
+        add(rrow("= USD:", f"$ {usd_equiv:,.2f}"))
 
     # Footer
-    rows.append("-" * W)
+    add("-" * W)
     footer = data.get("receipt_footer", "Thank you!")
     if footer:
-        rows.append(footer.center(W))
+        add(footer.center(W))
 
-    return "\n".join(rows)
+    return rows
+
+
+def _build_receipt_text(data: dict, payment_method: str, tendered: float,
+                        width: int = CHARS_PER_LINE) -> str:
+    """Build a plain-text receipt string — used for HTML <pre> and ESC/POS."""
+    return "\n".join(t for t, _ in _build_receipt_lines(data, payment_method, tendered, width))
 
 
 def _build_html(data: dict, payment_method: str, tendered: float) -> str:
@@ -345,17 +356,23 @@ def _render_to_printer(html_or_data, printer: QPrinter, receipt_data: dict = Non
         if data.get("warehouse") and data.get("warehouse") != data.get("shop_address"):
             _draw(data["warehouse"], body_font, _Qt.AlignHCenter)
 
-        # Build and draw the plain-text body — use measured line width
-        body = _build_receipt_text(data, payment_method, tendered, width=qt_chars)
-        # strip header lines (up to first separator)
-        sep = "-" * qt_chars
-        idx = body.find(sep)
-        body = body[idx:] if idx >= 0 else body
+        # Build body lines with bold markers — use measured line width
+        all_lines = _build_receipt_lines(data, payment_method, tendered, width=qt_chars)
+        # Strip header section (up to and including the first separator)
+        sep_text = "-" * qt_chars
+        body_lines = all_lines
+        for i, (txt, _) in enumerate(all_lines):
+            if txt == sep_text:
+                body_lines = all_lines[i:]  # keep from first separator onward
+                break
 
-        painter.setFont(body_font)
-        for line in body.split("\n"):
+        bold_body = QFont(body_font)
+        bold_body.setBold(True)
+
+        for txt, is_bold in body_lines:
             _new_page_if_needed(line_h)
-            painter.drawText(QRectF(0, y, page_w, line_h), _Qt.AlignLeft | _Qt.AlignTop, line)
+            painter.setFont(bold_body if is_bold else body_font)
+            painter.drawText(QRectF(0, y, page_w, line_h), _Qt.AlignLeft | _Qt.AlignTop, txt)
             y += line_h
     else:
         # Fallback: render html string via QTextDocument (legacy / transfer receipts)
