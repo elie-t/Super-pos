@@ -2839,8 +2839,10 @@ class POSScreen(QWidget):
         self._table_updating = False
         self._update_totals()
         self._items_count_lbl.setText(f"Lines: {len(self._lines)}")
-        self._table.scrollToBottom()
-        QTimer.singleShot(0, lambda _r=r: self._build_row_buttons(_r))
+        def _build_and_scroll(_r=r):
+            self._build_row_buttons(_r)
+            self._table.scrollToBottom()
+        QTimer.singleShot(0, _build_and_scroll)
 
     def _refresh_table(self):
         self._table_updating = True
