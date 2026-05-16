@@ -142,6 +142,9 @@ class TouchOverlay(QWidget):
         self._lines_layout.setSpacing(6)
         self._lines_layout.addStretch()
         self._scroll.setWidget(self._lines_widget)
+        self._scroll.verticalScrollBar().rangeChanged.connect(
+            lambda _min, _max: self._scroll.verticalScrollBar().setValue(_max)
+        )
         lay.addWidget(self._scroll, 1)
 
         # ── Grand total ───────────────────────────────────────────────────────
@@ -239,8 +242,6 @@ class TouchOverlay(QWidget):
 
         for idx, line in enumerate(lines):
             layout.insertWidget(layout.count() - 1, self._make_line_widget(idx, line))
-
-        QTimer.singleShot(0, self._scroll_to_bottom)
 
         # Totals
         subtotal = sum(l["qty"] * l["price"] * (1 - l["disc"] / 100) for l in lines)
