@@ -42,9 +42,9 @@ class TouchOverlay(QWidget):
         # Right — live cart
         splitter.addWidget(self._make_cart_panel())
 
-        splitter.setStretchFactor(0, 65)
-        splitter.setStretchFactor(1, 35)
-        splitter.setSizes([800, 400])
+        splitter.setStretchFactor(0, 68)
+        splitter.setStretchFactor(1, 32)
+        splitter.setSizes([900, 320])
         root.addWidget(splitter)
 
     def _make_cart_panel(self) -> QWidget:
@@ -64,12 +64,13 @@ class TouchOverlay(QWidget):
         self._cust_lbl.setStyleSheet("color:#f0c040;font-size:15px;font-weight:700;")
         hl.addWidget(self._cust_lbl)
 
-        cust_btn = QPushButton("👥  Customer")
-        cust_btn.setFixedHeight(34)
+        cust_btn = QPushButton("👥")
+        cust_btn.setFixedSize(36, 34)
         cust_btn.setCursor(Qt.PointingHandCursor)
+        cust_btn.setToolTip("Change Customer")
         cust_btn.setStyleSheet(
             "QPushButton{background:#5c6bc0;color:#fff;border:none;"
-            "border-radius:5px;font-size:12px;font-weight:700;padding:0 14px;}"
+            "border-radius:5px;font-size:16px;}"
             "QPushButton:hover{background:#3949ab;}"
         )
         cust_btn.clicked.connect(lambda: self._pos._change_customer())
