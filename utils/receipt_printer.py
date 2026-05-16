@@ -129,15 +129,15 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
 
     # ── Styled header (shop name big, address/phone smaller) ──────────────────
     header = (
-        f"<div style='text-align:center;font-family:monospace;font-size:14pt;"
-        f"font-weight:700;letter-spacing:1px;margin-bottom:2px;'>{e(data.get('shop_name',''))}</div>"
+        f"<div style='text-align:center;font-family:monospace;font-size:12pt;"
+        f"font-weight:700;letter-spacing:1px;margin-bottom:1px;'>{e(data.get('shop_name',''))}</div>"
     )
     if data.get("shop_address"):
-        header += f"<div style='text-align:center;font-family:monospace;font-size:8pt;line-height:1.3;'>{e(data['shop_address'])}</div>"
+        header += f"<div style='text-align:center;font-family:monospace;font-size:6.5pt;line-height:1.2;'>{e(data['shop_address'])}</div>"
     if data.get("shop_phone"):
-        header += f"<div style='text-align:center;font-family:monospace;font-size:8pt;line-height:1.3;'>Tel: {e(data['shop_phone'])}</div>"
+        header += f"<div style='text-align:center;font-family:monospace;font-size:6.5pt;line-height:1.2;'>Tel: {e(data['shop_phone'])}</div>"
     if data.get("warehouse") and data.get("warehouse") != data.get("shop_address"):
-        header += f"<div style='text-align:center;font-family:monospace;font-size:8pt;line-height:1.3;'>{e(data['warehouse'])}</div>"
+        header += f"<div style='text-align:center;font-family:monospace;font-size:6.5pt;line-height:1.2;'>{e(data['warehouse'])}</div>"
 
     # ── Body: plain text starting from the first separator ────────────────────
     full_text = _build_receipt_text(data, payment_method, tendered)
@@ -152,7 +152,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         "<html dir='ltr'><head><meta charset='utf-8'></head>"
         "<body dir='ltr' style='margin:0;padding:0;'>"
         f"{header}"
-        f"<pre style='font-family:monospace;font-size:8pt;line-height:1.25;"
+        f"<pre style='font-family:monospace;font-size:6.5pt;line-height:1.15;"
         f"white-space:pre;margin:0;padding:0;color:#000;'>{escaped}</pre>"
         "</body></html>"
     )
