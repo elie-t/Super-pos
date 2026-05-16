@@ -2761,7 +2761,7 @@ class POSScreen(QWidget):
 
     def _pole_show_welcome(self):
         try:
-            from utils.pole_display import pole_show
+            from utils.pole_display import pole_show, _get_port_settings
             from database.engine import get_session, init_db
             from database.models.items import Setting
             init_db()
@@ -2771,16 +2771,25 @@ class POSScreen(QWidget):
                 name = (_sn.value if _sn else "Welcome!")[:20]
             finally:
                 _s.close()
-            pole_show(name, "")
+            cfg = _get_port_settings()
+            if cfg.get("protocol") == "led8n":
+                pole_show("00000000", "00000000")
+            else:
+                pole_show(name, "")
         except Exception:
             pass
 
     def _pole_show_item(self, description: str, qty: float, unit_price: float):
         try:
-            from utils.pole_display import pole_show
-            line1 = description[:20]
-            line2 = f"{qty:g} x {unit_price:,.0f}"[:20]
-            pole_show(line1, line2)
+            from utils.pole_display import pole_show, _get_port_settings, _digits_only
+            cfg = _get_port_settings()
+            if cfg.get("protocol") == "led8n":
+                grand = self._grand_total()
+                pole_show(_digits_only(f"{unit_price:.0f}"), _digits_only(f"{grand:.0f}"))
+            else:
+                line1 = description[:20]
+                line2 = f"{qty:g} x {unit_price:,.0f}"[:20]
+                pole_show(line1, line2)
         except Exception:
             pass
 
@@ -2980,8 +2989,12 @@ class POSScreen(QWidget):
             return
         total = self._grand_total()
         try:
-            from utils.pole_display import pole_show
-            pole_show("Total:", f"{total:,.0f}"[:20])
+            from utils.pole_display import pole_show, _get_port_settings, _digits_only
+            cfg = _get_port_settings()
+            if cfg.get("protocol") == "led8n":
+                pole_show("00000000", _digits_only(f"{total:.0f}"))
+            else:
+                pole_show("Total:", f"{total:,.0f}"[:20])
         except Exception:
             pass
         dlg = PaymentDialog(total, self, currency=self._currency, lbp_rate=self._lbp_rate)
