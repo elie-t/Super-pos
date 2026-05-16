@@ -3049,9 +3049,12 @@ class POSScreen(QWidget):
             self._last_payment_method = dlg.method
             self._last_tendered       = dlg.tendered
             change = max(0.0, dlg.tendered - total) if dlg.method == "cash" else 0.0
-            change_txt = f"  Change ل.ل {change:,.0f}" if change > 0 else ""
-            self._last_inv_amt_lbl.setText(f"ل.ل {total:,.0f}{change_txt}")
-            self._touch_overlay.set_last_invoice(f"ل.ل {total:,.0f}{change_txt}")
+            _sym = "$" if self._currency == "USD" else "ل.ل"
+            _fmt = ",.2f" if self._currency == "USD" else ",.0f"
+            change_txt = f"  Change {_sym} {change:{_fmt}}" if change > 0 else ""
+            inv_txt = f"{_sym} {total:{_fmt}}{change_txt}"
+            self._last_inv_amt_lbl.setText(inv_txt)
+            self._touch_overlay.set_last_invoice(inv_txt)
             self._active_online_order_id = ""
             if self._print_copies == 1:   # ON only — ×2 is manual via F9
                 self._print_receipt(result, dlg.method, dlg.tendered)

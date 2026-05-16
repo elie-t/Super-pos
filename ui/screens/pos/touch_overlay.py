@@ -145,7 +145,8 @@ class TouchOverlay(QWidget):
         self._usd_lbl.setAlignment(Qt.AlignRight)
         self._usd_lbl.setStyleSheet("color:#607d8b;font-size:15px;")
         tl.addWidget(self._usd_lbl)
-        self._total_lbl = QLabel("ل.ل  0")
+        _cur = getattr(self._pos, "_currency", "LBP")
+        self._total_lbl = QLabel(f"{'$' if _cur == 'USD' else 'ل.ل'}  0")
         self._total_lbl.setAlignment(Qt.AlignRight)
         self._total_lbl.setStyleSheet(
             "color:#00e676;font-size:30px;font-weight:700;letter-spacing:1px;"
@@ -210,9 +211,13 @@ class TouchOverlay(QWidget):
             if child.widget():
                 child.widget().deleteLater()
 
+        cur = getattr(pos, "_currency", "LBP")
+        rate = getattr(pos, "_lbp_rate", 89_500) or 89_500
+        sym = "$" if cur == "USD" else "ل.ل"
+
         if not lines:
             self._count_lbl.setText("No items")
-            self._total_lbl.setText("ل.ل  0")
+            self._total_lbl.setText(f"{sym}  0")
             self._usd_lbl.setText("")
             return
 
@@ -228,13 +233,14 @@ class TouchOverlay(QWidget):
         subtotal = sum(l["qty"] * l["price"] * (1 - l["disc"] / 100) for l in lines)
         disc_val = subtotal * (pos._global_disc.value() / 100)
         grand    = subtotal - disc_val
-        self._total_lbl.setText(f"ل.ل  {grand:,.0f}")
-        try:
-            from ui.screens.pos.pos_screen import LBP_RATE
-            usd = grand / LBP_RATE if grand else 0.0
+        if cur == "USD":
+            self._total_lbl.setText(f"$  {grand:,.2f}")
+            lbp = grand * rate
+            self._usd_lbl.setText(f"≈ ل.ل {lbp:,.0f}" if grand else "")
+        else:
+            self._total_lbl.setText(f"ل.ل  {grand:,.0f}")
+            usd = grand / rate if grand else 0.0
             self._usd_lbl.setText(f"≈ $ {usd:,.2f}" if grand else "")
-        except Exception:
-            self._usd_lbl.setText("")
 
     def set_last_invoice(self, text: str):
         self._last_inv_lbl.setText(text if text and text != "—" else "—")
@@ -299,7 +305,8 @@ class TouchOverlay(QWidget):
 
         ctrl.addStretch()
 
-        tot_lbl = QLabel(f"ل.ل {total:,.0f}")
+        cur = getattr(self._pos, "_currency", "LBP")
+        tot_lbl = QLabel(f"{'$' if cur == 'USD' else 'ل.ل'} {total:,.{'2' if cur == 'USD' else '0'}f}")
         tot_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         tot_lbl.setStyleSheet("color:#00e676;font-size:13px;font-weight:700;")
         ctrl.addWidget(tot_lbl)
