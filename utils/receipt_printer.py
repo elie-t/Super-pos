@@ -44,7 +44,7 @@ def _build_receipt_text(data: dict, payment_method: str, tendered: float) -> str
 
     # Meta
     rows.append(rrow("Receipt #:", data.get("invoice_number", "")))
-    rows.append(rrow("Date:",      data.get("date", "")))
+    rows.append(rrow("Date:",      data.get("sale_datetime") or data.get("date", "")))
     rows.append(rrow("Cashier:",   data.get("cashier", "")))
     if data.get("customer"):
         rows.append(rrow("Customer:", data["customer"]))
@@ -90,6 +90,13 @@ def _build_receipt_text(data: dict, payment_method: str, tendered: float) -> str
     if change > 0:
         rows.append(rrow("Change:", fmt(change)))
 
+    # USD equivalent for LBP invoices
+    lbp_rate  = int(data.get("lbp_rate") or 0)
+    inv_total = data.get("total", 0.0)
+    if is_lbp and inv_total and lbp_rate:
+        usd_equiv = inv_total / lbp_rate
+        rows.append(rrow("= USD:", f"$ {usd_equiv:,.2f}"))
+
     # Footer
     rows.append("-" * W)
     footer = data.get("receipt_footer", "Thank you!")
@@ -118,20 +125,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
         except Exception:
             pass
 
-    text = _build_receipt_text(data, payment_method, tendered)
-
-    # Add USD equivalent line if LBP invoice
-    currency  = data.get("currency", "LBP")
-    lbp_rate  = int(data.get("lbp_rate") or 0)
-    inv_total = data.get("total", 0.0)
-    if currency == "LBP" and inv_total and lbp_rate:
-        W = CHARS_PER_LINE
-        usd_val = inv_total / lbp_rate
-        usd_str = f"$ {usd_val:,.2f}"
-        label   = "= USD:"
-        lw = W - len(usd_str)
-        text += f"\n{label:<{lw}}{usd_str}"
-
+    text    = _build_receipt_text(data, payment_method, tendered)
     escaped = _h.escape(text)
     return (
         "<html dir='ltr'><head><meta charset='utf-8'></head>"
