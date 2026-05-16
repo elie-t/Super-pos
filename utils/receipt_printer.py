@@ -308,7 +308,7 @@ def _render_to_printer(html: str, printer: QPrinter) -> None:
     from PySide6.QtCore import Qt as _Qt, QRectF
 
     doc = QTextDocument()
-    doc.setDocumentMargin(20)
+    doc.setDocumentMargin(2)
     doc.setDefaultStyleSheet("html, body, table { margin:0; padding:0; border:0; }")
     # Force LTR so Arabic item names don't flip the whole document to RTL
     opt = QTextOption()
