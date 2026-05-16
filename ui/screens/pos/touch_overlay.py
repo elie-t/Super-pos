@@ -178,16 +178,29 @@ class TouchOverlay(QWidget):
         bl.setContentsMargins(8, 10, 8, 10)
         bl.setSpacing(8)
 
-        clear_btn = QPushButton("🧹  Clear")
-        clear_btn.setFixedHeight(52)
+        clear_btn = QPushButton("🧹")
+        clear_btn.setFixedSize(52, 52)
         clear_btn.setCursor(Qt.PointingHandCursor)
+        clear_btn.setToolTip("Clear sale")
         clear_btn.setStyleSheet(
-            "QPushButton{background:#b71c1c;color:#fff;font-size:14px;"
+            "QPushButton{background:#b71c1c;color:#fff;font-size:20px;"
             "font-weight:700;border:none;border-radius:8px;}"
             "QPushButton:hover{background:#7f0000;}"
         )
         clear_btn.clicked.connect(lambda: self._pos._clear_all())
-        bl.addWidget(clear_btn, 1)
+        bl.addWidget(clear_btn)
+
+        print_btn = QPushButton("🖨")
+        print_btn.setFixedSize(52, 52)
+        print_btn.setCursor(Qt.PointingHandCursor)
+        print_btn.setToolTip("Print last receipt")
+        print_btn.setStyleSheet(
+            "QPushButton{background:#37474f;color:#fff;font-size:20px;"
+            "font-weight:700;border:none;border-radius:8px;}"
+            "QPushButton:hover{background:#263238;}"
+        )
+        print_btn.clicked.connect(lambda: self._pos._print_last())
+        bl.addWidget(print_btn)
 
         pay_btn = QPushButton("💳   PAY")
         pay_btn.setFixedHeight(52)

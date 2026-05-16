@@ -3055,8 +3055,10 @@ class POSScreen(QWidget):
             self._last_inv_amt_lbl.setText(inv_txt)
             self._touch_overlay.set_last_invoice(inv_txt)
             self._active_online_order_id = ""
-            if self._print_copies == 1:   # ON only — ×2 is manual via F9
-                self._print_receipt(result, dlg.method, dlg.tendered)
+            if self._print_copies > 0:
+                copies = self._print_copies
+                for _ in range(copies):
+                    self._print_receipt(result, dlg.method, dlg.tendered)
             self._new_sale()
         else:
             QMessageBox.critical(self, "Error", f"Failed to save sale:\n{result}")
