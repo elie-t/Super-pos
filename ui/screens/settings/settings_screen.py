@@ -951,10 +951,11 @@ class SettingsScreen(QWidget):
             )
             ser.write(packet)
             ser.close()
+            hex_str = " ".join(f"{b:02X}" for b in packet)
             self._pole_test_lbl.setText(
-                f"Sent {len(packet)} bytes via {cfg['port']} "
-                f"({cfg['baud']} {cfg['databits']}{cfg['parity']}{int(cfg['stopbits'])}) "
-                f"protocol={cfg['protocol']}"
+                f"OK — {len(packet)} bytes via {cfg['port']} "
+                f"({cfg['baud']} {cfg['databits']}{cfg['parity']}{int(cfg['stopbits'])})  "
+                f"HEX: {hex_str}"
             )
             self._pole_test_lbl.setStyleSheet("font-size:11px; color:#2e7d32;")
         except Exception as e:

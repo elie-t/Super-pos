@@ -74,6 +74,12 @@ class _VirtualKBSuppressor(QObject):
 
 
 def main():
+    import logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
     _disable_windows_touch_keyboard()
     init_db()
 
