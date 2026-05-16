@@ -100,86 +100,11 @@ def _build_receipt_text(data: dict, payment_method: str, tendered: float) -> str
 
 
 def _build_html(data: dict, payment_method: str, tendered: float) -> str:
-    """Build a two-column table receipt — robust on any Qt printer/paper."""
+    """Render receipt as <pre> plain text — no HTML table, no Qt kerning artifacts."""
     import html as _h
 
-    currency = data.get("currency", "LBP")
-    is_lbp   = currency == "LBP"
-
-    def fmt(v: float) -> str:
-        return f"{v:,.0f} L" if is_lbp else f"$ {v:,.2f}"
-
-    def e(s) -> str:
-        return _h.escape(str(s))
-
-    # Left col 62%, right col 38% — fixed layout prevents Qt squeezing labels
-    L = "width:56%;padding:0 1px 0 0;white-space:nowrap;overflow:hidden;vertical-align:top;"
-    R = "width:44%;text-align:right;padding:0 0 0 1px;white-space:nowrap;overflow:hidden;vertical-align:top;"
-
-    def row2(left, right, bold=False) -> str:
-        b0, b1 = ("<b>", "</b>") if bold else ("", "")
-        return (
-            f"<tr><td style='{L}'>{b0}{e(left)}{b1}</td>"
-            f"<td style='{R}'>{b0}{e(right)}{b1}</td></tr>"
-        )
-
-    def sep(dbl=False) -> str:
-        return f"<tr><td colspan='2' style='border-top:1px {'solid' if dbl else 'dashed'} #000;padding:0;margin:0;height:2px;line-height:2px;font-size:1pt;'></td></tr>"
-    # ── Header ────────────────────────────────────────────────────────────────
-    header = (
-        f"<div style='text-align:center;font-size:13pt;font-weight:700;'>{e(data.get('shop_name',''))}</div>"
-    )
-    if data.get("shop_address"):
-        header += f"<div style='text-align:center;font-size:10pt;line-height:1.0;margin:0;'>{e(data['shop_address'])}</div>"
-    if data.get("shop_phone"):
-        header += f"<div style='text-align:center;font-size:9pt;line-height:1.0;margin:0;'>Tel: {e(data['shop_phone'])}</div>"
-    if data.get("warehouse") and data.get("warehouse") != data.get("shop_address"):
-        header += f"<div style='text-align:center;font-size:9pt;line-height:1.0;margin:0;'>{e(data['warehouse'])}</div>"
-
-    # ── Meta rows ─────────────────────────────────────────────────────────────
-    meta = (
-        row2("Receipt #:", data.get("invoice_number", "")) +
-        row2("Date:",       data.get("sale_datetime") or data.get("date", "")) +
-        row2("Cashier:",    data.get("cashier", ""))
-    )
-    if data.get("customer"):
-        meta += row2("Customer:", data["customer"])
-
-    # ── Item rows ─────────────────────────────────────────────────────────────
-    items_html = ""
-    for li in data.get("lines", []):
-        desc  = li.get("description", "")
-        qty   = li.get("qty",        0)
-        price = li.get("unit_price", 0.0)
-        total = li.get("total",      0.0)
-        disc  = li.get("disc_pct",   0.0)
-        qty_str  = f"{qty:g}"
-        disc_tag = f" (-{disc:.0f}%)" if disc else ""
-        detail   = f"  {qty_str} x {fmt(price)}{disc_tag}"
-        items_html += (
-            f"<tr><td colspan='2' style='padding:1px 0 0 0;font-size:7pt;line-height:1.05;'>{e(desc)}</td></tr>"
-            + row2(detail, fmt(total))
-        )
-
-    # ── Totals ────────────────────────────────────────────────────────────────
-    method_label = {"cash": "Cash", "card": "Card", "account": "Account"}.get(
-        payment_method, payment_method.capitalize()
-    )
-    inv_total  = data.get("total", 0.0)
-    change = max(0.0, tendered - inv_total) if payment_method == "cash" else 0.0
-
-    totals = row2("Subtotal:", fmt(data.get("subtotal", 0.0)))
-    if data.get("discount", 0.0):
-        totals += row2("Discount:", f"-{fmt(data['discount'])}")
-    if data.get("vat", 0.0):
-        totals += row2("VAT (11%):", fmt(data.get("vat", 0.0)))
-    totals += row2("TOTAL:", fmt(inv_total), bold=True)
-    totals += row2("Lines:", str(len(data.get("lines", []))))
-    totals += row2(f"Paid ({method_label}):", fmt(data.get("amount_paid", 0.0)))
-
-    # ── USD equivalent row ─────────────────────────────────────────────────
-    lbp_rate = int(data.get("lbp_rate") or 0)
-    if not lbp_rate:
+    # Add LBP rate to data so _build_receipt_text can use it for USD equivalent
+    if not data.get("lbp_rate"):
         try:
             from database.engine import get_session, init_db
             from database.models.items import Setting
@@ -187,27 +112,34 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
             _sess = get_session()
             try:
                 _r = _sess.get(Setting, "lbp_rate")
-                lbp_rate = int(_r.value) if _r and _r.value else 0
+                data = dict(data, lbp_rate=int(_r.value) if _r and _r.value else 0)
             finally:
                 _sess.close()
         except Exception:
             pass
-    if is_lbp and inv_total and lbp_rate:
-        usd_equiv = inv_total / lbp_rate
-        totals += row2("USD:", f"$ {usd_equiv:,.2f}", bold=True)
 
-    footer = e(data.get("receipt_footer", "Thank you!"))
+    text = _build_receipt_text(data, payment_method, tendered)
 
-    return f"""<html dir='ltr'><head><meta charset='utf-8'></head>
-<body dir='ltr' style='margin:0;padding:0;font-family:monospace;font-size:7pt;line-height:1.2;color:#000000;'>{header}
-<table style='width:100%;table-layout:fixed;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
-  {sep()}{meta}
-  {sep()}{items_html}
-  {sep()}{totals}
-  {sep()}
-</table>
-<div style='text-align:center;margin-top:6px;font-size:9pt;line-height:1.0;'>{footer}</div>
-</body></html>"""
+    # Add USD equivalent line if LBP invoice
+    currency  = data.get("currency", "LBP")
+    lbp_rate  = int(data.get("lbp_rate") or 0)
+    inv_total = data.get("total", 0.0)
+    if currency == "LBP" and inv_total and lbp_rate:
+        W = CHARS_PER_LINE
+        usd_val = inv_total / lbp_rate
+        usd_str = f"$ {usd_val:,.2f}"
+        label   = "= USD:"
+        lw = W - len(usd_str)
+        text += f"\n{label:<{lw}}{usd_str}"
+
+    escaped = _h.escape(text)
+    return (
+        "<html dir='ltr'><head><meta charset='utf-8'></head>"
+        "<body dir='ltr' style='margin:0;padding:0;'>"
+        f"<pre style='font-family:monospace;font-size:8pt;line-height:1.25;"
+        f"white-space:pre;margin:0;padding:0;color:#000;'>{escaped}</pre>"
+        "</body></html>"
+    )
 
 
 def _is_escpos_configured() -> bool:
