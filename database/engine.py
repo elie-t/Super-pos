@@ -37,7 +37,7 @@ def _seed_default_admin() -> None:
     """Create built-in admin account and default warehouse if the DB is fresh."""
     try:
         from database.models.users import User
-        from database.models.stock import Warehouse
+        from database.models.items import Warehouse
         from database.models.base import new_uuid
         import bcrypt
         session = SessionLocal()
