@@ -1893,6 +1893,10 @@ class POSScreen(QWidget):
             "border:2px solid #1a6cb5;font-size:16px;font-weight:700;"
             "min-height:36px;padding:0 4px;}"
         )
+        # Always keep the last row visible — snap to bottom on any content change
+        self._table.verticalScrollBar().rangeChanged.connect(
+            lambda _min, _max: self._table.verticalScrollBar().setValue(_max)
+        )
         lay.addWidget(self._table, 1)
 
         # ── Action bar ────────────────────────────────────────────────────
@@ -2901,10 +2905,7 @@ class POSScreen(QWidget):
         self._table_updating = False
         self._update_totals()
         self._items_count_lbl.setText(f"Lines: {len(self._lines)}")
-        def _build_and_scroll(_r=r):
-            self._build_row_buttons(_r)
-            self._table.scrollToBottom()
-        QTimer.singleShot(0, _build_and_scroll)
+        QTimer.singleShot(0, lambda _r=r: self._build_row_buttons(_r))
 
     def _refresh_table(self):
         self._table_updating = True
@@ -2917,8 +2918,6 @@ class POSScreen(QWidget):
         self._table_updating = False
         self._update_totals()
         self._items_count_lbl.setText(f"Lines: {len(self._lines)}")
-        if self._lines:
-            self._table.scrollToBottom()
 
     def _on_cell_edited(self, item):
         if self._table_updating:
