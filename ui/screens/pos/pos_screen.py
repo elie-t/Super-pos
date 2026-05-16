@@ -52,13 +52,16 @@ COL_DEL   = 7
 # ──────────────────────────────────────────────────────────────────────────────
 
 class PaymentDialog(QDialog):
-    def __init__(self, grand_total: float, parent=None):
+    def __init__(self, grand_total: float, parent=None,
+                 currency: str = "LBP", lbp_rate: int = 89_500):
         super().__init__(parent)
         self.setWindowTitle("Payment")
         self.setFixedSize(500, 460)
-        self._total   = grand_total
-        self.method   = "cash"
-        self.tendered = grand_total
+        self._total    = grand_total
+        self._currency = currency
+        self._lbp_rate = lbp_rate
+        self.method    = "cash"
+        self.tendered  = grand_total
         self._build()
 
     def _build(self):
@@ -78,28 +81,25 @@ class PaymentDialog(QDialog):
         hl.addStretch()
         tot_col = QVBoxLayout()
         tot_col.setSpacing(2)
-        tot = QLabel(f"ل.ل  {self._total:,.0f}")
+        if self._currency == "USD":
+            tot_txt = f"$  {self._total:,.2f}"
+        else:
+            tot_txt = f"ل.ل  {self._total:,.0f}"
+        tot = QLabel(tot_txt)
         tot.setStyleSheet("color:#00e676;font-size:24px;font-weight:700;")
         tot.setAlignment(Qt.AlignRight)
         tot_col.addWidget(tot)
-        try:
-            from database.engine import get_session, init_db
-            from database.models.items import Setting
-            init_db()
-            _s = get_session()
-            try:
-                _r = _s.get(Setting, "lbp_rate")
-                lbp_rate = int(_r.value) if _r and _r.value else 0
-            finally:
-                _s.close()
-            if lbp_rate:
-                usd = self._total / lbp_rate
-                usd_lbl = QLabel(f"$  {usd:,.2f}")
-                usd_lbl.setStyleSheet("color:#80cbc4;font-size:14px;font-weight:600;")
-                usd_lbl.setAlignment(Qt.AlignRight)
-                tot_col.addWidget(usd_lbl)
-        except Exception:
-            pass
+        # Show equivalent in the other currency
+        if self._currency == "LBP" and self._lbp_rate:
+            usd_lbl = QLabel(f"$  {self._total / self._lbp_rate:,.2f}")
+            usd_lbl.setStyleSheet("color:#80cbc4;font-size:14px;font-weight:600;")
+            usd_lbl.setAlignment(Qt.AlignRight)
+            tot_col.addWidget(usd_lbl)
+        elif self._currency == "USD" and self._lbp_rate:
+            lbp_lbl = QLabel(f"ل.ل  {self._total * self._lbp_rate:,.0f}")
+            lbp_lbl.setStyleSheet("color:#80cbc4;font-size:14px;font-weight:600;")
+            lbp_lbl.setAlignment(Qt.AlignRight)
+            tot_col.addWidget(lbp_lbl)
         hl.addLayout(tot_col)
         lay.addWidget(hdr)
 
@@ -142,11 +142,13 @@ class PaymentDialog(QDialog):
         tf.setContentsMargins(16, 12, 16, 12)
         tf.setSpacing(10)
 
-        tender_lbl = QLabel("Amount Tendered  (ل.ل)")
+        cur_sym = "$" if self._currency == "USD" else "ل.ل"
+        tender_lbl = QLabel(f"Amount Tendered  ({cur_sym})")
         tender_lbl.setStyleSheet("font-size:12px;font-weight:700;color:#6680a0;")
         tf.addWidget(tender_lbl)
 
-        self._tender_input = QLineEdit(f"{self._total:,.0f}")
+        fmt = f"{self._total:,.2f}" if self._currency == "USD" else f"{self._total:,.0f}"
+        self._tender_input = QLineEdit(fmt)
         self._tender_input.setFixedHeight(52)
         self._tender_input.setAlignment(Qt.AlignRight)
         self._tender_input.setStyleSheet(
@@ -163,15 +165,15 @@ class PaymentDialog(QDialog):
         change_lbl.setStyleSheet("font-size:14px;color:#445566;font-weight:600;")
         change_row.addWidget(change_lbl)
         change_row.addStretch()
-        self._change_lbl = QLabel("ل.ل  0")
+        self._change_lbl = QLabel(f"{cur_sym}  0")
         self._change_lbl.setStyleSheet("font-size:22px;font-weight:700;color:#2e7d32;")
         change_row.addWidget(self._change_lbl)
         tf.addLayout(change_row)
 
         bl.addWidget(tender_frame)
 
-        # ── LBP quick amounts ──────────────────────────────────────────────
-        quick_lbl = QLabel("Quick Amount  (ل.ل):")
+        # ── Quick amounts ──────────────────────────────────────────────────
+        quick_lbl = QLabel(f"Quick Amount  ({cur_sym}):")
         quick_lbl.setStyleSheet("font-size:11px;font-weight:700;color:#6680a0;")
         bl.addWidget(quick_lbl)
 
@@ -188,9 +190,15 @@ class PaymentDialog(QDialog):
         exact_btn.clicked.connect(lambda: self._set_tender(self._total))
         qrow.addWidget(exact_btn)
 
-        for amt in LBP_NOTES:
-            lbl_text = f"{amt // 1000}K" if amt < 1_000_000 else f"{amt // 1_000_000}M"
-            b = QPushButton(lbl_text)
+        if self._currency == "USD":
+            quick_amounts = [1, 5, 10, 20, 50, 100]
+            def _lbl(a): return f"${a}"
+        else:
+            quick_amounts = LBP_NOTES
+            def _lbl(a): return f"{a // 1000}K" if a < 1_000_000 else f"{a // 1_000_000}M"
+
+        for amt in quick_amounts:
+            b = QPushButton(_lbl(amt))
             b.setFixedHeight(36)
             b.setStyleSheet(
                 "QPushButton{background:#1a6cb5;color:#fff;font-size:12px;font-weight:700;"
@@ -248,7 +256,8 @@ class PaymentDialog(QDialog):
             btn.setChecked(k == key)
 
     def _set_tender(self, amount: float):
-        self._tender_input.setText(f"{amount:,.0f}")
+        fmt = f"{amount:,.2f}" if self._currency == "USD" else f"{amount:,.0f}"
+        self._tender_input.setText(fmt)
         self._tender_input.selectAll()
 
     def _update_change(self):
@@ -256,24 +265,24 @@ class PaymentDialog(QDialog):
         try:
             tendered = float(txt)
         except ValueError:
-            tendered = self._total   # blank = exact
+            tendered = self._total
         change = tendered - self._total
         self.tendered = tendered
-        if change >= 0:
-            self._change_lbl.setText(f"ل.ل  {change:,.0f}")
-            self._change_lbl.setStyleSheet("font-size:22px;font-weight:700;color:#2e7d32;")
-        else:
-            self._change_lbl.setText(f"ل.ل  {change:,.0f}")
-            self._change_lbl.setStyleSheet("font-size:22px;font-weight:700;color:#c62828;")
+        cur_sym = "$" if self._currency == "USD" else "ل.ل"
+        fmt = f"{change:,.2f}" if self._currency == "USD" else f"{change:,.0f}"
+        self._change_lbl.setText(f"{cur_sym}  {fmt}")
+        color = "#2e7d32" if change >= 0 else "#c62828"
+        self._change_lbl.setStyleSheet(f"font-size:22px;font-weight:700;color:{color};")
 
     def _confirm(self):
         txt = self._tender_input.text().strip().replace(",", "")
         try:
             self.tendered = float(txt)
         except ValueError:
-            self.tendered = self._total  # blank = exact
-        # allow 1 LBP tolerance for rounding
-        if self.method == "cash" and self.tendered < self._total - 1:
+            self.tendered = self._total
+        # tolerance: 1 LBP or $0.01
+        tol = 0.01 if self._currency == "USD" else 1
+        if self.method == "cash" and self.tendered < self._total - tol:
             QMessageBox.warning(self, "Insufficient",
                                 "Tendered amount is less than the total.")
             return
@@ -1485,8 +1494,35 @@ class OnlineOrdersDialog(QDialog):
 # Main POS Screen
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _read_setting(key: str, default: str = "") -> str:
+    try:
+        from database.engine import get_session, init_db
+        from database.models.items import Setting
+        init_db()
+        s = get_session()
+        try:
+            row = s.get(Setting, key)
+            return row.value if row and row.value else default
+        finally:
+            s.close()
+    except Exception:
+        return default
+
+
 class POSScreen(QWidget):
     back = Signal()
+
+    @staticmethod
+    def _load_pos_currency() -> str:
+        return _read_setting("pos_currency", "LBP")
+
+    @staticmethod
+    def _load_lbp_rate() -> int:
+        val = _read_setting("lbp_rate", str(LBP_RATE))
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return LBP_RATE
     # Thread-safe signal to notify UI when background sync finishes
     _prices_sync_finished_sig = Signal(int, str)
 
@@ -1496,7 +1532,8 @@ class POSScreen(QWidget):
         self._lines: list[dict] = []
         self._customer_id   = ""
         self._customer_name = "Walk-In"
-        self._currency      = CURRENCY
+        self._currency      = self._load_pos_currency()
+        self._lbp_rate      = self._load_lbp_rate()
         self._table_updating = False
         self._last_invoice_id      = ""
         self._last_payment_method  = "cash"
@@ -1635,7 +1672,8 @@ class POSScreen(QWidget):
         self._refresh_prices_btn.clicked.connect(self._refresh_prices)
         lay.addWidget(self._refresh_prices_btn)
 
-        self._pos_title_lbl = QLabel("🖥️  POS — Point of Sale  (ل.ل  LBP)")
+        _cur_sym = "ل.ل  LBP" if self._currency == "LBP" else "$  USD"
+        self._pos_title_lbl = QLabel(f"🖥️  POS — Point of Sale  ({_cur_sym})")
         self._pos_title_lbl.setStyleSheet("color:#fff;font-size:14px;font-weight:700;margin-left:8px;")
         lay.addWidget(self._pos_title_lbl)
 
@@ -1953,8 +1991,9 @@ class POSScreen(QWidget):
             tl.addLayout(row)
             return val
 
-        self._sub_lbl   = tot_row("Sub-Total  ل.ل:")
-        self._disc_lbl2 = tot_row("Discount   ل.ل:", color="#f0c040")
+        _csym = "ل.ل" if self._currency == "LBP" else "$"
+        self._sub_lbl   = tot_row(f"Sub-Total  {_csym}:")
+        self._disc_lbl2 = tot_row(f"Discount   {_csym}:", color="#f0c040")
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
@@ -1962,7 +2001,7 @@ class POSScreen(QWidget):
         sep.setFixedHeight(1)
         tl.addWidget(sep)
 
-        grand_lbl = QLabel("GRAND TOTAL  (ل.ل)")
+        grand_lbl = QLabel(f"GRAND TOTAL  ({'ل.ل' if self._currency == 'LBP' else '$'})")
         grand_lbl.setStyleSheet(
             "color:#a8c8e8;font-size:11px;font-weight:700;"
             "letter-spacing:1px;background:transparent;"
@@ -2182,7 +2221,8 @@ class POSScreen(QWidget):
 
         # Update POS title with branch name
         if wh_name:
-            self._pos_title_lbl.setText(f"🖥️  POS — {wh_name}  (ل.ل  LBP)")
+            _cur_sym = "ل.ل  LBP" if self._currency == "LBP" else "$  USD"
+            self._pos_title_lbl.setText(f"🖥️  POS — {wh_name}  ({_cur_sym})")
 
         # Resolve default customer and show their name
         self._customer_id = PosService.get_walk_in_customer_id(self._warehouse_id)
@@ -2287,7 +2327,7 @@ class POSScreen(QWidget):
             if scale_item is not None:
                 # Resolve unit price in LBP
                 lbp_unit = (scale_item.unit_price if scale_item.currency == "LBP"
-                            else round(scale_item.unit_price * LBP_RATE))
+                            else round(scale_item.unit_price * self._lbp_rate))
 
                 if scale_result.price is not None:
                     # Price-embedded barcode: barcode total IS the price, qty=1
@@ -2420,13 +2460,18 @@ class POSScreen(QWidget):
             for i, r in enumerate(filtered):
                 sp = sell_prices.get(r["item_id"])
                 if sp:
-                    lbp_price = sp["amount"] * LBP_RATE if sp["currency"] == "USD" else sp["amount"]
+                    raw_price = sp["amount"] * self._lbp_rate if sp["currency"] == "USD" else sp["amount"]
                 else:
-                    lbp_price = r["cost"] * LBP_RATE
+                    raw_price = r["cost"] * self._lbp_rate
+                if self._currency == "USD":
+                    disp_price = raw_price / self._lbp_rate if raw_price else 0.0
+                    price_txt = f"${disp_price:,.2f}"
+                else:
+                    price_txt = f"{raw_price:,.0f}"
                 for c, txt, align in [
-                    (0, r["code"],              Qt.AlignCenter),
-                    (1, r["name"],              Qt.AlignLeft | Qt.AlignVCenter),
-                    (2, f"{lbp_price:,.0f}",   Qt.AlignRight | Qt.AlignVCenter),
+                    (0, r["code"],      Qt.AlignCenter),
+                    (1, r["name"],      Qt.AlignLeft | Qt.AlignVCenter),
+                    (2, price_txt,      Qt.AlignRight | Qt.AlignVCenter),
                     (3, str(int(r.get("usage", 0))), Qt.AlignCenter),
                 ]:
                     it = QTableWidgetItem(txt)
@@ -2512,22 +2557,24 @@ class POSScreen(QWidget):
         # different duplicate row via a second lookup_item call.
         sp = sell_prices.get(r["item_id"])
         if sp:
-            lbp_price = sp["amount"] * LBP_RATE if sp["currency"] == "USD" else sp["amount"]
+            item_price    = sp["amount"]
+            item_currency = sp["currency"]
         else:
-            lbp_price = r["cost"] * LBP_RATE
+            item_price    = r["cost"]
+            item_currency = "USD"
 
-        # Build a lightweight PosLineItem directly from what we already have
+        # Build a lightweight PosLineItem — _add_item will normalise to pos currency
         item = PosLineItem(
             item_id    = r["item_id"],
             code       = r["code"],
             barcode    = r["barcode"],
             description= r["name"],
             qty        = 1.0,
-            unit_price = lbp_price,
+            unit_price = item_price,
             disc_pct   = 0.0,
             vat_pct    = 0.0,
-            total      = lbp_price,
-            currency   = "LBP",
+            total      = item_price,
+            currency   = item_currency,
         )
         if prefix_qty is not None:
             self._add_item(item, force_qty=prefix_qty)
@@ -2640,12 +2687,17 @@ class POSScreen(QWidget):
         QTimer.singleShot(0, self._scan_input.setFocus)
 
     def _add_item(self, item, force_qty=None):
-        """Convert item price USD→LBP if needed, then add to cart.
-        Items built directly with currency='LBP' skip conversion.
+        """Normalise item price to the POS selling currency, then add to cart.
         force_qty overrides the qty spinner (used for negative/deduct lines)."""
-        if item.currency != "LBP":
-            item.unit_price = round(item.unit_price * LBP_RATE)
-            item.currency   = "LBP"
+        pos_cur = self._currency
+        if pos_cur == "USD":
+            if item.currency == "LBP":
+                item.unit_price = round(item.unit_price / self._lbp_rate, 2)
+            item.currency = "USD"
+        else:  # LBP
+            if item.currency != "LBP":
+                item.unit_price = round(item.unit_price * self._lbp_rate)
+            item.currency = "LBP"
 
         # force_qty → explicit override (negatives/deductions)
         # spinner != 1 → user-set quantity (overrides pack_qty)
@@ -2898,11 +2950,20 @@ class POSScreen(QWidget):
         subtotal = sum(l["qty"] * l["price"] * (1 - l["disc"] / 100) for l in self._lines)
         disc_val = subtotal * (self._global_disc.value() / 100)
         grand    = subtotal - disc_val
-        self._sub_lbl.setText(f"{subtotal:,.0f}")
-        self._disc_lbl2.setText(f"{disc_val:,.0f}")
-        self._grand_lbl.setText(f"{grand:,.0f}")
-        usd = grand / LBP_RATE if grand else 0.0
-        self._grand_usd_lbl.setText(f"≈ $ {usd:,.2f}" if grand else "")
+        if self._currency == "USD":
+            self._sub_lbl.setText(f"{subtotal:,.2f}")
+            self._disc_lbl2.setText(f"{disc_val:,.2f}")
+        else:
+            self._sub_lbl.setText(f"{subtotal:,.0f}")
+            self._disc_lbl2.setText(f"{disc_val:,.0f}")
+        if self._currency == "USD":
+            self._grand_lbl.setText(f"{grand:,.2f}")
+            lbp_equiv = grand * self._lbp_rate if grand else 0.0
+            self._grand_usd_lbl.setText(f"≈ ل.ل {lbp_equiv:,.0f}" if grand else "")
+        else:
+            self._grand_lbl.setText(f"{grand:,.0f}")
+            usd = grand / self._lbp_rate if grand and self._lbp_rate else 0.0
+            self._grand_usd_lbl.setText(f"≈ $ {usd:,.2f}" if grand else "")
         if getattr(self, "_body_stack", None) and self._body_stack.currentIndex() == 1:
             self._touch_overlay.refresh_cart()
 
@@ -2923,7 +2984,7 @@ class POSScreen(QWidget):
             pole_show("Total:", f"{total:,.0f}"[:20])
         except Exception:
             pass
-        dlg = PaymentDialog(total, self)
+        dlg = PaymentDialog(total, self, currency=self._currency, lbp_rate=self._lbp_rate)
         if not dlg.exec():
             return
         self._finish_sale(dlg)
@@ -2931,7 +2992,7 @@ class POSScreen(QWidget):
     def _quick_pay(self, amount: float):
         if not self._lines:
             return
-        dlg = PaymentDialog(self._grand_total(), self)
+        dlg = PaymentDialog(self._grand_total(), self, currency=self._currency, lbp_rate=self._lbp_rate)
         dlg._set_tender(amount)
         if dlg.exec():
             self._finish_sale(dlg)
@@ -3613,7 +3674,7 @@ class POSScreen(QWidget):
         from services.pos_service import PosLineItem
         lbp_price = item_dict["price"]
         if item_dict["currency"] != "LBP":
-            lbp_price = round(item_dict["price"] * LBP_RATE)
+            lbp_price = round(item_dict["price"] * self._lbp_rate)
         line = PosLineItem(
             item_id    = item_dict["item_id"],
             code       = item_dict["code"],
@@ -4199,8 +4260,8 @@ class POSScreen(QWidget):
                 stock_lbl.setText("")
                 self._pc_item[0] = None
                 return
-            usd_price = item.unit_price if item.currency == "USD" else item.unit_price / LBP_RATE
-            lbp_price = item.unit_price * LBP_RATE if item.currency == "USD" else item.unit_price
+            usd_price = item.unit_price if item.currency == "USD" else item.unit_price / self._lbp_rate
+            lbp_price = item.unit_price * self._lbp_rate if item.currency == "USD" else item.unit_price
             self._pc_item[0] = item
             code_lbl.setText(f"Code:   {item.code}")
             name_lbl.setText(item.description)

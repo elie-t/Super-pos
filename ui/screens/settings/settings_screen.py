@@ -485,6 +485,11 @@ class SettingsScreen(QWidget):
         self._lbp_rate.setFixedWidth(140)
         gen_form.addRow("LBP Rate (LBP per 1 USD):", self._lbp_rate)
 
+        self._pos_currency = QComboBox()
+        self._pos_currency.setFixedWidth(120)
+        self._pos_currency.addItems(["LBP", "USD"])
+        gen_form.addRow("POS Selling Currency:", self._pos_currency)
+
         self._pole_port = QLineEdit()
         self._pole_port.setPlaceholderText("e.g. COM3  (leave blank to disable)")
         self._pole_port.setFixedWidth(180)
@@ -789,6 +794,10 @@ class SettingsScreen(QWidget):
                 _load("shop_phone",     self._shop_phone)
                 _load("receipt_footer", self._receipt_footer)
                 _load("lbp_rate",       self._lbp_rate)
+                s = session.get(Setting, "pos_currency")
+                idx = self._pos_currency.findText(s.value if s else "LBP")
+                if idx >= 0:
+                    self._pos_currency.setCurrentIndex(idx)
                 _load("pole_port",      self._pole_port)
                 _load("pole_baud",      self._pole_baud)
             finally:
@@ -816,6 +825,14 @@ class SettingsScreen(QWidget):
                 _save("receipt_footer", self._receipt_footer)
                 _save("lbp_rate",       self._lbp_rate)
                 _save("pole_port",      self._pole_port)
+
+                # pos_currency is a QComboBox, save separately
+                cur_val = self._pos_currency.currentText()
+                s_cur = session.get(Setting, "pos_currency")
+                if s_cur:
+                    s_cur.value = cur_val
+                else:
+                    session.add(Setting(key="pos_currency", value=cur_val))
                 _save("pole_baud",      self._pole_baud)
                 session.commit()
                 self._gen_status_lbl.setText("✔  Saved.")
