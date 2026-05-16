@@ -495,9 +495,11 @@ class SettingsScreen(QWidget):
         self._pole_port.setFixedWidth(180)
         gen_form.addRow("Pole Display Port:", self._pole_port)
 
-        self._pole_baud = QLineEdit()
-        self._pole_baud.setPlaceholderText("e.g. 9600")
-        self._pole_baud.setFixedWidth(100)
+        self._pole_baud = QComboBox()
+        for _b in ["1200", "2400", "4800", "9600", "19200", "38400", "57600", "115200"]:
+            self._pole_baud.addItem(_b)
+        self._pole_baud.setCurrentText("9600")
+        self._pole_baud.setFixedWidth(110)
         gen_form.addRow("Pole Display Baud:", self._pole_baud)
 
         self._pole_lines = QComboBox()
@@ -855,7 +857,8 @@ class SettingsScreen(QWidget):
                 if idx >= 0:
                     self._pos_currency.setCurrentIndex(idx)
                 _load("pole_port",      self._pole_port)
-                _load("pole_baud",      self._pole_baud)
+                baud_val = (session.get(Setting, "pole_baud") or type("", (), {"value": "9600"})()).value
+                self._pole_baud.setCurrentText(baud_val or "9600")
                 # Pole lines
                 pl_val = (session.get(Setting, "pole_lines") or type("", (), {"value": "1"})()).value
                 idx = self._pole_lines.findText(pl_val)
@@ -913,7 +916,7 @@ class SettingsScreen(QWidget):
                 _set("pole_databits", self._pole_databits.currentText())
                 _set("pole_parity",   self._pole_parity.currentData())
                 _set("pole_stopbits", self._pole_stopbits.currentText())
-                _save("pole_baud",      self._pole_baud)
+                _set("pole_baud",     self._pole_baud.currentText())
                 session.commit()
                 self._gen_status_lbl.setText("✔  Saved.")
                 self._gen_status_lbl.setStyleSheet("font-size:11px; color:#2e7d32;")
