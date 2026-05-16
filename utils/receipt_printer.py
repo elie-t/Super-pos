@@ -226,7 +226,6 @@ def print_receipt(
     # ── 2. Windows Qt system printer — auto-print, no dialog ───────────────
     qt_name = _get_qt_printer_name()
     if qt_name:
-        html = _build_html(data, payment_method, tendered)
         printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
         printer.setPrinterName(qt_name)
         # Do NOT force a custom page size — use whatever the printer has configured
@@ -234,11 +233,11 @@ def print_receipt(
         # an offset/centering that produces the large left gap.
         printer.setFullPage(False)
         printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
-        _render_to_printer(html, printer)
+        _render_to_printer(None, printer, receipt_data=data,
+                           payment_method=payment_method, tendered=tendered)
         return
 
     # ── 3. No printer configured — show Qt preview dialog ──────────────────
-    html = _build_html(data, payment_method, tendered)
     printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
     printer.setPageSize(QPageSize(QSizeF(80, 297), QPageSize.Unit.Millimeter))
     printer.setFullPage(True)
@@ -247,48 +246,131 @@ def print_receipt(
 
     dlg = QPrintPreviewDialog(printer, parent)
     dlg.setWindowTitle("Receipt Preview")
-    dlg.paintRequested.connect(lambda p: _render_to_printer(html, p))
+    dlg.paintRequested.connect(
+        lambda p: _render_to_printer(None, p, receipt_data=data,
+                                     payment_method=payment_method, tendered=tendered)
+    )
     dlg.exec()
 
 
-def _render_to_printer(html: str, printer: QPrinter) -> None:
-    from PySide6.QtGui import QPainter, QTextOption
+def _render_to_printer(html_or_data, printer: QPrinter, receipt_data: dict = None,
+                        payment_method: str = "cash", tendered: float = 0.0) -> None:
+    """Render a receipt to printer using QPainter directly — bypasses Qt HTML kerning bugs."""
+    from PySide6.QtGui import QPainter, QFont, QFontMetrics
     from PySide6.QtCore import Qt as _Qt, QRectF
 
-    doc = QTextDocument()
-    doc.setDocumentMargin(2)
-    doc.setDefaultStyleSheet("html, body, table { margin:0; padding:0; border:0; }")
-    # Force LTR so Arabic item names don't flip the whole document to RTL
-    opt = QTextOption()
-    opt.setTextDirection(_Qt.LeftToRight)
-    doc.setDefaultTextOption(opt)
-    doc.setHtml(html)
+    page_pt  = printer.pageRect(QPrinter.Unit.Point)
+    page_w   = page_pt.width()
+    page_h   = page_pt.height()
+    scale    = printer.resolution() / 72.0
 
-    # Use pageRect (printable area) so text width exactly matches what the
-    # painter can draw — paperRect is the full physical sheet which is wider
-    # than the printable area, causing a wide right margin.
-    page_pt = printer.pageRect(QPrinter.Unit.Point)
-    doc.setTextWidth(page_pt.width())
-
-    # Render manually page by page so long receipts are never truncated.
-    page_h  = page_pt.height()
-    total_h = doc.size().height()
-
-    painter = QPainter(printer)
-    scale = printer.resolution() / 72.0
+    painter  = QPainter(printer)
     painter.scale(scale, scale)
 
-    y = 0.0
+    # ── Title font (shop name) ────────────────────────────────────────────────
+    title_font = QFont("Courier New")
+    title_font.setPointSizeF(11.0)
+    title_font.setBold(True)
+    title_font.setKerning(False)
+    title_font.setFixedPitch(True)
+
+    # ── Body font ─────────────────────────────────────────────────────────────
+    body_font = QFont("Courier New")
+    body_font.setPointSizeF(7.0)
+    body_font.setBold(False)
+    body_font.setKerning(False)
+    body_font.setFixedPitch(True)
+
+    title_h = QFontMetrics(title_font).height()
+    body_h  = QFontMetrics(body_font).height()
+    line_h  = body_h * 1.1
+
+    y    = 0.0
     page = 0
-    while y < total_h:
-        if page > 0:
+
+    def _new_page_if_needed(needed):
+        nonlocal y, page
+        if y + needed > page_h:
             printer.newPage()
-        painter.save()
-        painter.translate(0.0, -y)
-        doc.drawContents(painter, QRectF(0, y, page_pt.width(), page_h))
-        painter.restore()
-        y    += page_h
-        page += 1
+            y = 0.0
+            page += 1
+
+    def _draw(text, font, align=_Qt.AlignLeft, bold=False):
+        nonlocal y
+        f = QFont(font)
+        f.setBold(bold)
+        painter.setFont(f)
+        h = QFontMetrics(f).height() * 1.1
+        _new_page_if_needed(h)
+        painter.drawText(QRectF(0, y, page_w, h), align | _Qt.AlignTop, text)
+        y += h
+
+    # If called with receipt_data, build plain text from scratch
+    if receipt_data is not None:
+        data = receipt_data
+        # Ensure lbp_rate is available for USD equivalent line
+        if not data.get("lbp_rate"):
+            try:
+                from database.engine import get_session, init_db
+                from database.models.items import Setting
+                init_db()
+                _sess = get_session()
+                try:
+                    _r = _sess.get(Setting, "lbp_rate")
+                    data = dict(data, lbp_rate=int(_r.value) if _r and _r.value else 0)
+                finally:
+                    _sess.close()
+            except Exception:
+                pass
+        currency  = data.get("currency", "LBP")
+        is_lbp    = currency == "LBP"
+
+        def fmt(v): return f"{v:,.0f} L" if is_lbp else f"$ {v:,.2f}"
+
+        # Header
+        _draw(data.get("shop_name", ""), title_font, _Qt.AlignHCenter)
+        if data.get("shop_address"):
+            _draw(data["shop_address"], body_font, _Qt.AlignHCenter)
+        if data.get("shop_phone"):
+            _draw(f"Tel: {data['shop_phone']}", body_font, _Qt.AlignHCenter)
+        if data.get("warehouse") and data.get("warehouse") != data.get("shop_address"):
+            _draw(data["warehouse"], body_font, _Qt.AlignHCenter)
+
+        # Build and draw the plain-text body
+        body = _build_receipt_text(data, payment_method, tendered)
+        # strip header lines (up to first separator)
+        sep = "-" * CHARS_PER_LINE
+        idx = body.find(sep)
+        body = body[idx:] if idx >= 0 else body
+
+        painter.setFont(body_font)
+        for line in body.split("\n"):
+            _new_page_if_needed(line_h)
+            painter.drawText(QRectF(0, y, page_w, line_h), _Qt.AlignLeft | _Qt.AlignTop, line)
+            y += line_h
+    else:
+        # Fallback: render html string via QTextDocument (legacy / transfer receipts)
+        from PySide6.QtGui import QTextOption
+        from PySide6.QtCore import QRectF as _QRectF
+        doc = QTextDocument()
+        doc.setDocumentMargin(2)
+        opt = QTextOption()
+        opt.setTextDirection(_Qt.LeftToRight)
+        doc.setDefaultTextOption(opt)
+        doc.setHtml(html_or_data)
+        doc.setTextWidth(page_w)
+        total_h = doc.size().height()
+        yy = 0.0
+        pg = 0
+        while yy < total_h:
+            if pg > 0:
+                printer.newPage()
+            painter.save()
+            painter.translate(0.0, -yy)
+            doc.drawContents(painter, _QRectF(0, yy, page_w, page_h))
+            painter.restore()
+            yy += page_h
+            pg += 1
 
     painter.end()
 
