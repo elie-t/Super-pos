@@ -508,13 +508,14 @@ class SettingsScreen(QWidget):
         gen_form.addRow("Pole Lines:", self._pole_lines)
 
         self._pole_protocol = QComboBox()
-        self._pole_protocol.setFixedWidth(260)
-        self._pole_protocol.addItem("Simple  (\\x0C clear + 40 chars)",    "simple")
-        self._pole_protocol.addItem("CR/LF  (plain text, 2 lines)",        "crlf")
-        self._pole_protocol.addItem("Logic Controls  (LD9000 / CD5220)",   "logic_ctrl")
-        self._pole_protocol.addItem("ESC/POS  (Epson DM-D110/210)",        "esc_pos")
-        self._pole_protocol.addItem("Posiflex  (ESC Q A/B)",               "posiflex")
-        self._pole_protocol.addItem("BA63  (Bixolon BCD-1000)",            "ba63")
+        self._pole_protocol.setFixedWidth(300)
+        self._pole_protocol.addItem("LED 8N  (GS-T5 / 8-digit numeric LED)","led8n")
+        self._pole_protocol.addItem("Simple  (\\x0C clear + chars)",        "simple")
+        self._pole_protocol.addItem("CR/LF  (plain text, 2 lines)",         "crlf")
+        self._pole_protocol.addItem("Logic Controls  (LD9000 / CD5220)",    "logic_ctrl")
+        self._pole_protocol.addItem("ESC/POS  (Epson DM-D110/210)",         "esc_pos")
+        self._pole_protocol.addItem("Posiflex  (ESC Q A/B)",                "posiflex")
+        self._pole_protocol.addItem("BA63  (Bixolon BCD-1000)",             "ba63")
         gen_form.addRow("Pole Protocol:", self._pole_protocol)
 
         # Serial framing (data bits / parity / stop bits)
@@ -936,7 +937,10 @@ class SettingsScreen(QWidget):
             if not cfg.get("port"):
                 self._pole_test_lbl.setText("No port configured.")
                 return
-            packet = _build_packet("** POLE TEST 1234 **", "", cfg["protocol"], cfg["lines"])
+            if cfg["protocol"] == "led8n":
+                packet = _build_packet("12345678", "00000000", cfg["protocol"], cfg["lines"])
+            else:
+                packet = _build_packet("** POLE TEST 1234 **", "", cfg["protocol"], cfg["lines"])
             ser = serial.Serial(
                 cfg["port"],
                 baudrate = cfg["baud"],
