@@ -500,6 +500,11 @@ class SettingsScreen(QWidget):
         self._pole_baud.setFixedWidth(100)
         gen_form.addRow("Pole Display Baud:", self._pole_baud)
 
+        self._pole_lines = QComboBox()
+        self._pole_lines.addItems(["1", "2"])
+        self._pole_lines.setFixedWidth(60)
+        gen_form.addRow("Pole Lines:", self._pole_lines)
+
         self._pole_protocol = QComboBox()
         self._pole_protocol.setFixedWidth(260)
         self._pole_protocol.addItem("Simple  (\\x0C clear + 40 chars)",    "simple")
@@ -851,6 +856,10 @@ class SettingsScreen(QWidget):
                     self._pos_currency.setCurrentIndex(idx)
                 _load("pole_port",      self._pole_port)
                 _load("pole_baud",      self._pole_baud)
+                # Pole lines
+                pl_val = (session.get(Setting, "pole_lines") or type("", (), {"value": "1"})()).value
+                idx = self._pole_lines.findText(pl_val)
+                if idx >= 0: self._pole_lines.setCurrentIndex(idx)
                 # Pole protocol
                 proto = (session.get(Setting, "pole_protocol") or type("", (), {"value": "simple"})()).value
                 for i in range(self._pole_protocol.count()):
@@ -899,6 +908,7 @@ class SettingsScreen(QWidget):
                     else: session.add(Setting(key=key, value=val))
 
                 _set("pos_currency",  self._pos_currency.currentText())
+                _set("pole_lines",    self._pole_lines.currentText())
                 _set("pole_protocol", self._pole_protocol.currentData())
                 _set("pole_databits", self._pole_databits.currentText())
                 _set("pole_parity",   self._pole_parity.currentData())
@@ -923,7 +933,7 @@ class SettingsScreen(QWidget):
             if not cfg.get("port"):
                 self._pole_test_lbl.setText("No port configured.")
                 return
-            packet = _build_packet("** POLE TEST **", "Hello  12345678", cfg["protocol"])
+            packet = _build_packet("** POLE TEST 1234 **", "", cfg["protocol"], cfg["lines"])
             ser = serial.Serial(
                 cfg["port"],
                 baudrate = cfg["baud"],
