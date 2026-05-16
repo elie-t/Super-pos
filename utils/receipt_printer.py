@@ -14,9 +14,10 @@ from PySide6.QtCore import QSizeF, QMarginsF
 CHARS_PER_LINE = 48   # conservative safe width for 80mm / 203dpi printers
 
 
-def _build_receipt_text(data: dict, payment_method: str, tendered: float) -> str:
+def _build_receipt_text(data: dict, payment_method: str, tendered: float,
+                        width: int = CHARS_PER_LINE) -> str:
     """Build a plain-text receipt (same layout as ESC/POS) — used for HTML <pre> and Qt print."""
-    W        = CHARS_PER_LINE
+    W        = width
     currency = data.get("currency", "LBP")
     is_lbp   = currency == "LBP"
 
@@ -281,6 +282,14 @@ def _render_to_printer(html_or_data, printer: QPrinter, receipt_data: dict = Non
     body_font.setKerning(False)
     body_font.setFixedPitch(True)
 
+    # Measure actual char width from the printer device so the text line
+    # is always built to fit — avoids right-side clipping on thermal drivers.
+    painter.setFont(body_font)
+    _fm     = painter.fontMetrics()          # logical-unit metrics after scale
+    _char_w = _fm.horizontalAdvance("M")     # width of one monospace char (pts)
+    # Leave a small right margin (3 chars) so driver rounding never clips
+    qt_chars = max(32, min(CHARS_PER_LINE, int(page_w / _char_w) - 3))
+
     title_h = QFontMetrics(title_font).height()
     body_h  = QFontMetrics(body_font).height()
     line_h  = body_h * 1.1
@@ -336,10 +345,10 @@ def _render_to_printer(html_or_data, printer: QPrinter, receipt_data: dict = Non
         if data.get("warehouse") and data.get("warehouse") != data.get("shop_address"):
             _draw(data["warehouse"], body_font, _Qt.AlignHCenter)
 
-        # Build and draw the plain-text body
-        body = _build_receipt_text(data, payment_method, tendered)
+        # Build and draw the plain-text body — use measured line width
+        body = _build_receipt_text(data, payment_method, tendered, width=qt_chars)
         # strip header lines (up to first separator)
-        sep = "-" * CHARS_PER_LINE
+        sep = "-" * qt_chars
         idx = body.find(sep)
         body = body[idx:] if idx >= 0 else body
 
