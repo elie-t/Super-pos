@@ -199,7 +199,7 @@ def _build_html(data: dict, payment_method: str, tendered: float) -> str:
     footer = e(data.get("receipt_footer", "Thank you!"))
 
     return f"""<html dir='ltr'><head><meta charset='utf-8'></head>
-<body dir='ltr' style='margin:0;padding:0;font-family:"Courier New",Courier,monospace;font-size:7pt;line-height:1.2;color:#000000;'>{header}
+<body dir='ltr' style='margin:0;padding:0;font-family:monospace;font-size:7pt;line-height:1.2;color:#000000;'>{header}
 <table style='width:100%;table-layout:fixed;border-collapse:collapse;font-family:inherit;font-size:inherit;color:#000;'>
   {sep()}{meta}
   {sep()}{items_html}
@@ -488,7 +488,7 @@ def _build_transfer_html(
     return (
         f"<html dir='ltr'><head><meta charset='utf-8'></head>"
         f"<body dir='ltr' style='margin:0;padding:0;"
-        f"font-family:\"Courier New\",Courier,monospace;font-size:7pt;line-height:1.2;color:#000;'>"
+        f"font-family:monospace;font-size:7pt;line-height:1.2;color:#000;'>"
         f"{header}"
         f"<table style='width:100%;table-layout:fixed;border-collapse:collapse;"
         f"font-family:inherit;font-size:inherit;color:#000;'>"
