@@ -2776,7 +2776,7 @@ class POSScreen(QWidget):
             finally:
                 _s.close()
             cfg = _get_port_settings()
-            if cfg.get("protocol") == "led8n":
+            if cfg.get("protocol", "").startswith("led8n"):
                 pole_show("00000000", "00000000")
             else:
                 pole_show(name, "")
@@ -2787,9 +2787,11 @@ class POSScreen(QWidget):
         try:
             from utils.pole_display import pole_show, _get_port_settings, _digits_only
             cfg = _get_port_settings()
-            if cfg.get("protocol") == "led8n":
+            if cfg.get("protocol", "").startswith("led8n"):
                 grand = self._grand_total()
-                pole_show(_digits_only(f"{unit_price:.0f}"), _digits_only(f"{grand:.0f}"))
+                # Display shows whichever row arrives last — send total first
+                # so price arrives last and stays visible to the customer.
+                pole_show(_digits_only(f"{grand:.0f}"), _digits_only(f"{unit_price:.0f}"))
             else:
                 line1 = description[:20]
                 line2 = f"{qty:g} x {unit_price:,.0f}"[:20]
@@ -2992,7 +2994,7 @@ class POSScreen(QWidget):
         try:
             from utils.pole_display import pole_show, _get_port_settings, _digits_only
             cfg = _get_port_settings()
-            if cfg.get("protocol") == "led8n":
+            if cfg.get("protocol", "").startswith("led8n"):
                 pole_show("00000000", _digits_only(f"{total:.0f}"))
             else:
                 pole_show("Total:", f"{total:,.0f}"[:20])
