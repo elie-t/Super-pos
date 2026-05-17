@@ -49,27 +49,22 @@ def _digits_only(text: str, width: int = 8) -> str:
 def _led8n_format(value_str: str, width: int = 8) -> str:
     """Format a number for 8-digit LED display.
 
-    Strips leading zeros and uses '.' as thousands separator so the display
-    is easy to read.  Examples (width=8):
-        492250  →  " 492.250"
-        984500  →  " 984.500"
-       1984500  →  "1984.500"
-          5500  →  "   5.500"
+    Strips leading zeros, right-aligns with spaces so the last digit is
+    always in the rightmost position — like a calculator display.
+        492250  →  "  492250"
+        984500  →  "  984500"
+       1984500  →  " 1984500"
+          5500  →  "    5500"
              0  →  "00000000"   (idle/clear state)
     """
     digits = "".join(c for c in str(value_str) if c.isdigit())
     n = int(digits) if digits else 0
     if n == 0:
         return "0" * width
-    thousands, remainder = divmod(n, 1000)
-    if thousands:
-        s = f"{thousands}.{remainder:03d}"
-    else:
-        s = str(remainder)
-    # Right-align in width (space-pad); truncate left if still too long
+    s = str(n)
     if len(s) > width:
-        s = s[-width:]
-    return s.rjust(width)
+        s = s[-width:]       # keep rightmost digits if overflow
+    return s.rjust(width)    # space-pad on the left
 
 
 def _build_packet(line1: str, line2: str, protocol: str, lines: int = 1) -> bytes:
