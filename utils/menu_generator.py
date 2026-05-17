@@ -1,6 +1,6 @@
 """
-Menu generator — builds a self-contained HTML menu from active items/categories.
-Prices shown in LBP using the individual (POS) price type.
+Menu generator — builds a PDF menu from active items/categories using QPrinter.
+No extra dependencies beyond PySide6-Addons (already required).
 """
 from __future__ import annotations
 import datetime
@@ -24,7 +24,7 @@ def _get_lbp_rate() -> int:
         return 89_500
 
 
-def _get_shop_name() -> str:
+def get_shop_name() -> str:
     try:
         from database.engine import get_session, init_db
         from database.models.items import Setting
@@ -41,13 +41,12 @@ def _get_shop_name() -> str:
 
 def fetch_menu_data() -> list[dict]:
     """
-    Returns list of category dicts:
-      [{"name": str, "items": [{"name": str, "name_ar": str, "price_lbp": int, "photo_url": str|None}]}]
-    Only active categories with at least one active item.
-    Price = individual first, then retail, then 0.
+    Returns list of category dicts, each with a list of item dicts.
+    Only active categories that have at least one active item.
+    Price = individual price first, then retail, in LBP.
     """
     from database.engine import get_session, init_db
-    from database.models.items import Item, Category, ItemPrice
+    from database.models.items import Item
     from sqlalchemy.orm import joinedload
     init_db()
     session = get_session()
@@ -56,188 +55,188 @@ def fetch_menu_data() -> list[dict]:
 
         items = (
             session.query(Item)
-            .options(
-                joinedload(Item.prices),
-                joinedload(Item.category),
-            )
+            .options(joinedload(Item.prices), joinedload(Item.category))
             .filter(Item.is_active == True)
             .order_by(Item.name)
             .all()
         )
 
-        cat_map: dict[str, dict] = {}   # cat_name → {name, sort, items}
+        cat_map: dict[str, dict] = {}
 
         for item in items:
-            cat_name = item.category.name if item.category and item.category.is_active else "Other"
-            cat_sort = item.category.sort_order if item.category else 999
+            if item.category and item.category.is_active:
+                cat_name = item.category.name
+                cat_sort = item.category.sort_order
+            else:
+                cat_name = "Other"
+                cat_sort = 999
 
-            # Resolve price in LBP
             price_lbp = _resolve_price_lbp(item, lbp_rate)
 
             entry = {
                 "name":      item.name,
                 "name_ar":   item.name_ar or "",
                 "price_lbp": price_lbp,
-                "photo_url": item.photo_url or "",
             }
 
             if cat_name not in cat_map:
                 cat_map[cat_name] = {"name": cat_name, "sort": cat_sort, "items": []}
             cat_map[cat_name]["items"].append(entry)
 
-        result = sorted(cat_map.values(), key=lambda c: (c["sort"], c["name"]))
-        return result
+        return sorted(cat_map.values(), key=lambda c: (c["sort"], c["name"]))
     finally:
         session.close()
 
 
 def _resolve_price_lbp(item, lbp_rate: int) -> int:
-    """Pick individual → retail price and convert to LBP."""
     preferred = None
-    fallback = None
+    fallback  = None
     for p in item.prices:
         if p.price_type == "individual" and p.is_default:
             preferred = p
         elif p.price_type == "retail" and p.is_default and preferred is None:
             fallback = p
-
     price_obj = preferred or fallback
     if price_obj is None:
         return 0
-
     if price_obj.currency == "LBP":
         return int(price_obj.amount)
-    else:
-        return int(price_obj.amount * lbp_rate)
+    return int(price_obj.amount * lbp_rate)
 
 
-def build_menu_html(categories: list[dict], shop_name: str) -> str:
-    """Render the full self-contained HTML menu string."""
-    now = datetime.datetime.now().strftime("%d %b %Y")
-    cat_tabs  = _build_tabs(categories)
-    cat_cards = _build_cards(categories)
+def generate_menu_pdf(output_path: str, categories: list[dict], shop_name: str) -> None:
+    """
+    Render a two-column item catalog to a PDF file using QPrinter + QPainter.
+    Runs inside the Qt application (must be called from main thread or with QApplication alive).
+    """
+    from PySide6.QtPrintSupport import QPrinter
+    from PySide6.QtGui import QPainter, QFont, QColor, QBrush, QPen
+    from PySide6.QtCore import QRectF, Qt
 
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{shop_name} — Menu</title>
-<style>
-  *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{font-family:'Segoe UI',system-ui,sans-serif;background:#f4f6fa;color:#1a3a5c;}}
-  header{{background:linear-gradient(135deg,#1a3a5c,#1a6cb5);color:#fff;padding:18px 20px 14px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.25)}}
-  header h1{{font-size:1.4rem;font-weight:800;letter-spacing:.5px}}
-  header p{{font-size:.75rem;opacity:.75;margin-top:2px}}
-  .tabs{{display:flex;gap:8px;overflow-x:auto;padding:12px 16px 0;background:#fff;border-bottom:2px solid #e0e8f5;position:sticky;top:66px;z-index:90;scrollbar-width:none}}
-  .tabs::-webkit-scrollbar{{display:none}}
-  .tab{{white-space:nowrap;padding:8px 16px;border-radius:20px 20px 0 0;border:1px solid #c5d8f0;border-bottom:none;cursor:pointer;font-size:.8rem;font-weight:600;color:#5a7090;background:#f4f6fa;transition:all .2s}}
-  .tab.active,.tab:hover{{background:#1a3a5c;color:#fff;border-color:#1a3a5c}}
-  .section{{display:none;padding:16px}}
-  .section.active{{display:block}}
-  .section-title{{font-size:1.1rem;font-weight:800;color:#1a3a5c;margin-bottom:14px;padding-bottom:6px;border-bottom:2px solid #1a6cb5}}
-  .grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px}}
-  .card{{background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);transition:transform .15s}}
-  .card:hover{{transform:translateY(-2px)}}
-  .card img{{width:100%;height:110px;object-fit:cover;background:#e8f0fb}}
-  .card-no-img{{width:100%;height:80px;background:linear-gradient(135deg,#e8f0fb,#d0e4f7);display:flex;align-items:center;justify-content:center;font-size:2rem}}
-  .card-body{{padding:10px}}
-  .card-name{{font-size:.82rem;font-weight:700;color:#1a3a5c;line-height:1.3;margin-bottom:2px}}
-  .card-name-ar{{font-size:.77rem;color:#5a7090;direction:rtl;margin-bottom:6px}}
-  .card-price{{font-size:.9rem;font-weight:800;color:#1a6cb5}}
-  .card-price span{{font-size:.7rem;font-weight:500;color:#7a90a8}}
-  footer{{text-align:center;padding:24px;color:#9aabbf;font-size:.72rem}}
-</style>
-</head>
-<body>
-<header>
-  <h1>🛒 {shop_name}</h1>
-  <p>Updated {now}</p>
-</header>
-<div class="tabs" id="tabs">
-{cat_tabs}
-</div>
-<div id="sections">
-{cat_cards}
-</div>
-<footer>{shop_name} · Prices in LBP · {now}</footer>
-<script>
-var tabs=document.querySelectorAll('.tab');
-var secs=document.querySelectorAll('.section');
-tabs.forEach(function(t,i){{
-  t.addEventListener('click',function(){{
-    tabs.forEach(function(x){{x.classList.remove('active')}});
-    secs.forEach(function(x){{x.classList.remove('active')}});
-    t.classList.add('active');
-    secs[i].classList.add('active');
-  }});
-}});
-</script>
-</body>
-</html>"""
+    printer = QPrinter(QPrinter.HighResolution)
+    printer.setOutputFormat(QPrinter.PdfFormat)
+    printer.setOutputFileName(output_path)
+    printer.setPageSize(QPrinter.A4)
+    printer.setPageOrientation(QPrinter.Portrait)
+    printer.setPageMargins(15, 15, 15, 15, QPrinter.Millimeter)
 
+    painter = QPainter()
+    painter.begin(printer)
 
-def _build_tabs(categories: list[dict]) -> str:
-    lines = []
-    for i, cat in enumerate(categories):
-        active = " active" if i == 0 else ""
-        lines.append(f'  <div class="tab{active}">{cat["name"]}</div>')
-    return "\n".join(lines)
+    page_rect = printer.pageRect(QPrinter.DevicePixel)
+    W = page_rect.width()
 
+    # ── Fonts ─────────────────────────────────────────────────────────────────
+    f_title  = QFont("Arial", 22, QFont.Bold)
+    f_date   = QFont("Arial", 9)
+    f_cat    = QFont("Arial", 13, QFont.Bold)
+    f_name   = QFont("Arial", 8, QFont.Bold)
+    f_price  = QFont("Arial", 8)
 
-def _build_cards(categories: list[dict]) -> str:
-    lines = []
-    for i, cat in enumerate(categories):
-        active = " active" if i == 0 else ""
-        lines.append(f'<div class="section{active}">')
-        lines.append(f'  <div class="section-title">{cat["name"]}</div>')
-        lines.append('  <div class="grid">')
+    BLUE     = QColor("#1a3a5c")
+    LBLUE    = QColor("#1a6cb5")
+    GRAY     = QColor("#5a7090")
+    WHITE    = QColor("#ffffff")
+    CATBG    = QColor("#1a3a5c")
+    CARDBG   = QColor("#f4f6fa")
+    CARDBORD = QColor("#c5ccd6")
+
+    COL  = 2           # columns per row
+    PAD  = 12
+    COLS_SPACING = 10
+    now  = datetime.datetime.now().strftime("%d %b %Y")
+
+    col_w = (W - PAD * 2 - COLS_SPACING * (COL - 1)) / COL
+    card_h = 54
+
+    y = 0
+
+    def new_page_if_needed(needed_h):
+        nonlocal y
+        page_h = page_rect.height()
+        if y + needed_h > page_h - PAD:
+            printer.newPage()
+            y = 0
+
+    # ── Header (first page) ───────────────────────────────────────────────────
+    painter.setFont(f_title)
+    painter.setPen(BLUE)
+    painter.drawText(QRectF(PAD, PAD, W - PAD * 2, 40), Qt.AlignLeft | Qt.AlignVCenter, shop_name)
+
+    painter.setFont(f_date)
+    painter.setPen(GRAY)
+    painter.drawText(QRectF(PAD, PAD + 34, W - PAD * 2, 20), Qt.AlignLeft, f"Price list — {now}")
+
+    # Divider
+    painter.setPen(QPen(LBLUE, 2))
+    painter.drawLine(int(PAD), int(PAD + 58), int(W - PAD), int(PAD + 58))
+
+    y = PAD + 68
+
+    # ── Categories + items ────────────────────────────────────────────────────
+    for cat in categories:
+        if not cat["items"]:
+            continue
+
+        # Category header
+        new_page_if_needed(28 + card_h + 4)
+        cat_rect = QRectF(PAD, y, W - PAD * 2, 24)
+        painter.setBrush(QBrush(CATBG))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(cat_rect, 4, 4)
+        painter.setFont(f_cat)
+        painter.setPen(WHITE)
+        painter.drawText(cat_rect.adjusted(8, 0, -8, 0), Qt.AlignVCenter | Qt.AlignLeft, cat["name"])
+        y += 28
+
+        # Items in 2-column grid
+        col_idx = 0
         for item in cat["items"]:
-            lines.append(_item_card(item))
-        lines.append("  </div>")
-        lines.append("</div>")
-    return "\n".join(lines)
+            new_page_if_needed(card_h + 4)
 
+            x = PAD + col_idx * (col_w + COLS_SPACING)
+            card_rect = QRectF(x, y, col_w, card_h)
 
-def _item_card(item: dict) -> str:
-    name     = item["name"].replace("&", "&amp;").replace("<", "&lt;")
-    name_ar  = item["name_ar"].replace("&", "&amp;").replace("<", "&lt;")
-    price    = f"{item['price_lbp']:,}" if item["price_lbp"] else "—"
-    ar_line  = f'<div class="card-name-ar">{name_ar}</div>' if name_ar else ""
+            # Card background + border
+            painter.setBrush(QBrush(CARDBG))
+            painter.setPen(QPen(CARDBORD, 0.5))
+            painter.drawRoundedRect(card_rect, 4, 4)
 
-    if item["photo_url"]:
-        img = f'<img src="{item["photo_url"]}" alt="{name}" loading="lazy">'
-    else:
-        icon = _category_icon(item["name"])
-        img  = f'<div class="card-no-img">{icon}</div>'
+            # Item name
+            painter.setFont(f_name)
+            painter.setPen(BLUE)
+            name_rect = QRectF(x + 6, y + 6, col_w - 12, 28)
+            painter.drawText(name_rect, Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, item["name"])
 
-    return f"""    <div class="card">
-      {img}
-      <div class="card-body">
-        <div class="card-name">{name}</div>
-        {ar_line}
-        <div class="card-price">{price} <span>LBP</span></div>
-      </div>
-    </div>"""
+            # Arabic name
+            if item["name_ar"]:
+                painter.setFont(f_price)
+                painter.setPen(GRAY)
+                ar_rect = QRectF(x + 6, y + 28, col_w - 12, 14)
+                painter.drawText(ar_rect, Qt.AlignRight | Qt.AlignTop, item["name_ar"])
 
+            # Price
+            price_txt = f"{item['price_lbp']:,} LBP" if item["price_lbp"] else "—"
+            painter.setFont(f_price)
+            painter.setPen(LBLUE)
+            price_rect = QRectF(x + 6, y + card_h - 18, col_w - 12, 14)
+            painter.drawText(price_rect, Qt.AlignLeft | Qt.AlignTop, price_txt)
 
-def _category_icon(name: str) -> str:
-    n = name.lower()
-    if any(w in n for w in ("drink", "juice", "water", "soda", "cola", "pepsi")):  return "🥤"
-    if any(w in n for w in ("bread", "pita", "kaak")):                              return "🥖"
-    if any(w in n for w in ("meat", "chicken", "beef", "lamb")):                    return "🥩"
-    if any(w in n for w in ("dairy", "milk", "cheese", "yogurt", "laban")):         return "🥛"
-    if any(w in n for w in ("sweet", "candy", "chocolate", "snack", "chips")):      return "🍫"
-    if any(w in n for w in ("fruit", "apple", "banana", "orange")):                 return "🍎"
-    if any(w in n for w in ("vegetable", "veggie", "salad")):                       return "🥦"
-    if any(w in n for w in ("coffee", "tea", "nescafe")):                           return "☕"
-    if any(w in n for w in ("oil", "olive")):                                       return "🫙"
-    if any(w in n for w in ("clean", "soap", "deterg", "hygiene")):                 return "🧴"
-    return "📦"
+            col_idx += 1
+            if col_idx >= COL:
+                col_idx = 0
+                y += card_h + 4
+
+        if col_idx != 0:          # flush incomplete row
+            y += card_h + 4
+
+        y += 8   # gap between categories
+
+    painter.end()
 
 
 def generate_qr_png(url: str) -> bytes:
-    """Return a QR code PNG as bytes pointing to the given URL."""
+    """Return a QR code PNG as bytes."""
     import qrcode
     from io import BytesIO
     qr = qrcode.QRCode(
