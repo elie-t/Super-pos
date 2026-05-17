@@ -77,20 +77,19 @@ def _build_packet(line1: str, line2: str, protocol: str, lines: int = 1) -> byte
     """
 
     # ── LED 8N numeric display variants ──────────────────────────────────────
+    # Single-row display: only send the value we want to show (line2 = price
+    # during item scan, total during payment).  Sending two rows with \r
+    # between them bleeds the CR into the display as an extra character.
     if protocol == "led8n":
-        # Row1 + CR, Row2 + CR  (most common)
-        p = _led8n_format(line1, 8)
-        t = _led8n_format(line2, 8) if line2 else "0" * 8
-        return (p + "\r" + t + "\r").encode("ascii")
+        val = _led8n_format(line2 if line2 else line1, 8)
+        return val.encode("ascii") + b"\r"
 
     if protocol == "led8n_stx":
-        # STX (0x02) + row + CR per line (used by some GS-T5 variants)
-        p = _led8n_format(line1, 8)
-        t = _led8n_format(line2, 8) if line2 else "0" * 8
-        return b"\x02" + p.encode() + b"\r" + b"\x02" + t.encode() + b"\r"
+        val = _led8n_format(line2 if line2 else line1, 8)
+        return b"\x02" + val.encode("ascii") + b"\r"
 
     if protocol == "led8n_16":
-        # 16 raw digits, no terminator — display splits internally
+        # Some displays: 16 raw digits, display splits at 8 internally
         p = _led8n_format(line1, 8)
         t = _led8n_format(line2, 8) if line2 else "0" * 8
         return (p + t).encode("ascii")
