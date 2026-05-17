@@ -30,8 +30,8 @@ def _machine_fingerprint() -> str:
         winreg.CloseKey(k)
         parts.append(guid)
     except Exception:
-        pass
-    parts.append(str(uuid.getnode()))
+        # MachineGuid unavailable (non-Windows dev) — fall back to MAC
+        parts.append(str(uuid.getnode()))
     return hashlib.sha256("|SP-AL-RAYAN|".join(parts).encode()).hexdigest()
 
 
