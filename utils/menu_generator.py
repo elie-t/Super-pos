@@ -110,27 +110,27 @@ def generate_menu_pdf(output_path: str, categories: list[dict], shop_name: str) 
     Runs inside the Qt application (must be called from main thread or with QApplication alive).
     """
     from PySide6.QtPrintSupport import QPrinter
-    from PySide6.QtGui import QPainter, QFont, QColor, QBrush, QPen
-    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QPainter, QFont, QColor, QBrush, QPen, QPageSize, QPageLayout
+    from PySide6.QtCore import QRectF, Qt, QMarginsF
 
-    printer = QPrinter(QPrinter.HighResolution)
-    printer.setOutputFormat(QPrinter.PdfFormat)
+    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
     printer.setOutputFileName(output_path)
-    printer.setPageSize(QPrinter.A4)
-    printer.setPageOrientation(QPrinter.Portrait)
-    printer.setPageMargins(15, 15, 15, 15, QPrinter.Millimeter)
+    printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+    printer.setPageOrientation(QPageLayout.Orientation.Portrait)
+    printer.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout.Unit.Millimeter)
 
     painter = QPainter()
     painter.begin(printer)
 
-    page_rect = printer.pageRect(QPrinter.DevicePixel)
+    page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
     W = page_rect.width()
 
     # ── Fonts ─────────────────────────────────────────────────────────────────
-    f_title  = QFont("Arial", 22, QFont.Bold)
+    f_title  = QFont("Arial", 22, QFont.Weight.Bold)
     f_date   = QFont("Arial", 9)
-    f_cat    = QFont("Arial", 13, QFont.Bold)
-    f_name   = QFont("Arial", 8, QFont.Bold)
+    f_cat    = QFont("Arial", 13, QFont.Weight.Bold)
+    f_name   = QFont("Arial", 8, QFont.Weight.Bold)
     f_price  = QFont("Arial", 8)
 
     BLUE     = QColor("#1a3a5c")
