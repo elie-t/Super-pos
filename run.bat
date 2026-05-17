@@ -1,4 +1,4 @@
 @echo off
 cd /d "%~dp0"
 git pull
-python main.py
+start "" pythonw main.py

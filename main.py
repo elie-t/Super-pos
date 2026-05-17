@@ -74,11 +74,16 @@ class _VirtualKBSuppressor(QObject):
 
 
 def main():
-    import logging
+    import logging, os
+    _log_dir = os.path.join(os.path.dirname(__file__), "logs")
+    os.makedirs(_log_dir, exist_ok=True)
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
+        handlers=[logging.FileHandler(
+            os.path.join(_log_dir, "superpos.log"), encoding="utf-8"
+        )],
     )
     _disable_windows_touch_keyboard()
     init_db()
