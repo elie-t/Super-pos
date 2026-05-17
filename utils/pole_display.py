@@ -64,7 +64,7 @@ def _led8n_format(value_str: str, width: int = 8) -> str:
     s = str(n)
     if len(s) > width:
         s = s[-width:]       # keep rightmost digits if overflow
-    return s.rjust(width)    # space-pad on the left
+    return s.ljust(width)    # number first, space-pad on the right
 
 
 def _build_packet(line1: str, line2: str, protocol: str, lines: int = 1) -> bytes:
