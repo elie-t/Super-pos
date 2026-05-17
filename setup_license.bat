@@ -1,12 +1,15 @@
 @echo off
 cd /d "%~dp0"
-echo Registering this machine...
+echo ===============================
+echo   SuperPOS Licence Setup
+echo ===============================
+echo.
 python main.py --register
 if %errorlevel%==0 (
     echo.
-    echo Done! This machine is now licenced.
+    echo Licence saved successfully.
 ) else (
     echo.
-    echo ERROR: Run this file as Administrator.
+    echo Registration failed. Make sure you run as Administrator.
 )
 pause

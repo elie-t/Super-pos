@@ -8,8 +8,15 @@ from PySide6.QtGui import QKeyEvent
 
 
 # ── Machine licence ───────────────────────────────────────────────────────────
-_REG_PATH = r"SOFTWARE\SuperPOS"
-_REG_KEY  = "license"
+_REG_PATH     = r"SOFTWARE\SuperPOS"
+_REG_PWD_HASH = "ec88dad4a0f6a88c3ed7107a7be6bb5bf40274b36152f57dd0aa0a2c8858a6f2"
+
+_DURATIONS = {
+    "1": 30,    "trial":   30,
+    "2": 365,   "1year":   365,
+    "3": 730,   "2years":  730,
+    "4": 3650,  "10years": 3650,
+}
 
 
 def _machine_fingerprint() -> str:
@@ -24,17 +31,47 @@ def _machine_fingerprint() -> str:
         parts.append(guid)
     except Exception:
         pass
-    parts.append(str(uuid.getnode()))          # MAC address
-    raw = "|SP-AL-RAYAN|".join(parts)
-    return hashlib.sha256(raw.encode()).hexdigest()
+    parts.append(str(uuid.getnode()))
+    return hashlib.sha256("|SP-AL-RAYAN|".join(parts).encode()).hexdigest()
 
 
-_REG_PWD_HASH = "ec88dad4a0f6a88c3ed7107a7be6bb5bf40274b36152f57dd0aa0a2c8858a6f2"
+def _encode_expiry(days: int, fp: str) -> str:
+    """Store expiry as obfuscated blob tied to machine fingerprint."""
+    import base64, struct, datetime
+    expiry = datetime.datetime.now() + datetime.timedelta(days=days)
+    ts  = int(expiry.timestamp())
+    key = bytes.fromhex(fp[:16])          # 8 bytes of fingerprint as XOR key
+    raw = struct.pack(">Q", ts)
+    return base64.b64encode(bytes(a ^ b for a, b in zip(raw, key))).decode()
+
+
+def _decode_expiry(blob: str, fp: str):
+    import base64, struct, datetime
+    key = bytes.fromhex(fp[:16])
+    raw = bytes(a ^ b for a, b in zip(base64.b64decode(blob), key))
+    ts  = struct.unpack(">Q", raw)[0]
+    return datetime.datetime.fromtimestamp(ts)
+
+
+def _reg_write(key_name: str, value: str):
+    import winreg
+    k = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, _REG_PATH,
+                            0, winreg.KEY_SET_VALUE)
+    winreg.SetValueEx(k, key_name, 0, winreg.REG_SZ, value)
+    winreg.CloseKey(k)
+
+
+def _reg_read(key_name: str) -> str:
+    import winreg
+    k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _REG_PATH)
+    val, _ = winreg.QueryValueEx(k, key_name)
+    winreg.CloseKey(k)
+    return val
 
 
 def _register_machine():
-    """Write licence to registry — requires vendor password + Administrator."""
-    import hashlib, getpass, winreg
+    """Interactive registration — requires vendor password + Administrator."""
+    import hashlib, getpass, datetime
     try:
         pwd = getpass.getpass("Registration password: ")
     except Exception:
@@ -42,29 +79,94 @@ def _register_machine():
     if hashlib.sha256(pwd.encode()).hexdigest() != _REG_PWD_HASH:
         print("Incorrect password.")
         sys.exit(1)
-    fp = _machine_fingerprint()
-    k = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, _REG_PATH,
-                            0, winreg.KEY_SET_VALUE)
-    winreg.SetValueEx(k, _REG_KEY, 0, winreg.REG_SZ, fp)
-    winreg.CloseKey(k)
-    print(f"Machine registered successfully.\nFingerprint: {fp[:16]}…")
+
+    print("\nLicence duration:")
+    print("  1 - Trial (1 month)")
+    print("  2 - 1 Year")
+    print("  3 - 2 Years")
+    print("  4 - 10 Years")
+    choice = input("Choose [1-4]: ").strip().lower()
+    days = _DURATIONS.get(choice)
+    if not days:
+        print("Invalid choice.")
+        sys.exit(1)
+
+    fp     = _machine_fingerprint()
+    blob   = _encode_expiry(days, fp)
+    now_ts = str(int(datetime.datetime.now().timestamp()))
+
+    _reg_write("license",    fp)
+    _reg_write("expiry",     blob)
+    _reg_write("last_check", now_ts)
+
+    expiry = datetime.datetime.now() + datetime.timedelta(days=days)
+    print(f"\nMachine registered successfully.")
+    print(f"Licence expires: {expiry.strftime('%Y-%m-%d')}")
 
 
 def _check_licence():
-    """Exit with an error if this machine is not registered."""
+    """Check machine lock + expiry + anti-clock-rollback. Exit on failure."""
+    import datetime
     try:
-        import winreg
-        k    = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _REG_PATH)
-        stored, _ = winreg.QueryValueEx(k, _REG_KEY)
-        winreg.CloseKey(k)
-        if stored != _machine_fingerprint():
-            raise ValueError("mismatch")
-    except FileNotFoundError:
-        _licence_error("This software has not been activated on this computer.")
-    except ValueError:
-        _licence_error("Licence invalid — this copy is not authorised for this machine.")
+        import winreg  # noqa — non-Windows skips entirely
+    except ImportError:
+        return   # dev / Mac — skip
+
+    try:
+        fp = _machine_fingerprint()
+
+        # ── Machine check ────────────────────────────────────────────────────
+        try:
+            stored_fp = _reg_read("license")
+        except FileNotFoundError:
+            _licence_error("This software has not been activated on this computer.")
+            return
+        if stored_fp != fp:
+            _licence_error("Licence invalid — this copy is not authorised for this machine.")
+            return
+
+        # ── Expiry check ─────────────────────────────────────────────────────
+        try:
+            blob   = _reg_read("expiry")
+            expiry = _decode_expiry(blob, fp)
+        except Exception:
+            _licence_error("Licence data is corrupted. Please contact your vendor.")
+            return
+
+        now = datetime.datetime.now()
+
+        # ── Anti clock-rollback ──────────────────────────────────────────────
+        try:
+            last_ts = int(_reg_read("last_check"))
+            if now.timestamp() < last_ts - 86400:   # >1 day behind last check
+                _licence_error("System clock error detected. Please check your date/time settings.")
+                return
+        except Exception:
+            pass
+        _reg_write("last_check", str(int(now.timestamp())))
+
+        # ── Expired ───────────────────────────────────────────────────────────
+        if now > expiry:
+            _licence_error(
+                f"Your licence expired on {expiry.strftime('%Y-%m-%d')}.\n"
+                "Please contact your vendor to renew."
+            )
+            return
+
+        # ── Warning: expiring soon ────────────────────────────────────────────
+        days_left = (expiry - now).days
+        if days_left <= 30:
+            from PySide6.QtWidgets import QApplication, QMessageBox
+            _app = QApplication.instance() or QApplication(sys.argv)
+            QMessageBox.warning(
+                None, "Licence Expiring Soon",
+                f"Your licence expires in {days_left} day{'s' if days_left != 1 else ''}  "
+                f"({expiry.strftime('%Y-%m-%d')}).\n"
+                "Please contact your vendor to renew."
+            )
+
     except Exception:
-        pass   # non-Windows (dev/Mac) — skip check
+        pass   # any unexpected error — don't block startup
 
 
 def _licence_error(msg: str):
