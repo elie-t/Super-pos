@@ -509,7 +509,9 @@ class SettingsScreen(QWidget):
 
         self._pole_protocol = QComboBox()
         self._pole_protocol.setFixedWidth(300)
-        self._pole_protocol.addItem("LED 8N  (GS-T5 / 8-digit numeric LED)","led8n")
+        self._pole_protocol.addItem("LED 8N  (digits + CR per row)",         "led8n")
+        self._pole_protocol.addItem("LED 8N STX  (0x02 + digits + CR)",     "led8n_stx")
+        self._pole_protocol.addItem("LED 8N 16-byte  (raw 16 digits)",      "led8n_16")
         self._pole_protocol.addItem("Simple  (\\x0C clear + chars)",        "simple")
         self._pole_protocol.addItem("CR/LF  (plain text, 2 lines)",         "crlf")
         self._pole_protocol.addItem("Logic Controls  (LD9000 / CD5220)",    "logic_ctrl")
@@ -937,7 +939,7 @@ class SettingsScreen(QWidget):
             if not cfg.get("port"):
                 self._pole_test_lbl.setText("No port configured.")
                 return
-            if cfg["protocol"] == "led8n":
+            if cfg["protocol"].startswith("led8n"):
                 packet = _build_packet("12345678", "00000000", cfg["protocol"], cfg["lines"])
             else:
                 packet = _build_packet("** POLE TEST 1234 **", "", cfg["protocol"], cfg["lines"])

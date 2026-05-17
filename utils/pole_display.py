@@ -55,13 +55,24 @@ def _build_packet(line1: str, line2: str, protocol: str, lines: int = 1) -> byte
       line2 = running total (digits only)
     """
 
-    # ── LED 8N numeric display (GS-T5 / generic Chinese POS) ─────────────────
+    # ── LED 8N numeric display variants ──────────────────────────────────────
     if protocol == "led8n":
-        # Send price on line1 as 8 right-justified digits + CR
-        # then total on line2 as 8 digits + CR
-        price_str  = _digits_only(line1,  8)
-        total_str  = _digits_only(line2,  8) if line2 else "0" * 8
-        return (price_str + "\r" + total_str + "\r").encode("ascii")
+        # Row1 + CR, Row2 + CR  (most common)
+        p = _digits_only(line1, 8)
+        t = _digits_only(line2, 8) if line2 else "0" * 8
+        return (p + "\r" + t + "\r").encode("ascii")
+
+    if protocol == "led8n_stx":
+        # STX (0x02) + row + CR per line (used by some GS-T5 variants)
+        p = _digits_only(line1, 8)
+        t = _digits_only(line2, 8) if line2 else "0" * 8
+        return b"\x02" + p.encode() + b"\r" + b"\x02" + t.encode() + b"\r"
+
+    if protocol == "led8n_16":
+        # 16 raw digits, no terminator — display splits internally
+        p = _digits_only(line1, 8)
+        t = _digits_only(line2, 8) if line2 else "0" * 8
+        return (p + t).encode("ascii")
 
     l1 = _pad(line1)
 
