@@ -81,8 +81,11 @@ def _build_packet(line1: str, line2: str, protocol: str, lines: int = 1) -> byte
     # during item scan, total during payment).  Sending two rows with \r
     # between them bleeds the CR into the display as an extra character.
     if protocol == "led8n":
+        # 8 raw bytes, no STX, no CR — display shows exactly what it receives.
+        # STX prefix confuses this display (treats STX+next_byte as 2-byte
+        # command header, skipping them), and trailing CR renders as '0'.
         val = _led8n_format(line2 if line2 else line1, 8)
-        return val.encode("ascii") + b"\r"
+        return val.encode("ascii")   # exactly 8 bytes
 
     if protocol == "led8n_stx":
         val = _led8n_format(line2 if line2 else line1, 8)
