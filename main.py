@@ -29,9 +29,19 @@ def _machine_fingerprint() -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+_REG_PWD_HASH = "ec88dad4a0f6a88c3ed7107a7be6bb5bf40274b36152f57dd0aa0a2c8858a6f2"
+
+
 def _register_machine():
-    """Write licence to registry — run once as Administrator during setup."""
-    import winreg
+    """Write licence to registry — requires vendor password + Administrator."""
+    import hashlib, getpass, winreg
+    try:
+        pwd = getpass.getpass("Registration password: ")
+    except Exception:
+        pwd = input("Registration password: ")
+    if hashlib.sha256(pwd.encode()).hexdigest() != _REG_PWD_HASH:
+        print("Incorrect password.")
+        sys.exit(1)
     fp = _machine_fingerprint()
     k = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, _REG_PATH,
                             0, winreg.KEY_SET_VALUE)
