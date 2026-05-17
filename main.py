@@ -7,6 +7,63 @@ from PySide6.QtCore import QObject, QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 
 
+# ── Machine licence ───────────────────────────────────────────────────────────
+_REG_PATH = r"SOFTWARE\SuperPOS"
+_REG_KEY  = "license"
+
+
+def _machine_fingerprint() -> str:
+    import hashlib, uuid
+    parts = []
+    try:
+        import winreg
+        k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                           r"SOFTWARE\Microsoft\Cryptography")
+        guid, _ = winreg.QueryValueEx(k, "MachineGuid")
+        winreg.CloseKey(k)
+        parts.append(guid)
+    except Exception:
+        pass
+    parts.append(str(uuid.getnode()))          # MAC address
+    raw = "|SP-AL-RAYAN|".join(parts)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _register_machine():
+    """Write licence to registry — run once as Administrator during setup."""
+    import winreg
+    fp = _machine_fingerprint()
+    k = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, _REG_PATH,
+                            0, winreg.KEY_SET_VALUE)
+    winreg.SetValueEx(k, _REG_KEY, 0, winreg.REG_SZ, fp)
+    winreg.CloseKey(k)
+    print(f"Machine registered successfully.\nFingerprint: {fp[:16]}…")
+
+
+def _check_licence():
+    """Exit with an error if this machine is not registered."""
+    try:
+        import winreg
+        k    = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _REG_PATH)
+        stored, _ = winreg.QueryValueEx(k, _REG_KEY)
+        winreg.CloseKey(k)
+        if stored != _machine_fingerprint():
+            raise ValueError("mismatch")
+    except FileNotFoundError:
+        _licence_error("This software has not been activated on this computer.")
+    except ValueError:
+        _licence_error("Licence invalid — this copy is not authorised for this machine.")
+    except Exception:
+        pass   # non-Windows (dev/Mac) — skip check
+
+
+def _licence_error(msg: str):
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    _app = QApplication.instance() or QApplication(sys.argv)
+    QMessageBox.critical(None, "Licence Error", msg + "\n\nPlease contact your vendor.")
+    sys.exit(1)
+
+
 def _disable_windows_touch_keyboard():
     """
     Disable the Windows touch keyboard auto-invoke via registry.
@@ -74,6 +131,12 @@ class _VirtualKBSuppressor(QObject):
 
 
 def main():
+    if "--register" in sys.argv:
+        _register_machine()
+        return
+
+    _check_licence()
+
     import logging, os
     _log_dir = os.path.join(os.path.dirname(__file__), "logs")
     os.makedirs(_log_dir, exist_ok=True)
