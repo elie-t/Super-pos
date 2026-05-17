@@ -46,6 +46,32 @@ def _digits_only(text: str, width: int = 8) -> str:
     return digits[:width].rjust(width, "0")
 
 
+def _led8n_format(value_str: str, width: int = 8) -> str:
+    """Format a number for 8-digit LED display.
+
+    Strips leading zeros and uses '.' as thousands separator so the display
+    is easy to read.  Examples (width=8):
+        492250  →  " 492.250"
+        984500  →  " 984.500"
+       1984500  →  "1984.500"
+          5500  →  "   5.500"
+             0  →  "00000000"   (idle/clear state)
+    """
+    digits = "".join(c for c in str(value_str) if c.isdigit())
+    n = int(digits) if digits else 0
+    if n == 0:
+        return "0" * width
+    thousands, remainder = divmod(n, 1000)
+    if thousands:
+        s = f"{thousands}.{remainder:03d}"
+    else:
+        s = str(remainder)
+    # Right-align in width (space-pad); truncate left if still too long
+    if len(s) > width:
+        s = s[-width:]
+    return s.rjust(width)
+
+
 def _build_packet(line1: str, line2: str, protocol: str, lines: int = 1) -> bytes:
     """Return the byte sequence to display on the pole.
     If lines==1, line2 is ignored and only line1 is sent.
@@ -58,20 +84,20 @@ def _build_packet(line1: str, line2: str, protocol: str, lines: int = 1) -> byte
     # ── LED 8N numeric display variants ──────────────────────────────────────
     if protocol == "led8n":
         # Row1 + CR, Row2 + CR  (most common)
-        p = _digits_only(line1, 8)
-        t = _digits_only(line2, 8) if line2 else "0" * 8
+        p = _led8n_format(line1, 8)
+        t = _led8n_format(line2, 8) if line2 else "0" * 8
         return (p + "\r" + t + "\r").encode("ascii")
 
     if protocol == "led8n_stx":
         # STX (0x02) + row + CR per line (used by some GS-T5 variants)
-        p = _digits_only(line1, 8)
-        t = _digits_only(line2, 8) if line2 else "0" * 8
+        p = _led8n_format(line1, 8)
+        t = _led8n_format(line2, 8) if line2 else "0" * 8
         return b"\x02" + p.encode() + b"\r" + b"\x02" + t.encode() + b"\r"
 
     if protocol == "led8n_16":
         # 16 raw digits, no terminator — display splits internally
-        p = _digits_only(line1, 8)
-        t = _digits_only(line2, 8) if line2 else "0" * 8
+        p = _led8n_format(line1, 8)
+        t = _led8n_format(line2, 8) if line2 else "0" * 8
         return (p + t).encode("ascii")
 
     l1 = _pad(line1)

@@ -2791,7 +2791,7 @@ class POSScreen(QWidget):
                 grand = self._grand_total()
                 # Display shows whichever row arrives last — send total first
                 # so price arrives last and stays visible to the customer.
-                pole_show(_digits_only(f"{grand:.0f}"), _digits_only(f"{unit_price:.0f}"))
+                pole_show(f"{grand:.0f}", f"{unit_price:.0f}")
             else:
                 line1 = description[:20]
                 line2 = f"{qty:g} x {unit_price:,.0f}"[:20]
@@ -2995,7 +2995,7 @@ class POSScreen(QWidget):
             from utils.pole_display import pole_show, _get_port_settings, _digits_only
             cfg = _get_port_settings()
             if cfg.get("protocol", "").startswith("led8n"):
-                pole_show("00000000", _digits_only(f"{total:.0f}"))
+                pole_show("0", f"{total:.0f}")
             else:
                 pole_show("Total:", f"{total:,.0f}"[:20])
         except Exception:
