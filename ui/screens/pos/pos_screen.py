@@ -1629,6 +1629,8 @@ class POSScreen(QWidget):
         splitter.addWidget(self._make_right_panel())
         splitter.setStretchFactor(0, 6)
         splitter.setStretchFactor(1, 4)
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
         self._body_stack.addWidget(splitter)      # index 0
 
         self._touch_overlay = TouchOverlay(self)
