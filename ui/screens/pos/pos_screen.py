@@ -9,7 +9,7 @@ Right (45 %) : totals panel  ▸  PAY button  ▸  function buttons  ▸  quick-
 Shortcuts
 ─────────
 F8  = Pay        F9  = Print last    F10 = Price check
-F2  = Hold       F3  = Recall        F4  = New Sale
+F2  = Hold       F3  = Open Drawer   F4  = New Sale
 Del = Void line  Esc = Scan focus
 """
 import json
@@ -2064,7 +2064,7 @@ class POSScreen(QWidget):
             return b
 
         fn_btn("⏸  Hold  [F2]",      "#e65100", "#bf360c", self._hold_sale,      0, 0)
-        fn_btn("▶  Recall  [F3]",   "#1a6cb5", "#1a3a5c", self._recall_sale,    0, 1)
+        fn_btn("🗄  Drawer  [F3]",  "#4e342e", "#3e2723", self._open_drawer,     0, 1)
         fn_btn("📋  Invoices",       "#37474f", "#263238", self._open_invoices,  1, 0)
         fn_btn("🚚  Delivery  [F6]","#1a6cb5", "#0d4a8a", self._open_online_orders, 1, 1)
         self._touch_mode_btn = fn_btn(
@@ -2160,7 +2160,7 @@ class POSScreen(QWidget):
         self._online_poll_timer.start(10_000)
 
         hints = QLabel(
-            "F8=Pay · F9=Print · F10=Price · F2=Hold · F3=Recall · F4=New · F5=Customers · F6=Delivery · +=Qty+ · −=Qty− · Del=Void"
+            "F8=Pay · F9=Print · F10=Price · F2=Hold · F3=Drawer · F4=New · F5=Customers · F6=Delivery · +=Qty+ · −=Qty− · Del=Void"
         )
         hints.setStyleSheet("font-size:10px;color:#8899aa;")
         hints.setAlignment(Qt.AlignCenter)
@@ -2251,7 +2251,7 @@ class POSScreen(QWidget):
         QShortcut(QKeySequence("F9"),  self).activated.connect(self._print_last)
         QShortcut(QKeySequence("F10"), self).activated.connect(self._price_check)
         QShortcut(QKeySequence("F2"),  self).activated.connect(self._hold_sale)
-        QShortcut(QKeySequence("F3"),  self).activated.connect(self._recall_sale)
+        QShortcut(QKeySequence("F3"),  self).activated.connect(self._open_drawer)
         QShortcut(QKeySequence("F4"),  self).activated.connect(self._new_sale)
         QShortcut(QKeySequence("F5"),  self).activated.connect(self._change_customer)
         QShortcut(QKeySequence("F6"),  self).activated.connect(self._open_online_orders)
@@ -3064,6 +3064,21 @@ class POSScreen(QWidget):
             self._new_sale()
         else:
             QMessageBox.critical(self, "Error", f"Failed to save sale:\n{result}")
+
+    # ── Cash drawer ────────────────────────────────────────────────────────────
+
+    def _open_drawer(self):
+        try:
+            from utils.receipt_printer import get_escpos_printer
+            p = get_escpos_printer()
+            if p is None:
+                self.statusBar().showMessage("  ⚠ No ESC/POS printer configured — cannot open drawer", 4000)
+                return
+            p.cashdraw(2)
+            p.close()
+            self.statusBar().showMessage("  🗄 Cash drawer opened", 3000)
+        except Exception as e:
+            self.statusBar().showMessage(f"  ⚠ Drawer error: {e}", 5000)
 
     # ── Hold / Recall ──────────────────────────────────────────────────────────
 
