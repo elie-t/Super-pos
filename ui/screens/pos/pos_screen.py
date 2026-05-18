@@ -1627,9 +1627,8 @@ class POSScreen(QWidget):
         splitter.setHandleWidth(3)
         splitter.addWidget(self._make_left_panel())
         splitter.addWidget(self._make_right_panel())
-        splitter.setStretchFactor(0, 55)
-        splitter.setStretchFactor(1, 45)
-        splitter.setSizes([660, 500])
+        splitter.setStretchFactor(0, 6)
+        splitter.setStretchFactor(1, 4)
         self._body_stack.addWidget(splitter)      # index 0
 
         self._touch_overlay = TouchOverlay(self)
@@ -2049,10 +2048,14 @@ class POSScreen(QWidget):
         fn_lay = QGridLayout(fn_frame)
         fn_lay.setContentsMargins(8, 8, 8, 8)
         fn_lay.setSpacing(6)
+        fn_lay.setColumnStretch(0, 1)
+        fn_lay.setColumnStretch(1, 1)
 
         def fn_btn(label, bg, hover, callback, row, col):
             b = QPushButton(label)
             b.setFixedHeight(38)
+            b.setSizePolicy(b.sizePolicy().horizontalPolicy(),
+                            b.sizePolicy().verticalPolicy())
             b.setStyleSheet(
                 f"QPushButton{{background:{bg};color:#fff;font-size:12px;font-weight:700;"
                 f"border:none;border-radius:5px;}}"
@@ -2063,17 +2066,17 @@ class POSScreen(QWidget):
             fn_lay.addWidget(b, row, col)
             return b
 
-        fn_btn("⏸  Hold  [F2]",      "#e65100", "#bf360c", self._hold_sale,      0, 0)
-        fn_btn("🗄  Drawer  [F3]",  "#4e342e", "#3e2723", self._open_drawer,     0, 1)
-        fn_btn("📋  Invoices",       "#37474f", "#263238", self._open_invoices,  1, 0)
-        fn_btn("🚚  Delivery  [F6]","#1a6cb5", "#0d4a8a", self._open_online_orders, 1, 1)
+        fn_btn("⏸  Hold  [F2]",    "#e65100", "#bf360c", self._hold_sale,           0, 0)
+        fn_btn("🗄  Drawer [F3]",  "#4e342e", "#3e2723", self._open_drawer,          0, 1)
+        fn_btn("📋  Invoices",     "#37474f", "#263238", self._open_invoices,        1, 0)
+        fn_btn("🚚  Delivery [F6]","#1a6cb5", "#0d4a8a", self._open_online_orders,   1, 1)
         self._touch_mode_btn = fn_btn(
-            "⊞  Touch Mode", "#00838f", "#006064", self._toggle_touch_mode, 2, 0)
-        fn_btn("👥  Customers [F5]","#5c6bc0", "#3949ab", self._change_customer, 2, 1)
-        fn_btn("🔍  Price  [F10]", "#455a64", "#263238", self._price_check,       3, 0)
-        fn_btn("🖨  Print  [F9]",  "#2e7d32", "#1b5e20", self._print_last,        3, 1)
-        fn_btn("📊  Daily Sales",  "#4a148c", "#311b92", self._open_daily_sales,  4, 0)
-        fn_btn("🔴  End of Shift", "#b71c1c", "#7f0000", self._open_end_of_shift, 4, 1)
+            "⊞  Touch Mode",       "#00838f", "#006064", self._toggle_touch_mode,    2, 0)
+        fn_btn("👥  Customers [F5]","#5c6bc0","#3949ab", self._change_customer,      2, 1)
+        fn_btn("🔍  Price [F10]",  "#455a64", "#263238", self._price_check,          3, 0)
+        fn_btn("🖨  Print [F9]",   "#2e7d32", "#1b5e20", self._print_last,           3, 1)
+        fn_btn("📊  Daily Sales",  "#4a148c", "#311b92", self._open_daily_sales,     4, 0)
+        fn_btn("🔴  End of Shift", "#b71c1c", "#7f0000", self._open_end_of_shift,    4, 1)
 
         lay.addWidget(fn_frame)
 

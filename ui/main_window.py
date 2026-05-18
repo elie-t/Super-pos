@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
         _mode = "Restaurant POS" if APP_MODE == "restaurant" else "Retail Management"
         self.setWindowTitle(f"{_name} — {_mode}")
         self.resize(1280, 800)
-        self.setMinimumSize(QSize(1024, 640))
+        self.setMinimumSize(QSize(900, 600))
         self.setStyleSheet(APP_STYLE)
         self._modules: dict[str, QWidget] = {}
         self._build_ui()
