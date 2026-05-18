@@ -258,8 +258,7 @@ class TouchOverlay(QWidget):
 
         # Totals
         subtotal = sum(l["qty"] * l["price"] * (1 - l["disc"] / 100) for l in lines)
-        disc_val = subtotal * (pos._global_disc.value() / 100)
-        grand    = subtotal - disc_val
+        grand    = subtotal
         if cur == "USD":
             self._total_lbl.setText(f"$  {grand:,.2f}")
             lbp = grand * rate
