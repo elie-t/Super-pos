@@ -49,20 +49,21 @@ def _digits_only(text: str, width: int = 8) -> str:
 def _led8n_format(value_str: str, width: int = 8) -> str:
     """Format a number for 8-digit LED display.
 
-    Right-aligns with leading zeros so every byte is a digit (0-9).
-    LED displays reject or clear on space bytes — never use spaces.
-        492250  →  "00492250"
-        984500  →  "00984500"
-       1984500  →  "01984500"
-          5500  →  "00005500"
+    Right-aligns with leading spaces so unused positions are blank.
+        492250  →  "  492250"
+        984500  →  "  984500"
+       1984500  →  " 1984500"
+          5500  →  "    5500"
              0  →  "00000000"   (idle/clear state)
     """
     digits = "".join(c for c in str(value_str) if c.isdigit())
     n = int(digits) if digits else 0
+    if n == 0:
+        return "0" * width
     s = str(n)
     if len(s) > width:
         s = s[-width:]       # keep rightmost digits if overflow
-    return s.zfill(width)    # right-align, zero-pad on the left
+    return s.rjust(width)    # right-align, space-pad on the left
 
 
 def _build_packet(line1: str, line2: str, protocol: str, lines: int = 1) -> bytes:

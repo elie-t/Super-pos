@@ -2790,13 +2790,6 @@ class POSScreen(QWidget):
         try:
             from utils.pole_display import pole_show, _get_port_settings, _digits_only
             cfg = _get_port_settings()
-            port = cfg.get("port") or "NONE"
-            proto = cfg.get("protocol", "?")
-            try:
-                self.window().statusBar().showMessage(
-                    f"[POLE DBG] port={port} proto={proto} price={unit_price:.0f}", 5000)
-            except Exception:
-                pass
             if cfg.get("protocol", "").startswith("led8n"):
                 grand = self._grand_total()
                 pole_show(f"{grand:.0f}", f"{unit_price:.0f}")
