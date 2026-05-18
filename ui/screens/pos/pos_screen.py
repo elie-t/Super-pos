@@ -2044,21 +2044,16 @@ class POSScreen(QWidget):
 
         # ── Function buttons ──────────────────────────────────────────────
         fn_frame = QFrame()
-        fn_frame.setMinimumWidth(0)
         fn_frame.setStyleSheet(
             "QFrame{background:#fff;border:1px solid #d0d8e4;border-radius:6px;}"
         )
-        fn_lay = QGridLayout(fn_frame)
+        fn_lay = QVBoxLayout(fn_frame)
         fn_lay.setContentsMargins(8, 8, 8, 8)
         fn_lay.setSpacing(6)
-        fn_lay.setColumnStretch(0, 1)
-        fn_lay.setColumnStretch(1, 1)
-        fn_lay.setSizeConstraint(fn_lay.SizeConstraint.SetNoConstraint)
 
-        def fn_btn(label, bg, hover, callback, row, col):
+        def fn_btn(label, bg, hover, callback):
             b = QPushButton(label)
             b.setFixedHeight(38)
-            b.setMinimumWidth(0)
             b.setStyleSheet(
                 f"QPushButton{{background:{bg};color:#fff;font-size:11px;font-weight:700;"
                 f"border:none;border-radius:5px;padding:0 4px;}}"
@@ -2066,20 +2061,33 @@ class POSScreen(QWidget):
             )
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(callback)
-            fn_lay.addWidget(b, row, col)
             return b
 
-        fn_btn("⏸  Hold",         "#e65100", "#bf360c", self._hold_sale,           0, 0)
-        fn_btn("🗄  Drawer",       "#4e342e", "#3e2723", self._open_drawer,          0, 1)
-        fn_btn("📋  Invoices",     "#37474f", "#263238", self._open_invoices,        1, 0)
-        fn_btn("🚚  Delivery",     "#1a6cb5", "#0d4a8a", self._open_online_orders,   1, 1)
-        self._touch_mode_btn = fn_btn(
-            "⊞  Touch",            "#00838f", "#006064", self._toggle_touch_mode,    2, 0)
-        fn_btn("👥  Customers",    "#5c6bc0", "#3949ab", self._change_customer,      2, 1)
-        fn_btn("🔍  Price",        "#455a64", "#263238", self._price_check,          3, 0)
-        fn_btn("🖨  Print",        "#2e7d32", "#1b5e20", self._print_last,           3, 1)
-        fn_btn("📊  Daily Sales",  "#4a148c", "#311b92", self._open_daily_sales,     4, 0)
-        fn_btn("🔴  End of Shift", "#b71c1c", "#7f0000", self._open_end_of_shift,    4, 1)
+        def fn_row(b1, b2=None):
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            row.addWidget(b1, 1)
+            if b2:
+                row.addWidget(b2, 1)
+            fn_lay.addLayout(row)
+
+        b_hold    = fn_btn("⏸  Hold",         "#e65100", "#bf360c", self._hold_sale)
+        b_drawer  = fn_btn("🗄  Drawer",       "#4e342e", "#3e2723", self._open_drawer)
+        b_inv     = fn_btn("📋  Invoices",     "#37474f", "#263238", self._open_invoices)
+        b_del     = fn_btn("🚚  Delivery",     "#1a6cb5", "#0d4a8a", self._open_online_orders)
+        self._touch_mode_btn = \
+              fn_btn("⊞  Touch",            "#00838f", "#006064", self._toggle_touch_mode)
+        b_cust    = fn_btn("👥  Customers",    "#5c6bc0", "#3949ab", self._change_customer)
+        b_price   = fn_btn("🔍  Price",        "#455a64", "#263238", self._price_check)
+        b_print   = fn_btn("🖨  Print",        "#2e7d32", "#1b5e20", self._print_last)
+        b_daily   = fn_btn("📊  Daily Sales",  "#4a148c", "#311b92", self._open_daily_sales)
+        b_shift   = fn_btn("🔴  End of Shift", "#b71c1c", "#7f0000", self._open_end_of_shift)
+
+        fn_row(b_hold,  b_drawer)
+        fn_row(b_inv,   b_del)
+        fn_row(self._touch_mode_btn, b_cust)
+        fn_row(b_price, b_print)
+        fn_row(b_daily, b_shift)
 
         lay.addWidget(fn_frame)
 
