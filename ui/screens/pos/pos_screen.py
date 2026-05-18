@@ -1930,18 +1930,6 @@ class POSScreen(QWidget):
         al.addWidget(aBtn("➖  Qty", "#607d8b", "#455a64", self._decrement_qty))
         al.addStretch()
 
-        disc_lbl = QLabel("Global Disc%:")
-        disc_lbl.setStyleSheet("font-size:12px;color:#445566;")
-        al.addWidget(disc_lbl)
-        self._global_disc = QDoubleSpinBox()
-        self._global_disc.setRange(0, 100)
-        self._global_disc.setDecimals(1)
-        self._global_disc.setFixedHeight(30)
-        self._global_disc.setFixedWidth(70)
-        self._global_disc.setStyleSheet("font-size:12px;color:#1a1a2e;")
-        self._global_disc.valueChanged.connect(self._update_totals)
-        al.addWidget(self._global_disc)
-
         lay.addWidget(act)
         return w
 
@@ -2000,7 +1988,6 @@ class POSScreen(QWidget):
 
         _csym = "ل.ل" if self._currency == "LBP" else "$"
         self._sub_lbl   = tot_row(f"Sub-Total  {_csym}:")
-        self._disc_lbl2 = tot_row(f"Discount   {_csym}:", color="#f0c040")
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
@@ -2862,7 +2849,10 @@ class POSScreen(QWidget):
         qty_cell = ro(f"{line['qty']:.3f}") if line["qty"] < 0 else ed(f"{line['qty']:.3f}")
         self._table.setItem(r, COL_QTY, qty_cell)
         _pfmt = ".2f" if self._currency == "USD" else ".0f"
-        self._table.setItem(r, COL_PRICE, ed(f"{line['price']:{_pfmt}}"))
+        _u = AuthService.current_user()
+        _can_edit_price = _u and (_u.role in ("admin", "manager") or _u.is_power_user)
+        price_cell = ed(f"{line['price']:{_pfmt}}") if _can_edit_price else ro(f"{line['price']:{_pfmt}}")
+        self._table.setItem(r, COL_PRICE, price_cell)
         self._table.setItem(r, COL_DISC,  ed(f"{line['disc']:.1f}"))
 
         tot_cell = ro(f"{line['total']:,.{2 if self._currency == 'USD' else 0}f}")
@@ -2954,6 +2944,9 @@ class POSScreen(QWidget):
                 return   # disallow zero
             self._lines[row]["qty"] = val   # allow negatives (deduction lines)
         elif col == COL_PRICE:
+            _u = AuthService.current_user()
+            if not (_u and (_u.role in ("admin", "manager") or _u.is_power_user)):
+                return
             self._lines[row]["price"] = max(0.0, val)
         elif col == COL_DISC:
             self._lines[row]["disc"] = max(0.0, min(100.0, val))
@@ -2976,14 +2969,11 @@ class POSScreen(QWidget):
 
     def _update_totals(self):
         subtotal = sum(l["qty"] * l["price"] * (1 - l["disc"] / 100) for l in self._lines)
-        disc_val = subtotal * (self._global_disc.value() / 100)
-        grand    = subtotal - disc_val
+        grand    = subtotal
         if self._currency == "USD":
             self._sub_lbl.setText(f"{subtotal:,.2f}")
-            self._disc_lbl2.setText(f"{disc_val:,.2f}")
         else:
             self._sub_lbl.setText(f"{subtotal:,.0f}")
-            self._disc_lbl2.setText(f"{disc_val:,.0f}")
         if self._currency == "USD":
             self._grand_lbl.setText(f"{grand:,.2f}")
             lbp_equiv = grand * self._lbp_rate if grand else 0.0
@@ -2996,9 +2986,7 @@ class POSScreen(QWidget):
             self._touch_overlay.refresh_cart()
 
     def _grand_total(self) -> float:
-        subtotal = sum(l["qty"] * l["price"] * (1 - l["disc"] / 100) for l in self._lines)
-        disc_val = subtotal * (self._global_disc.value() / 100)
-        return subtotal - disc_val
+        return sum(l["qty"] * l["price"] * (1 - l["disc"] / 100) for l in self._lines)
 
     # ── Pay ────────────────────────────────────────────────────────────────────
 
@@ -3032,10 +3020,7 @@ class POSScreen(QWidget):
     def _finish_sale(self, dlg: PaymentDialog):
         user = AuthService.current_user()
         total    = self._grand_total()
-        disc_val = (
-            sum(l["qty"] * l["price"] for l in self._lines)
-            * (self._global_disc.value() / 100)
-        )
+        disc_val = 0.0
         lines = [
             PosLineItem(
                 item_id    = l["item"].item_id,
@@ -3584,7 +3569,6 @@ class POSScreen(QWidget):
 
     def _new_sale(self):
         self._lines.clear()
-        self._global_disc.setValue(0.0)
         self._customer_id   = PosService.get_walk_in_customer_id(self._warehouse_id)
         self._customer_name = self._resolve_customer_name(self._customer_id)
         self._cust_name_lbl.setText(self._customer_name)
