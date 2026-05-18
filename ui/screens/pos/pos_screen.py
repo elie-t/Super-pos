@@ -3070,10 +3070,11 @@ class POSScreen(QWidget):
     def _open_drawer(self):
         from utils.receipt_printer import open_cash_drawer
         ok, err = open_cash_drawer()
+        sb = self.window().statusBar()
         if ok:
-            self.statusBar().showMessage("  🗄 Cash drawer opened", 3000)
+            sb.showMessage("  🗄 Cash drawer opened", 3000)
         else:
-            self.statusBar().showMessage(f"  ⚠ Drawer: {err}", 6000)
+            sb.showMessage(f"  ⚠ Drawer: {err}", 6000)
 
     # ── Hold / Recall ──────────────────────────────────────────────────────────
 
