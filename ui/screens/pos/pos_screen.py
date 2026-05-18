@@ -2852,8 +2852,9 @@ class POSScreen(QWidget):
         _u = AuthService.current_user()
         _can_edit_price = _u and (_u.role in ("admin", "manager") or _u.is_power_user)
         price_cell = ed(f"{line['price']:{_pfmt}}") if _can_edit_price else ro(f"{line['price']:{_pfmt}}")
+        disc_cell  = ed(f"{line['disc']:.1f}") if _can_edit_price else ro(f"{line['disc']:.1f}")
         self._table.setItem(r, COL_PRICE, price_cell)
-        self._table.setItem(r, COL_DISC,  ed(f"{line['disc']:.1f}"))
+        self._table.setItem(r, COL_DISC,  disc_cell)
 
         tot_cell = ro(f"{line['total']:,.{2 if self._currency == 'USD' else 0}f}")
         tot_cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -2949,6 +2950,9 @@ class POSScreen(QWidget):
                 return
             self._lines[row]["price"] = max(0.0, val)
         elif col == COL_DISC:
+            _u = AuthService.current_user()
+            if not (_u and (_u.role in ("admin", "manager") or _u.is_power_user)):
+                return
             self._lines[row]["disc"] = max(0.0, min(100.0, val))
 
         self._recalc_line(row)
