@@ -817,10 +817,11 @@ class PosService:
             )
             return [
                 {
+                    "id":             r.id,
                     "invoice_number": r.invoice_number,
-                    "date": r.invoice_date,
-                    "total": r.total,
-                    "currency": r.currency,
+                    "date":           r.invoice_date,
+                    "total":          r.total,
+                    "currency":       r.currency,
                     "payment_status": r.payment_status,
                 }
                 for r in rows

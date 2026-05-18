@@ -4051,7 +4051,7 @@ class POSScreen(QWidget):
         # Right: customer briefing
         right_w = QWidget()
         right_w.setStyleSheet("background:#f5f7fa;")
-        right_w.setFixedWidth(240)
+        right_w.setFixedWidth(300)
         right_l = QVBoxLayout(right_w)
         right_l.setContentsMargins(12, 14, 12, 10)
         right_l.setSpacing(4)
@@ -4073,17 +4073,32 @@ class POSScreen(QWidget):
         orders_tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         orders_tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         orders_tbl.setEditTriggers(QTableWidget.NoEditTriggers)
-        orders_tbl.setSelectionMode(QTableWidget.NoSelection)
+        orders_tbl.setSelectionBehavior(QTableWidget.SelectRows)
         orders_tbl.setStyleSheet("font-size:11px;")
         orders_tbl.verticalHeader().setVisible(False)
         orders_tbl.setAlternatingRowColors(True)
+
+        items_hdr = QLabel("Order Items")
+        items_hdr.setStyleSheet("font-size:11px;font-weight:700;color:#90a4ae;margin-top:6px;")
+
+        items_tbl = QTableWidget(0, 3)
+        items_tbl.setHorizontalHeaderLabels(["Item", "Qty", "Total"])
+        items_tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        items_tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        items_tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        items_tbl.setEditTriggers(QTableWidget.NoEditTriggers)
+        items_tbl.setSelectionMode(QTableWidget.NoSelection)
+        items_tbl.setStyleSheet("font-size:11px;")
+        items_tbl.verticalHeader().setVisible(False)
+        items_tbl.setAlternatingRowColors(True)
 
         right_l.addWidget(brief_name)
         right_l.addWidget(brief_phone)
         right_l.addWidget(brief_bal)
         right_l.addWidget(orders_hdr)
-        right_l.addWidget(orders_tbl, 1)
-        right_l.addStretch()
+        right_l.addWidget(orders_tbl, 2)
+        right_l.addWidget(items_hdr)
+        right_l.addWidget(items_tbl, 3)
 
         root.addWidget(right_w)
 
@@ -4133,20 +4148,44 @@ class POSScreen(QWidget):
                     orders_tbl.insertRow(r2)
                     date_short = o["date"][5:] if len(o["date"]) >= 7 else o["date"]
                     paid_mark = " v" if o["payment_status"] == "paid" else ""
-                    orders_tbl.setItem(r2, 0, QTableWidgetItem(date_short))
+                    date_item = QTableWidgetItem(date_short)
+                    date_item.setData(Qt.UserRole, o["id"])
+                    orders_tbl.setItem(r2, 0, date_item)
                     orders_tbl.setItem(r2, 1, QTableWidgetItem(o["invoice_number"] + paid_mark))
-                    orders_tbl.setItem(r2, 2, QTableWidgetItem(f"{o['total']:,.2f}"))
+                    cur_sym = "ل.ل" if o.get("currency", "LBP") == "LBP" else "$"
+                    orders_tbl.setItem(r2, 2, QTableWidgetItem(f"{o['total']:,.0f} {cur_sym}"))
             else:
                 orders_tbl.insertRow(0)
                 it = QTableWidgetItem("No orders yet")
                 it.setForeground(QColor("#bbb"))
                 orders_tbl.setItem(0, 0, it)
                 orders_tbl.setSpan(0, 0, 1, 3)
+            items_tbl.setRowCount(0)
+
+        def _show_order_items(row, _col=0, *_):
+            if row < 0:
+                return
+            cell = orders_tbl.item(row, 0)
+            if not cell:
+                return
+            invoice_id = cell.data(Qt.UserRole)
+            if not invoice_id:
+                return
+            lines = PosService.get_invoice_items(invoice_id)
+            items_tbl.setRowCount(0)
+            for li in lines:
+                r2 = items_tbl.rowCount()
+                items_tbl.insertRow(r2)
+                items_tbl.setItem(r2, 0, QTableWidgetItem(li["description"]))
+                items_tbl.setItem(r2, 1, QTableWidgetItem(f"{li['qty']:g}"))
+                cur_sym = "ل.ل" if li.get("currency", "LBP") == "LBP" else "$"
+                items_tbl.setItem(r2, 2, QTableWidgetItem(f"{li['total']:,.0f} {cur_sym}"))
 
         _timer.timeout.connect(_search)
         name_edit.textChanged.connect(lambda: _timer.start())
         phone_edit.textChanged.connect(lambda: _timer.start())
         tbl.currentCellChanged.connect(lambda row, *_: _update_briefing(row))
+        orders_tbl.currentCellChanged.connect(_show_order_items)
 
         def _accept_row():
             row = tbl.currentRow()
