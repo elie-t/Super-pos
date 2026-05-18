@@ -2054,11 +2054,10 @@ class POSScreen(QWidget):
         def fn_btn(label, bg, hover, callback, row, col):
             b = QPushButton(label)
             b.setFixedHeight(38)
-            b.setSizePolicy(b.sizePolicy().horizontalPolicy(),
-                            b.sizePolicy().verticalPolicy())
+            b.setMinimumWidth(0)
             b.setStyleSheet(
-                f"QPushButton{{background:{bg};color:#fff;font-size:12px;font-weight:700;"
-                f"border:none;border-radius:5px;}}"
+                f"QPushButton{{background:{bg};color:#fff;font-size:11px;font-weight:700;"
+                f"border:none;border-radius:5px;padding:0 4px;}}"
                 f"QPushButton:hover{{background:{hover};}}"
             )
             b.setCursor(Qt.PointingHandCursor)
@@ -2066,15 +2065,15 @@ class POSScreen(QWidget):
             fn_lay.addWidget(b, row, col)
             return b
 
-        fn_btn("⏸  Hold  [F2]",    "#e65100", "#bf360c", self._hold_sale,           0, 0)
-        fn_btn("🗄  Drawer [F3]",  "#4e342e", "#3e2723", self._open_drawer,          0, 1)
+        fn_btn("⏸  Hold",         "#e65100", "#bf360c", self._hold_sale,           0, 0)
+        fn_btn("🗄  Drawer",       "#4e342e", "#3e2723", self._open_drawer,          0, 1)
         fn_btn("📋  Invoices",     "#37474f", "#263238", self._open_invoices,        1, 0)
-        fn_btn("🚚  Delivery [F6]","#1a6cb5", "#0d4a8a", self._open_online_orders,   1, 1)
+        fn_btn("🚚  Delivery",     "#1a6cb5", "#0d4a8a", self._open_online_orders,   1, 1)
         self._touch_mode_btn = fn_btn(
-            "⊞  Touch Mode",       "#00838f", "#006064", self._toggle_touch_mode,    2, 0)
-        fn_btn("👥  Customers [F5]","#5c6bc0","#3949ab", self._change_customer,      2, 1)
-        fn_btn("🔍  Price [F10]",  "#455a64", "#263238", self._price_check,          3, 0)
-        fn_btn("🖨  Print [F9]",   "#2e7d32", "#1b5e20", self._print_last,           3, 1)
+            "⊞  Touch",            "#00838f", "#006064", self._toggle_touch_mode,    2, 0)
+        fn_btn("👥  Customers",    "#5c6bc0", "#3949ab", self._change_customer,      2, 1)
+        fn_btn("🔍  Price",        "#455a64", "#263238", self._price_check,          3, 0)
+        fn_btn("🖨  Print",        "#2e7d32", "#1b5e20", self._print_last,           3, 1)
         fn_btn("📊  Daily Sales",  "#4a148c", "#311b92", self._open_daily_sales,     4, 0)
         fn_btn("🔴  End of Shift", "#b71c1c", "#7f0000", self._open_end_of_shift,    4, 1)
 
@@ -2163,7 +2162,7 @@ class POSScreen(QWidget):
         self._online_poll_timer.start(10_000)
 
         hints = QLabel(
-            "F8=Pay · F9=Print · F10=Price · F2=Hold · F3=Drawer · F4=New · F5=Customers · F6=Delivery · +=Qty+ · −=Qty− · Del=Void"
+            "F2=Hold · F3=Drawer · F4=New · F5=Customers · F6=Delivery · F8=Pay · F9=Print · F10=Price · +=Qty+ · −=Qty− · Del=Void"
         )
         hints.setStyleSheet("font-size:10px;color:#8899aa;")
         hints.setAlignment(Qt.AlignCenter)
