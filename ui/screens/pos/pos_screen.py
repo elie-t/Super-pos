@@ -4171,7 +4171,7 @@ class POSScreen(QWidget):
             invoice_id = cell.data(Qt.UserRole)
             if not invoice_id:
                 return
-            lines = PosService.get_invoice_items(invoice_id)
+            lines = PosService.get_sale_lines(invoice_id)
             items_tbl.setRowCount(0)
             for li in lines:
                 r2 = items_tbl.rowCount()
