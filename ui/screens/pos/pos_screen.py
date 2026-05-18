@@ -3068,17 +3068,12 @@ class POSScreen(QWidget):
     # ── Cash drawer ────────────────────────────────────────────────────────────
 
     def _open_drawer(self):
-        try:
-            from utils.receipt_printer import get_escpos_printer
-            p = get_escpos_printer()
-            if p is None:
-                self.statusBar().showMessage("  ⚠ No ESC/POS printer configured — cannot open drawer", 4000)
-                return
-            p.cashdraw(2)
-            p.close()
+        from utils.receipt_printer import open_cash_drawer
+        ok, err = open_cash_drawer()
+        if ok:
             self.statusBar().showMessage("  🗄 Cash drawer opened", 3000)
-        except Exception as e:
-            self.statusBar().showMessage(f"  ⚠ Drawer error: {e}", 5000)
+        else:
+            self.statusBar().showMessage(f"  ⚠ Drawer: {err}", 6000)
 
     # ── Hold / Recall ──────────────────────────────────────────────────────────
 

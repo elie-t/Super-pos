@@ -483,6 +483,29 @@ def get_escpos_printer():
     return None
 
 
+def open_cash_drawer() -> tuple[bool, str]:
+    """
+    Send a cash-drawer kick via the configured ESC/POS printer.
+    Tries drawer-1 (pin 0) with two different timing sets — covers most hardware.
+    Returns (ok, error_message).
+    """
+    p = get_escpos_printer()
+    if p is None:
+        return False, "No ESC/POS printer configured"
+    try:
+        # ESC p pin t1 t2 — raw bytes are more reliable than cashdraw() across lib versions
+        # Drawer 1 (pin 0), 60 ms on / 120 ms off — wider pulse than the default 25/250
+        p._raw(b'\x1b\x70\x00\x3c\x78')
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+    finally:
+        try:
+            p.close()
+        except Exception:
+            pass
+
+
 def _escpos_row(name: str, right: str, name_w: int, right_w: int) -> str:
     """Format one table row: name left-padded, right value right-padded."""
     right = right[:right_w]
@@ -823,10 +846,10 @@ def print_receipt_escpos(
 
         # final feed and cut
         p.text("\n\n\n\n\n\n")
-        # kick cash drawer on cash/mixed payments (pin 2 = most common wiring)
+        # kick cash drawer on cash/mixed payments
         if payment_method in ("cash", "mixed"):
             try:
-                p.cashdraw(2)
+                p._raw(b'\x1b\x70\x00\x3c\x78')
             except Exception:
                 pass
         p.cut()
