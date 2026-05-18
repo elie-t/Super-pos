@@ -1965,11 +1965,13 @@ class POSScreen(QWidget):
 
         w = QWidget()
         w.setStyleSheet("background:#f0f4f8;")
+        w.setMinimumWidth(0)   # allow scroll area to shrink below content sizeHint
         scroll.setWidget(w)
 
         lay = QVBoxLayout(w)
         lay.setContentsMargins(10, 10, 10, 10)
         lay.setSpacing(8)
+        lay.setSizeConstraint(lay.SizeConstraint.SetNoConstraint)
 
         # ── Totals card ───────────────────────────────────────────────────
         totals = QFrame()
@@ -2042,6 +2044,7 @@ class POSScreen(QWidget):
 
         # ── Function buttons ──────────────────────────────────────────────
         fn_frame = QFrame()
+        fn_frame.setMinimumWidth(0)
         fn_frame.setStyleSheet(
             "QFrame{background:#fff;border:1px solid #d0d8e4;border-radius:6px;}"
         )
@@ -2050,6 +2053,7 @@ class POSScreen(QWidget):
         fn_lay.setSpacing(6)
         fn_lay.setColumnStretch(0, 1)
         fn_lay.setColumnStretch(1, 1)
+        fn_lay.setSizeConstraint(fn_lay.SizeConstraint.SetNoConstraint)
 
         def fn_btn(label, bg, hover, callback, row, col):
             b = QPushButton(label)
