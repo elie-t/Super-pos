@@ -485,25 +485,49 @@ def get_escpos_printer():
 
 def open_cash_drawer() -> tuple[bool, str]:
     """
-    Send a cash-drawer kick via the configured ESC/POS printer.
-    Tries drawer-1 (pin 0) with two different timing sets — covers most hardware.
+    Send a cash-drawer kick command (ESC p 0 60ms 120ms).
+    Works with both direct ESC/POS connections and Windows Qt printer.
     Returns (ok, error_message).
     """
+    # ── Try direct ESC/POS connection first ──────────────────────────────────
     p = get_escpos_printer()
-    if p is None:
-        return False, "No ESC/POS printer configured"
+    if p is not None:
+        try:
+            p._raw(b'\x1b\x70\x00\x3c\x78')
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+        finally:
+            try:
+                p.close()
+            except Exception:
+                pass
+
+    # ── Fall back: send raw bytes via Windows printer driver (win32print) ────
+    printer_name = _get_qt_printer_name()
+    if not printer_name:
+        return False, "No printer configured — set printer in Settings → Receipt Printer"
+    return _win32_send_raw(printer_name, b'\x1b\x70\x00\x3c\x78')
+
+
+def _win32_send_raw(printer_name: str, data: bytes) -> tuple[bool, str]:
+    """Send raw bytes to a Windows printer by name using win32print."""
     try:
-        # ESC p pin t1 t2 — raw bytes are more reliable than cashdraw() across lib versions
-        # Drawer 1 (pin 0), 60 ms on / 120 ms off — wider pulse than the default 25/250
-        p._raw(b'\x1b\x70\x00\x3c\x78')
+        import win32print
+        handle = win32print.OpenPrinter(printer_name)
+        try:
+            win32print.StartDocPrinter(handle, 1, ("Cash Drawer", None, "RAW"))
+            win32print.StartPagePrinter(handle)
+            win32print.WritePrinter(handle, data)
+            win32print.EndPagePrinter(handle)
+            win32print.EndDocPrinter(handle)
+        finally:
+            win32print.ClosePrinter(handle)
         return True, ""
+    except ImportError:
+        return False, "win32print not available — install pywin32"
     except Exception as e:
         return False, str(e)
-    finally:
-        try:
-            p.close()
-        except Exception:
-            pass
 
 
 def _escpos_row(name: str, right: str, name_w: int, right_w: int) -> str:
