@@ -2792,15 +2792,16 @@ class POSScreen(QWidget):
             cfg = _get_port_settings()
             if cfg.get("protocol", "").startswith("led8n"):
                 grand = self._grand_total()
-                # Display shows whichever row arrives last — send total first
-                # so price arrives last and stays visible to the customer.
                 pole_show(f"{grand:.0f}", f"{unit_price:.0f}")
             else:
                 line1 = description[:20]
                 line2 = f"{qty:g} x {unit_price:,.0f}"[:20]
                 pole_show(line1, line2)
-        except Exception:
-            pass
+        except Exception as e:
+            try:
+                self.window().statusBar().showMessage(f"Pole error: {e}", 4000)
+            except Exception:
+                pass
 
     def _flash_scan(self, text, color):
         self._scan_input.setText(text)
