@@ -823,6 +823,12 @@ def print_receipt_escpos(
 
         # final feed and cut
         p.text("\n\n\n\n\n\n")
+        # kick cash drawer on cash/mixed payments (pin 2 = most common wiring)
+        if payment_method in ("cash", "mixed"):
+            try:
+                p.cashdraw(2)
+            except Exception:
+                pass
         p.cut()
 
         return True, ""
