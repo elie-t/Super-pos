@@ -725,7 +725,7 @@ class WarehouseTransferScreen(QWidget):
         else:
             QMessageBox.warning(
                 self, "Not Found",
-                f"Transfer  "{number}"  was not found in the local database."
+                f"Transfer '{number}' was not found in the local database."
             )
             self._no_input.setText(self._transfer_no)
 
