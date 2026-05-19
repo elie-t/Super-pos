@@ -262,7 +262,17 @@ class DailySalesService:
 
         report = DailySalesService.get_report(archived=False, warehouse_id=warehouse_id)
 
-        export_dir = Path.home() / "Documents" / "TannouryMarket" / "shifts"
+        try:
+            from database.models.items import Setting
+            _tmp = get_session()
+            _row = _tmp.get(Setting, "shop_name")
+            _folder = (_row.value.strip() if _row and _row.value else "") or "SuperPOS"
+            _tmp.close()
+        except Exception:
+            _folder = "SuperPOS"
+        import re as _re
+        _folder = _re.sub(r'[\\/:*?"<>|]', "_", _folder)
+        export_dir = Path.home() / "Documents" / _folder / "shifts"
         export_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filepath  = export_dir / f"shift_{timestamp}.json"
