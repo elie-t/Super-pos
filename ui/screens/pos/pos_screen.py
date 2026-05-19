@@ -56,7 +56,7 @@ class PaymentDialog(QDialog):
                  currency: str = "LBP", lbp_rate: int = 89_500):
         super().__init__(parent)
         self.setWindowTitle("Payment")
-        self.setFixedSize(500, 510)
+        self.setFixedSize(740, 510)
         self._total    = grand_total
         self._currency = currency
         self._lbp_rate = lbp_rate
@@ -103,10 +103,17 @@ class PaymentDialog(QDialog):
         hl.addLayout(tot_col)
         lay.addWidget(hdr)
 
+        # ── body: left (existing) + right (numpad) ─────────────────────────
+        body_outer = QWidget()
+        body_outer.setStyleSheet("background:#f8fafc;")
+        body_h = QHBoxLayout(body_outer)
+        body_h.setContentsMargins(0, 0, 0, 0)
+        body_h.setSpacing(0)
+
         body = QWidget()
         body.setStyleSheet("background:#f8fafc;")
         bl = QVBoxLayout(body)
-        bl.setContentsMargins(20, 16, 20, 16)
+        bl.setContentsMargins(20, 16, 12, 16)
         bl.setSpacing(12)
 
         # ── method tabs ────────────────────────────────────────────────────
@@ -233,7 +240,84 @@ class PaymentDialog(QDialog):
             bl.addLayout(usd_row)
 
         bl.addStretch()
-        lay.addWidget(body, 1)
+
+        # ── Numpad (right panel) ───────────────────────────────────────────
+        numpad_w = QWidget()
+        numpad_w.setFixedWidth(230)
+        numpad_w.setStyleSheet("background:#e8ecf2;border-left:1px solid #c0ccd8;")
+        np_lay = QVBoxLayout(numpad_w)
+        np_lay.setContentsMargins(10, 12, 10, 12)
+        np_lay.setSpacing(8)
+
+        np_title = QLabel("Enter Amount")
+        np_title.setAlignment(Qt.AlignCenter)
+        np_title.setStyleSheet("font-size:11px;font-weight:700;color:#6680a0;")
+        np_lay.addWidget(np_title)
+
+        def _np_press(val: str):
+            cur = self._tender_input.text().replace(",", "")
+            if val == "C":
+                self._tender_input.setText("")
+            elif val == "⌫":
+                self._tender_input.setText(cur[:-1])
+            elif val == "00":
+                self._tender_input.setText(cur + "00" if cur else "")
+            else:
+                if cur == "0":
+                    self._tender_input.setText(val)
+                else:
+                    self._tender_input.setText(cur + val)
+
+        btn_style = (
+            "QPushButton{background:#fff;color:#1a1a2e;font-size:20px;font-weight:700;"
+            "border:1px solid #c0ccd8;border-radius:6px;}"
+            "QPushButton:hover{background:#d0e4f8;}"
+            "QPushButton:pressed{background:#b0d0f0;}"
+        )
+        red_style = (
+            "QPushButton{background:#fdecea;color:#c62828;font-size:18px;font-weight:700;"
+            "border:1px solid #e0c0c0;border-radius:6px;}"
+            "QPushButton:hover{background:#f4b8b8;}"
+        )
+        back_style = (
+            "QPushButton{background:#fff3e0;color:#e65100;font-size:18px;font-weight:700;"
+            "border:1px solid #f0d0b0;border-radius:6px;}"
+            "QPushButton:hover{background:#ffe0b2;}"
+        )
+
+        grid = [
+            ["7", "8", "9"],
+            ["4", "5", "6"],
+            ["1", "2", "3"],
+            ["C", "0", "⌫"],
+        ]
+        styles = {"C": red_style, "⌫": back_style}
+
+        for row_keys in grid:
+            row_lay = QHBoxLayout()
+            row_lay.setSpacing(8)
+            for k in row_keys:
+                b = QPushButton(k)
+                b.setFixedHeight(52)
+                b.setStyleSheet(styles.get(k, btn_style))
+                b.clicked.connect(lambda _, v=k: _np_press(v))
+                row_lay.addWidget(b)
+            np_lay.addLayout(row_lay)
+
+        # 000 + 00 extra row
+        extra_row = QHBoxLayout()
+        extra_row.setSpacing(8)
+        for k in ["000", "00"]:
+            b = QPushButton(k)
+            b.setFixedHeight(40)
+            b.setStyleSheet(btn_style)
+            b.clicked.connect(lambda _, v=k: _np_press(v))
+            extra_row.addWidget(b)
+        np_lay.addLayout(extra_row)
+
+        body_h.addWidget(body, 1)
+        body_h.addWidget(numpad_w)
+        lay.addWidget(body_outer, 1)
 
         # ── footer buttons ─────────────────────────────────────────────────
         footer = QFrame()
