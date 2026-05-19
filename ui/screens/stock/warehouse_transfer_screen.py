@@ -1692,7 +1692,7 @@ class WarehouseTransferScreen(QWidget):
             hist_dup_btn.setProperty("transfer_detail", detail)
 
         list_tbl.itemSelectionChanged.connect(on_row_selected)
-        list_tbl.doubleClicked.connect(lambda _: on_row_selected())
+        list_tbl.doubleClicked.connect(lambda _: on_load())
 
         # ── Load for edit ──────────────────────────────────────────────────────
         def on_load():
