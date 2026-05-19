@@ -3834,6 +3834,18 @@ class POSScreen(QWidget):
         )
         self._add_item(line)
 
+    def touch_qty_set(self, idx: int, qty: float):
+        """Called by TouchOverlay qty button to set an exact quantity."""
+        if idx < 0 or idx >= len(self._lines):
+            return
+        if qty <= 0:
+            self._lines.pop(idx)
+        else:
+            self._lines[idx]["qty"] = qty
+            self._recalc_line(idx)
+        self._refresh_table()
+        self._update_totals()
+
     def touch_qty_delta(self, idx: int, delta: int):
         """Called by TouchOverlay +/− buttons to adjust quantity in touch mode."""
         if idx < 0 or idx >= len(self._lines):

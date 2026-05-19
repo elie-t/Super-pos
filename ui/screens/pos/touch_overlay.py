@@ -316,14 +316,16 @@ class TouchOverlay(QWidget):
         minus.clicked.connect(lambda _, i=idx: self._pos.touch_qty_delta(i, -1))
         ctrl.addWidget(minus)
 
-        qty_lbl = QLabel(f"{qty:g}")
-        qty_lbl.setFixedWidth(44)
-        qty_lbl.setAlignment(Qt.AlignCenter)
-        qty_lbl.setStyleSheet(
-            "color:#fff;font-size:16px;font-weight:700;"
-            "background:#2a3a5a;border-radius:4px;"
+        qty_btn = QPushButton(f"{qty:g}")
+        qty_btn.setFixedSize(54, 42)
+        qty_btn.setCursor(Qt.PointingHandCursor)
+        qty_btn.setStyleSheet(
+            "QPushButton{color:#fff;font-size:16px;font-weight:700;"
+            "background:#2a3a5a;border-radius:4px;border:1px solid #4a6a9a;}"
+            "QPushButton:hover{background:#3a5a8a;}"
         )
-        ctrl.addWidget(qty_lbl)
+        qty_btn.clicked.connect(lambda _, i=idx: self._edit_qty(i))
+        ctrl.addWidget(qty_btn)
 
         plus = _btn("+", "#1a6cb5", "#1a3a5c")
         plus.clicked.connect(lambda _, i=idx: self._pos.touch_qty_delta(i, +1))
@@ -345,3 +347,102 @@ class TouchOverlay(QWidget):
 
         lay.addLayout(ctrl)
         return w
+
+    def _edit_qty(self, idx: int):
+        """Show a decimal numpad dialog to set an exact quantity for cart line idx."""
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame
+        )
+        from PySide6.QtCore import Qt
+
+        lines = self._pos._lines
+        if idx < 0 or idx >= len(lines):
+            return
+        item_name = lines[idx]["item"].description
+        current   = lines[idx]["qty"]
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Set Quantity")
+        dlg.setFixedSize(280, 420)
+        dlg.setStyleSheet("background:#1a2a3a;")
+
+        root = QVBoxLayout(dlg)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
+
+        # Item name
+        name_lbl = QLabel(item_name)
+        name_lbl.setWordWrap(True)
+        name_lbl.setAlignment(Qt.AlignCenter)
+        name_lbl.setStyleSheet("color:#a8c8e8;font-size:12px;font-weight:700;")
+        root.addWidget(name_lbl)
+
+        # Display
+        disp = QLabel(f"{current:g}")
+        disp.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        disp.setFixedHeight(56)
+        disp.setStyleSheet(
+            "color:#00e676;font-size:28px;font-weight:700;"
+            "background:#0d1117;border-radius:6px;padding:0 12px;"
+        )
+        root.addWidget(disp)
+
+        _val = [""]   # mutable buffer
+
+        def _press(k):
+            v = _val[0]
+            if k == "⌫":
+                v = v[:-1]
+            elif k == "C":
+                v = ""
+            elif k == ".":
+                if "." not in v:
+                    v = v + "."
+            else:
+                v = v + k
+            _val[0] = v
+            disp.setText(v if v not in ("", ".") else "0")
+
+        btn_s = (
+            "QPushButton{background:#1e2a3a;color:#fff;font-size:20px;font-weight:700;"
+            "border:1px solid #2a3a5a;border-radius:6px;}"
+            "QPushButton:pressed{background:#2a4a6a;}"
+        )
+        red_s  = btn_s.replace("#1e2a3a", "#3a1010").replace("#2a3a5a", "#5a2020")
+        back_s = btn_s.replace("#1e2a3a", "#2a2010").replace("#2a3a5a", "#5a4020")
+
+        grid = [["7","8","9"], ["4","5","6"], ["1","2","3"], ["C","0","⌫"], [".","","OK"]]
+        styles = {"C": red_s, "⌫": back_s}
+
+        for row_keys in grid:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            for k in row_keys:
+                if k == "":
+                    row.addStretch(1)
+                    continue
+                b = QPushButton(k)
+                b.setFixedHeight(52)
+                if k == "OK":
+                    b.setStyleSheet(
+                        "QPushButton{background:#1a6cb5;color:#fff;font-size:16px;"
+                        "font-weight:700;border:none;border-radius:6px;}"
+                        "QPushButton:pressed{background:#0d47a1;}"
+                    )
+                    def _confirm():
+                        txt = _val[0].strip(".")
+                        try:
+                            new_qty = float(txt) if txt else current
+                        except ValueError:
+                            new_qty = current
+                        if new_qty > 0:
+                            self._pos.touch_qty_set(idx, new_qty)
+                        dlg.accept()
+                    b.clicked.connect(_confirm)
+                else:
+                    b.setStyleSheet(styles.get(k, btn_s))
+                    b.clicked.connect(lambda _, v=k: _press(v))
+                row.addWidget(b, 1)
+            root.addLayout(row)
+
+        dlg.exec()
