@@ -332,6 +332,24 @@ class TransferService:
             session.close()
 
     @staticmethod
+    def find_by_number(transfer_number: str) -> dict | None:
+        """Return full transfer detail for a given transfer_number string."""
+        if not transfer_number:
+            return None
+        init_db()
+        session = get_session()
+        try:
+            from database.models.stock import WarehouseTransfer
+            t = session.query(WarehouseTransfer).filter_by(
+                transfer_number=transfer_number
+            ).first()
+            if not t:
+                return None
+            return TransferService.get_transfer_detail(t.id)
+        finally:
+            session.close()
+
+    @staticmethod
     def list_transfers(limit: int = 100) -> list[dict]:
         """Recent confirmed transfers for the history view."""
         init_db()

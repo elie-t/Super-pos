@@ -190,6 +190,8 @@ class WarehouseTransferScreen(QWidget):
             "border:1px solid rgba(255,255,255,0.3);border-radius:4px;"
             "padding:0 8px;font-size:13px;font-weight:700;"
         )
+        self._no_input.setPlaceholderText("Enter # …")
+        self._no_input.returnPressed.connect(self._load_by_number)
         lay.addWidget(self._no_input)
         return bar
 
@@ -711,6 +713,21 @@ class WarehouseTransferScreen(QWidget):
             no = "T—"
         self._transfer_no = no
         self._no_input.setText(no)
+
+    def _load_by_number(self):
+        """Look up a transfer by the number typed in the Transfer # field and load it."""
+        number = self._no_input.text().strip()
+        if not number or number == self._transfer_no:
+            return
+        detail = TransferService.find_by_number(number)
+        if detail:
+            self._load_transfer(detail)
+        else:
+            QMessageBox.warning(
+                self, "Not Found",
+                f"Transfer  "{number}"  was not found in the local database."
+            )
+            self._no_input.setText(self._transfer_no)
 
     # ── Item entry ─────────────────────────────────────────────────────────────
 
@@ -1752,6 +1769,7 @@ class WarehouseTransferScreen(QWidget):
                 break
 
         self._notes_input.setText(detail.get("notes", ""))
+        self._no_input.setText(detail["number"])
 
         # Load lines
         for li in detail["lines"]:
