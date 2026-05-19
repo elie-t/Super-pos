@@ -56,7 +56,7 @@ class PaymentDialog(QDialog):
                  currency: str = "LBP", lbp_rate: int = 89_500):
         super().__init__(parent)
         self.setWindowTitle("Payment")
-        self.setFixedSize(500, 460)
+        self.setFixedSize(500, 510)
         self._total    = grand_total
         self._currency = currency
         self._lbp_rate = lbp_rate
@@ -209,6 +209,29 @@ class PaymentDialog(QDialog):
             qrow.addWidget(b)
 
         bl.addLayout(qrow)
+
+        # ── USD bill row (LBP mode only) ───────────────────────────────────
+        if self._currency == "LBP" and self._lbp_rate:
+            usd_lbl = QLabel("USD Bills → LBP change:")
+            usd_lbl.setStyleSheet("font-size:11px;font-weight:700;color:#1565c0;margin-top:4px;")
+            bl.addWidget(usd_lbl)
+
+            usd_row = QHBoxLayout()
+            usd_row.setSpacing(5)
+            for usd in [5, 10, 20, 50, 100]:
+                lbp_equiv = round(usd * self._lbp_rate)
+                b = QPushButton(f"${usd}")
+                b.setFixedHeight(36)
+                b.setToolTip(f"${usd} = ل.ل {lbp_equiv:,}")
+                b.setStyleSheet(
+                    "QPushButton{background:#1565c0;color:#fff;font-size:13px;font-weight:700;"
+                    "border:none;border-radius:4px;}"
+                    "QPushButton:hover{background:#0d47a1;}"
+                )
+                b.clicked.connect(lambda _, a=lbp_equiv: self._set_tender(a))
+                usd_row.addWidget(b)
+            bl.addLayout(usd_row)
+
         bl.addStretch()
         lay.addWidget(body, 1)
 
